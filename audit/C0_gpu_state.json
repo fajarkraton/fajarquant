@@ -1,0 +1,36 @@
+{
+  "audit_task": "V26 Phase C0.7",
+  "audit_date": "2026-04-11",
+  "host": {
+    "machine": "Lenovo Legion Pro",
+    "cpu": "Intel Core i9-14900HX (24c/32t)",
+    "host_ram_total_gb": 31,
+    "os": "Linux 6.17.0-20-generic"
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 4090 Laptop GPU",
+    "driver_version": "590.48.01",
+    "vram_total_mib": 16376,
+    "vram_free_mib": 15933,
+    "vram_used_mib": 14,
+    "vram_total_gb_approx": 16,
+    "utilization_pct": 0,
+    "compute_apps": [],
+    "snapshot_command": "nvidia-smi --query-gpu=name,memory.total,memory.free,memory.used,utilization.gpu,driver_version --format=csv"
+  },
+  "fit_assessment": {
+    "mistral_7b_fp16": "FITS — 14 GB / 16 GB VRAM",
+    "llama2_7b_fp16": "FITS — 14 GB / 16 GB VRAM",
+    "qwen_7b_or_8b_fp16": "TIGHT — 16 GB exactly, may need 8-bit base loading or smaller batch",
+    "phi3_mini_bf16": "EASY — 7.6 GB / 16 GB VRAM",
+    "concurrent_models": "NO — sequential extraction required, one model at a time, free VRAM between runs"
+  },
+  "c1_constraints": {
+    "vram_budget_per_run_gb": 16,
+    "host_ram_for_offload_gb": 31,
+    "disk_budget_for_4_models_gb": 52,
+    "disk_buffer_recommended_gb": 60,
+    "expected_extraction_time_per_model": "TBC during C1.0 dry run"
+  },
+  "verification_command": "nvidia-smi --query-gpu=name,memory.total,memory.free,memory.used,utilization.gpu,driver_version --format=csv && nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv"
+}
