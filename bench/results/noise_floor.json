@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "deliverable": "V26 Phase C2.0.3",
+  "captured_date": "2026-04-11",
+  "machine": "Lenovo Legion Pro (i9-14900HX, 24c/32t)",
+  "hardware_snapshot_ref": "bench/hardware_snapshot.txt",
+  "methodology_ref": "bench/METHODOLOGY.md (section 6)",
+  "criterion_version": "0.5.1",
+  "bench_source": "benches/noise_floor.rs",
+
+  "machine_state_at_capture": {
+    "governor": "powersave",
+    "turbo_boost": "ON",
+    "hyperthreading": "ON",
+    "online_cpus": 32,
+    "swap_active": true,
+    "background_workload": "Mistral 7B HuggingFace download (~2.3 MB/s, ~1.5 GB done)",
+    "is_paper_grade": false,
+    "note": "These conditions intentionally include the worst case noise so the floor is conservative. Re-run after `bash bench/setup_perf.sh` for paper-grade noise floor (will be ~10x lower for sub-ns ops)."
+  },
+
+  "ci_width_ns": 0.722,
+  "ci_width_ns_explanation": "2 × 359 ps cross-run drift on noop_u64 (the dominant noise source on this machine without setup_perf.sh). Sub-ns benchmarks below this delta are statistical noise per METHODOLOGY.md §6 reporting rule.",
+
+  "runs": {
+    "noop_u64": {
+      "description": "Single black_box(0u64) call — measures pure criterion + scheduler overhead",
+      "samples_per_run": 100,
+      "warmup_secs": 3,
+      "measurement_secs": 10,
+      "confidence_level": 0.95,
+      "iterations_per_run": "11B-18B (criterion auto-tunes)",
+      "outliers_pct_observed": [10, 11, 7, 13, 10],
+      "results_picoseconds": [
+        {"run": 1, "lower": 556.60, "median": 557.05, "upper": 557.58, "ci_half_width": 0.49},
+        {"run": 2, "lower": 557.14, "median": 557.47, "upper": 557.87, "ci_half_width": 0.37},
+        {"run": 3, "lower": 555.95, "median": 556.43, "upper": 556.89, "ci_half_width": 0.47},
+        {"run": 4, "lower": 916.15, "median": 916.30, "upper": 916.47, "ci_half_width": 0.16},
+        {"run": 5, "lower": 916.00, "median": 916.29, "upper": 916.62, "ci_half_width": 0.31}
+      ],
+      "within_run_max_ci_half_width_ps": 0.49,
+      "cross_run_min_median_ps": 556.43,
+      "cross_run_max_median_ps": 916.30,
+      "cross_run_drift_ps": 359.87,
+      "cross_run_drift_pct": 64.671,
+      "noise_floor_ns": 0.720,
+      "noise_floor_explanation": "2 × cross_run_drift = 2 × 360 ps = 0.720 ns. Anything smaller is noise."
+    },
+    "noop_arith": {
+      "description": "3 black_box ops + wrapping_mul — measures ~3-instruction sequence overhead",
+      "samples_per_run": 100,
+      "warmup_secs": 3,
+      "measurement_secs": 10,
+      "confidence_level": 0.95,
+      "iterations_per_run": "7.3B (criterion auto-tunes)",
+      "outliers_pct_observed": [6, 12, 12, 14, 8],
+      "results_nanoseconds": [
+        {"run": 1, "lower": 1.3747, "median": 1.3754, "upper": 1.3763, "ci_half_width_ns": 0.00080},
+        {"run": 2, "lower": 1.3739, "median": 1.3742, "upper": 1.3747, "ci_half_width_ns": 0.00040},
+        {"run": 3, "lower": 1.3742, "median": 1.3745, "upper": 1.3750, "ci_half_width_ns": 0.00040},
+        {"run": 4, "lower": 1.3737, "median": 1.3739, "upper": 1.3743, "ci_half_width_ns": 0.00030},
+        {"run": 5, "lower": 1.3755, "median": 1.3767, "upper": 1.3783, "ci_half_width_ns": 0.00140}
+      ],
+      "within_run_max_ci_half_width_ns": 0.00140,
+      "cross_run_min_median_ns": 1.3739,
+      "cross_run_max_median_ns": 1.3767,
+      "cross_run_drift_ns": 0.0028,
+      "cross_run_drift_pct": 0.204,
+      "noise_floor_ns": 0.0056,
+      "noise_floor_explanation": "2 × 2.8 ps cross-run drift = 0.0056 ns. Multi-instruction benches amortize overhead and are 100× more stable than single-instruction benches."
+    }
+  },
+
+  "key_findings": [
+    "Run 4 shows a +64.671% jump on noop_u64 (557 ps → 916 ps) — exactly the kind of HWP / governor frequency drift that METHODOLOGY.md §3 warns about. CPU max freq is 5.6 GHz but powersave + HWP + Mistral download in background caused mid-bench frequency change.",
+    "noop_arith remained stable across all 5 runs (max variance 0.2%). Multi-instruction sequences amortize the per-iteration scheduler overhead and are 100× more stable than single-instruction sequences.",
+    "Within-run CI half-widths are tiny (~0.5 ps for noop_u64, ~1.4 ps for noop_arith). Criterion's outlier filtering is doing its job within a single run.",
+    "Cross-run drift is the dominant noise source under default (powersave) conditions. This is unmeasurable from a single criterion run — only multi-run capture reveals it.",
+    "Outliers ranged 6-14% per run, well above criterion's default 'severe outlier' threshold. This is expected with background load (Mistral download) and confirms the need for setup_perf.sh."
+  ],
+
+  "reporting_rule": {
+    "rule": "Per bench/METHODOLOGY.md §6, any benchmark improvement smaller than 2× the noise floor must be reported as 'below noise floor', not as a number.",
+    "thresholds": {
+      "sub_nanosecond_ops": {
+        "noise_floor_ns": 0.720,
+        "min_reportable_delta_ns": 1.440,
+        "implication": "Any FajarQuant micro-op claim of 'X ns improvement' where X < 1.44 ns is below the noise floor under current (non-paper-grade) machine state."
+      },
+      "multi_instruction_ops": {
+        "noise_floor_ns": 0.0056,
+        "min_reportable_delta_ns": 0.0112,
+        "implication": "Multi-instruction micro-ops can claim improvements as small as 0.011 ns (11 ps)."
+      }
+    }
+  },
+
+  "recommendations": [
+    "Re-run noise_floor.rs after `bash bench/setup_perf.sh` (V26 §C2.0.4 — committed in b6a0bb1) to capture paper-grade noise floor. Expected ~10x improvement for noop_u64 (governor=performance pins frequency, eliminates the cross-run drift seen in runs 4-5 here).",
+    "Capture a second noise_floor.json named noise_floor_paper_grade.json after setup_perf.sh apply, and cite that in the paper instead of this one.",
+    "For C2.1+ benchmarks (latency, throughput, memory), ensure each measurement is well above the multi-instruction floor (0.0112 ns). The FajarQuant quantize_layer operations are O(microseconds), so they're far above the floor — paper-grade noise is not a concern for those.",
+    "Add a CI smoke test that runs `cargo bench --bench noise_floor` once per push and asserts cross-run drift < 50% as a regression sentry."
+  ],
+
+  "rerun_command": "cd ~/Documents/fajarquant && for i in 1 2 3 4 5; do cargo bench --bench noise_floor; done | grep -E 'time:|change:|outliers'",
+  "verification_command": "cd ~/Documents/fajarquant && jq '.ci_width_ns' bench/results/noise_floor.json",
+  "verification_expected": 0.722
+}

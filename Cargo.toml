@@ -18,10 +18,15 @@ ndarray = "0.16"
 
 [dev-dependencies]
 ndarray-rand = "0.15"
+criterion = "0.5"
 
 [lib]
 name = "fajarquant"
 path = "src/lib.rs"
+
+[[bench]]
+name = "noise_floor"
+harness = false
 
 [profile.release]
 opt-level = 3
