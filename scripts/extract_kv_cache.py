@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-FajarQuant — KV Cache Extraction from Gemma 4 E2B
+FajarQuant — KV Cache Extraction (any HuggingFace causal-LM)
 
-Extracts real key-value cache tensors from Gemma 4 E2B for quantization
-evaluation. Saves per-layer, per-head K/V matrices as .npy files.
+Extracts real key-value cache tensors from any HuggingFace causal-LM
+for quantization evaluation. Saves per-layer, per-head K/V matrices as
+.npy files. Originally written for Gemma 4 E2B; V26 Phase C1 confirmed
+it works for Mistral 7B / Llama 2 7B / Qwen2-7B / Phi-3 mini via --model.
 
 Usage:
     python scripts/extract_kv_cache.py \
@@ -11,6 +13,12 @@ Usage:
         --num-prompts 100 \
         --max-length 512 \
         --output data/kv_cache/
+
+Multi-model examples (V26 Phase C1):
+    python scripts/extract_kv_cache.py --model mistralai/Mistral-7B-v0.1 --num-prompts 50 --output data/kv_cache/mistral_7b
+    python scripts/extract_kv_cache.py --model meta-llama/Llama-2-7b-hf --num-prompts 50 --output data/kv_cache/llama2_7b --token $HF_TOKEN
+    python scripts/extract_kv_cache.py --model Qwen/Qwen2-7B            --num-prompts 50 --output data/kv_cache/qwen2_7b
+    python scripts/extract_kv_cache.py --model microsoft/Phi-3-mini-4k-instruct --num-prompts 50 --output data/kv_cache/phi3_mini
 
 Output structure:
     data/kv_cache/
@@ -30,9 +38,10 @@ import os
 import sys
 import time
 
-import numpy as np
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# Heavy ML imports (torch + transformers + numpy) are deferred into
+# extract_kv_cache() so `--help` works without them installed. This lets
+# users discover the CLI surface (and CI sanity-check it) on minimal
+# Python environments — V26 Phase C1.1 polish.
 
 
 # Representative prompts for KV cache extraction (diverse domains)
@@ -97,7 +106,24 @@ def extract_kv_cache(
     output_dir: str,
     token: str | None = None,
 ):
-    """Extract KV cache from Gemma 4 E2B model."""
+    """Extract KV cache from any HuggingFace causal-LM."""
+
+    # Deferred imports — see module docstring for the rationale.
+    # If any of these fail with ModuleNotFoundError, the user gets a
+    # helpful message instead of a stack trace at module-load time.
+    try:
+        import numpy as np
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ModuleNotFoundError as e:
+        sys.stderr.write(
+            f"ERROR: missing required package — {e.name}\n"
+            "Install with: pip install -U numpy torch transformers\n"
+            "(huggingface_hub is also required for gated models like Llama 2)\n"
+        )
+        sys.exit(2)
+
+    os.makedirs(output_dir, exist_ok=True)
 
     print(f"Loading model: {model_name}")
     t0 = time.time()
@@ -242,17 +268,25 @@ def extract_kv_cache(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Extract KV cache from Gemma 4 E2B")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Extract KV cache tensors from any HuggingFace causal-LM "
+            "for FajarQuant evaluation. V26 Phase C1 supports Mistral 7B, "
+            "Llama 2 7B (gated, see audit/C1_llama2_access.md), Qwen2-7B, "
+            "and Phi-3 mini in addition to the original Gemma 4 E2B."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--model", default="google/gemma-4-E2B",
-                        help="HuggingFace model name")
+                        help="HuggingFace model name (e.g. mistralai/Mistral-7B-v0.1)")
     parser.add_argument("--num-prompts", type=int, default=100,
-                        help="Number of prompts to process")
+                        help="Number of prompts to process (use 5 for C1.0 dry run)")
     parser.add_argument("--max-length", type=int, default=512,
                         help="Max token length per prompt")
     parser.add_argument("--output", default="data/kv_cache/",
-                        help="Output directory")
+                        help="Output directory (per-prompt subdirs created automatically)")
     parser.add_argument("--token", default=None,
-                        help="HuggingFace API token")
+                        help="HuggingFace API token (required for gated models like Llama 2)")
     args = parser.parse_args()
 
     extract_kv_cache(args.model, args.num_prompts, args.max_length, args.output, args.token)
