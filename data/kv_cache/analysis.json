@@ -1,0 +1,10 @@
+{
+  "real_key_ratio_mean": 2.727673744360606,
+  "real_key_ratio_std": 0.5576204180678902,
+  "real_val_ratio_mean": 1.692719852924347,
+  "real_key_energy_mean": 0.667188737988472,
+  "real_val_energy_mean": 0.5313690068324407,
+  "synthetic_ratio_mean": 1.1118805863107348,
+  "synthetic_energy_mean": 0.9967606213409266,
+  "num_samples": 150
+}

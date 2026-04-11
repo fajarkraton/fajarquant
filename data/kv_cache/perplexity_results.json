@@ -1,0 +1,61 @@
+{
+  "fp16": {
+    "ppl": 305.9629610443932,
+    "tokens": 7650,
+    "samples": 30
+  },
+  "fajarquant_2bit": {
+    "ppl": 80.14658082335136,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_2bit": {
+    "ppl": 231.88657990268186,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_2bit": {
+    "ppl": 117.11354343265302,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_3bit": {
+    "ppl": 75.64757684027151,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 3
+  },
+  "kivi_3bit": {
+    "ppl": 193.85652562538834,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_3bit": {
+    "ppl": 108.06249935632245,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_4bit": {
+    "ppl": 157.012956661652,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_4bit": {
+    "ppl": 145.34595849539397,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_4bit": {
+    "ppl": 92.83557101267077,
+    "tokens": 30,
+    "samples": 30,
+    "bits": 4
+  }
+}

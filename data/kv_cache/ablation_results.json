@@ -1,0 +1,173 @@
+{
+  "model": "google/gemma-4-E2B",
+  "d_head": 256,
+  "rotation_ablation": {
+    "2bit": {
+      "samples": 150,
+      "no_rotation_mse": 0.0009314022887166655,
+      "random_rotation_mse": 0.0009175321485218046,
+      "pca_rotation_mse": 0.000872429160882092,
+      "pca_vs_none_pct": 6.3,
+      "pca_vs_random_pct": 4.9
+    },
+    "3bit": {
+      "samples": 150,
+      "no_rotation_mse": 0.00016625122165489007,
+      "random_rotation_mse": 0.00016709696732940252,
+      "pca_rotation_mse": 0.00015985660806743838,
+      "pca_vs_none_pct": 3.8,
+      "pca_vs_random_pct": 4.3
+    },
+    "4bit": {
+      "samples": 150,
+      "no_rotation_mse": 3.6023015226732666e-05,
+      "random_rotation_mse": 3.631939235699105e-05,
+      "pca_rotation_mse": 3.457846250475099e-05,
+      "pca_vs_none_pct": 4.0,
+      "pca_vs_random_pct": 4.8
+    }
+  },
+  "memory_ablation": {
+    "N=256": {
+      "seq_len": 256,
+      "standard_dequant_bytes": 524288,
+      "fused_codebook_bytes": 64,
+      "reduction_factor": 8192.0
+    },
+    "N=1024": {
+      "seq_len": 1024,
+      "standard_dequant_bytes": 2097152,
+      "fused_codebook_bytes": 64,
+      "reduction_factor": 32768.0
+    },
+    "N=4096": {
+      "seq_len": 4096,
+      "standard_dequant_bytes": 8388608,
+      "fused_codebook_bytes": 64,
+      "reduction_factor": 131072.0
+    },
+    "N=16384": {
+      "seq_len": 16384,
+      "standard_dequant_bytes": 33554432,
+      "fused_codebook_bytes": 64,
+      "reduction_factor": 524288.0
+    }
+  },
+  "hierarchical_ablation": {
+    "N=256": {
+      "seq_len": 256,
+      "flat_3bit_total": 768,
+      "hierarchical_total": 1024,
+      "savings_pct": -33.3,
+      "avg_bits": 4.0,
+      "breakdown": [
+        [
+          4,
+          256,
+          1024
+        ]
+      ]
+    },
+    "N=1024": {
+      "seq_len": 1024,
+      "flat_3bit_total": 3072,
+      "hierarchical_total": 3328,
+      "savings_pct": -8.3,
+      "avg_bits": 3.25,
+      "breakdown": [
+        [
+          4,
+          256,
+          1024
+        ],
+        [
+          3,
+          768,
+          2304
+        ]
+      ]
+    },
+    "N=4096": {
+      "seq_len": 4096,
+      "flat_3bit_total": 12288,
+      "hierarchical_total": 9472,
+      "savings_pct": 22.9,
+      "avg_bits": 2.31,
+      "breakdown": [
+        [
+          4,
+          256,
+          1024
+        ],
+        [
+          3,
+          768,
+          2304
+        ],
+        [
+          2,
+          3072,
+          6144
+        ]
+      ]
+    },
+    "N=10000": {
+      "seq_len": 10000,
+      "flat_3bit_total": 30000,
+      "hierarchical_total": 15376,
+      "savings_pct": 48.7,
+      "avg_bits": 1.54,
+      "breakdown": [
+        [
+          4,
+          256,
+          1024
+        ],
+        [
+          3,
+          768,
+          2304
+        ],
+        [
+          2,
+          3072,
+          6144
+        ],
+        [
+          1,
+          5904,
+          5904
+        ]
+      ]
+    },
+    "N=16384": {
+      "seq_len": 16384,
+      "flat_3bit_total": 49152,
+      "hierarchical_total": 21760,
+      "savings_pct": 55.7,
+      "avg_bits": 1.33,
+      "breakdown": [
+        [
+          4,
+          256,
+          1024
+        ],
+        [
+          3,
+          768,
+          2304
+        ],
+        [
+          2,
+          3072,
+          6144
+        ],
+        [
+          1,
+          12288,
+          12288
+        ]
+      ]
+    }
+  }
+}

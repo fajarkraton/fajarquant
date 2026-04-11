@@ -1,0 +1,36 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+
+# Paper build artifacts
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.synctex.gz
+
+# Python (reproducibility scripts)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data caches (large; can be regenerated)
+data/kv_cache/*.tar.gz
+data/cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env
+.env

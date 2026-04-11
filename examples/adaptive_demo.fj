@@ -1,0 +1,44 @@
+// fajarquant_adaptive_demo.fj — FajarQuant Innovation 1: Adaptive Rotation
+//
+// Compares PCA-based adaptive rotation vs TurboQuant's random rotation
+// on structured (low-rank) data typical of KV cache vectors.
+//
+// Run: cargo run -- run examples/fajarquant_adaptive_demo.fj
+
+fn main() -> void {
+    println("=== FajarQuant Innovation 1: Adaptive Rotation ===")
+    println("")
+    println("Comparing PCA-based rotation vs random rotation")
+    println("on structured data (strong signal in 25% of dims)")
+    println("")
+
+    // Compare at different bit-widths
+    println("--- dim=16, n=200 ---")
+    let r1 = fajarquant_compare(16, 1, 200)
+    println("b=1: adaptive=" + to_string(map_get_or(r1, "adaptive_mse", 0.0))
+            + " random=" + to_string(map_get_or(r1, "random_mse", 0.0))
+            + " improvement=" + to_string(map_get_or(r1, "improvement_pct", 0.0)) + "%")
+
+    let r2 = fajarquant_compare(16, 2, 200)
+    println("b=2: adaptive=" + to_string(map_get_or(r2, "adaptive_mse", 0.0))
+            + " random=" + to_string(map_get_or(r2, "random_mse", 0.0))
+            + " improvement=" + to_string(map_get_or(r2, "improvement_pct", 0.0)) + "%")
+
+    let r3 = fajarquant_compare(16, 3, 200)
+    println("b=3: adaptive=" + to_string(map_get_or(r3, "adaptive_mse", 0.0))
+            + " random=" + to_string(map_get_or(r3, "random_mse", 0.0))
+            + " improvement=" + to_string(map_get_or(r3, "improvement_pct", 0.0)) + "%")
+
+    println("")
+    println("--- dim=32, n=200 ---")
+    let r4 = fajarquant_compare(32, 2, 200)
+    println("b=2: adaptive=" + to_string(map_get_or(r4, "adaptive_mse", 0.0))
+            + " random=" + to_string(map_get_or(r4, "random_mse", 0.0))
+            + " improvement=" + to_string(map_get_or(r4, "improvement_pct", 0.0)) + "%")
+
+    println("")
+    println("Key insight: Adaptive rotation exploits data structure")
+    println("(low-rank KV cache) to reduce quantization error.")
+    println("")
+    println("=== FajarQuant adaptive rotation working ===")
+}

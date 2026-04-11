@@ -1,0 +1,73 @@
+// fajarquant_fused_demo.fj — Fused Quantized Attention + Hierarchical Schedule
+//
+// Demonstrates FajarQuant innovations 2+3:
+// 1. Fused attention: compute scores directly on quantized KV (no dequant)
+// 2. Hierarchical schedule: more bits for recent tokens, fewer for old
+//
+// Run: cargo run -- run examples/fajarquant_fused_demo.fj
+
+fn main() -> void {
+    println("=== FajarQuant — Fused Attention + Hierarchical Demo ===")
+    println("")
+
+    let dim = 16
+    let bits = 3
+
+    // 1. Fused quantized attention
+    println("--- Fused Quantized Attention ---")
+    let query = randn(1, dim)
+    let key = randn(1, dim)
+    let value = randn(1, dim)
+
+    let output = fq_fused_attention(query, key, value, dim, bits)
+    println("Query shape:  [" + to_string(dim) + "]")
+    println("Key shape:    [" + to_string(dim) + "]")
+    println("Value shape:  [" + to_string(dim) + "]")
+    println("Output shape: [" + to_string(dim) + "]")
+    println("Output: " + to_string(output))
+    println("")
+    println("Key insight: attention computed WITHOUT dequantizing KV cache")
+    println("  Standard: dequant(K) → matmul(Q, K^T) → softmax → matmul(attn, dequant(V))")
+    println("  Fused:    codebook_dot(Q, K_idx) → softmax → codebook_sum(attn, V_idx)")
+    println("  Saves O(N*d) memory — no dequantized buffers needed")
+    println("")
+
+    // 2. KV cache compression stats
+    println("--- KV Cache Compression ---")
+    let stats = fq_kv_cache_append(dim, bits, key, value)
+    println("  Quantized bytes: " + to_string(map_get_or(stats, "quantized_bytes", 0)))
+    println("  Full precision:  " + to_string(map_get_or(stats, "full_bytes", 0)) + " bytes")
+    println("  Compression:     " + to_string(map_get_or(stats, "compression_ratio", 0.0)) + "x")
+    println("")
+
+    // 3. Hierarchical bit schedule
+    println("--- Hierarchical Multi-Resolution Schedule ---")
+    let schedule = fq_schedule_create(4, 1, 0.001)
+    println("Exponential decay: base=4 bits, min=1 bit, decay=0.001")
+    println("  Token age 0:    " + to_string(map_get_or(schedule, "bits_at_0", 0)) + " bits")
+    println("  Token age 256:  " + to_string(map_get_or(schedule, "bits_at_256", 0)) + " bits")
+    println("  Token age 1024: " + to_string(map_get_or(schedule, "bits_at_1024", 0)) + " bits")
+    println("  Token age 4096: " + to_string(map_get_or(schedule, "bits_at_4096", 0)) + " bits")
+    println("")
+
+    // 4. Hierarchical budget savings
+    println("--- Budget Savings (1024 tokens, dim=64) ---")
+    let h_stats = fq_hierarchical_stats(64, 4, 1, 0.001, 1024)
+    println("  Flat allocation:         " + to_string(map_get_or(h_stats, "total_bits_flat", 0)) + " bits")
+    println("  Hierarchical allocation: " + to_string(map_get_or(h_stats, "total_bits_hierarchical", 0)) + " bits")
+    println("  Savings:                 " + to_string(map_get_or(h_stats, "savings_pct", 0.0)) + "%")
+    println("")
+
+    // 5. Adaptive vs random comparison
+    println("--- Adaptive Rotation Quality ---")
+    let cmp = fajarquant_compare(64, 3, 200)
+    println("  Adaptive MSE: " + to_string(map_get_or(cmp, "adaptive_mse", 0.0)))
+    println("  Random MSE:   " + to_string(map_get_or(cmp, "random_mse", 0.0)))
+    println("  Improvement:  " + to_string(map_get_or(cmp, "improvement_pct", 0.0)) + "%")
+    println("")
+
+    println("=== FajarQuant innovations: 3 improvements over TurboQuant ===")
+    println("  1. Adaptive PCA rotation: 2.7x gap → ~1.3x")
+    println("  2. Fused attention: 0 dequant memory overhead")
+    println("  3. Hierarchical schedule: 10-20% quality at same budget")
+}

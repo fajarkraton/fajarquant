@@ -1,0 +1,12 @@
+{
+  "model": "google/gemma-4-E2B",
+  "num_layers": 35,
+  "num_kv_heads": 1,
+  "d_head": 256,
+  "num_attention_heads": 8,
+  "hidden_size": 1536,
+  "max_length": 256,
+  "num_prompts": 50,
+  "dtype": "float16",
+  "extraction_date": "2026-04-08 00:44:51"
+}

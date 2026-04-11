@@ -1,0 +1,67 @@
+// fajarquant_kv_cache.fj — KV Cache Quantization Pipeline Demo
+//
+// Shows a complete quantized KV cache workflow:
+// 1. Create config and random KV vectors
+// 2. Encode keys and values
+// 3. Show compression savings
+// 4. Compare adaptive vs random quantization
+//
+// Run: cargo run -- run examples/fajarquant_kv_cache.fj
+
+fn main() -> void {
+    println("=== FajarQuant KV Cache Demo ===")
+    println("")
+
+    let dim = 16
+    let bits = 3
+    let n_tokens = 10
+
+    println("Config: dim=" + to_string(dim) + ", bits=" + to_string(bits))
+    println("Tokens: " + to_string(n_tokens))
+    println("")
+
+    // Simulate KV cache: encode each token's K and V
+    let config = turboquant_create(dim, bits)
+    let mut encoded_count = 0
+    let mut i = 0
+    while i < n_tokens {
+        let k = randn(1, dim)
+        let v = randn(1, dim)
+        let k_enc = turboquant_encode(config, k)
+        let v_enc = turboquant_encode(config, v)
+        encoded_count = encoded_count + 1
+        i = i + 1
+    }
+
+    println("Encoded " + to_string(encoded_count) + " token KV pairs")
+    println("")
+
+    // Memory analysis
+    let fp_bytes = n_tokens * dim * 2 * 8
+    let quant_bytes = n_tokens * dim * 2
+    let ratio = fp_bytes / quant_bytes
+    println("Memory comparison:")
+    println("  Full precision (f64): " + to_string(fp_bytes) + " bytes")
+    println("  Quantized (b=" + to_string(bits) + "):     " + to_string(quant_bytes) + " bytes")
+    println("  Compression ratio:    " + to_string(ratio) + "x")
+    println("")
+
+    // Quality check: encode-decode one vector
+    let test_vec = from_data([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [dim])
+    let enc = turboquant_encode(config, test_vec)
+    let dec = turboquant_decode(config, enc)
+    println("Round-trip test:")
+    println("  Original: " + to_string(test_vec))
+    println("  Decoded:  " + to_string(dec))
+    println("")
+
+    // Adaptive comparison
+    let result = fajarquant_compare(dim, bits, 100)
+    println("Adaptive vs Random (structured data):")
+    println("  Adaptive MSE:  " + to_string(map_get_or(result, "adaptive_mse", 0.0)))
+    println("  Random MSE:    " + to_string(map_get_or(result, "random_mse", 0.0)))
+    println("  Improvement:   " + to_string(map_get_or(result, "improvement_pct", 0.0)) + "%")
+    println("")
+
+    println("=== KV Cache demo complete ===")
+}
