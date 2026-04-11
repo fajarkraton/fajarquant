@@ -286,7 +286,18 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="data/kv_cache/",
                         help="Output directory (per-prompt subdirs created automatically)")
     parser.add_argument("--token", default=None,
-                        help="HuggingFace API token (required for gated models like Llama 2)")
+                        help="HuggingFace API token (required for gated models like Llama 2). "
+                             "If not given, falls back to $HF_TOKEN env var, then to "
+                             "huggingface-cli's cached token at ~/.cache/huggingface/token. "
+                             "PREFER the env var or cli login over passing --token on the "
+                             "command line — CLI args are visible in shell history and ps.")
     args = parser.parse_args()
 
-    extract_kv_cache(args.model, args.num_prompts, args.max_length, args.output, args.token)
+    # Token resolution order:
+    #   1. --token CLI arg (DISCOURAGED — leaks via ps and shell history)
+    #   2. $HF_TOKEN environment variable
+    #   3. None — let huggingface_hub fall back to its cached token
+    #      from `huggingface-cli login` (~/.cache/huggingface/token)
+    token = args.token or os.environ.get("HF_TOKEN")
+
+    extract_kv_cache(args.model, args.num_prompts, args.max_length, args.output, token)

@@ -22,22 +22,66 @@ This file is a Plan Hygiene Rule 6 mechanical reminder: it sits in the
 audit/ directory until the access is granted, then gets deleted (with
 a commit) once the access check passes.
 
-## Action Required (30 seconds + waiting on Meta)
+## Action Required (browser steps + ~5 min config)
 
-1. Open https://huggingface.co/meta-llama/Llama-2-7b-hf in a browser
-2. **Log in** to HuggingFace (create an account if needed; free)
-3. The page shows: *"You need to share contact information with Meta to access this model"*
-4. Click **"Submit"** on the access form (provides your name + email + intended use)
-5. **Wait** for Meta approval. Typical turnaround: a few hours to 1 day. You'll get an email.
-6. Verify access works:
-   ```bash
-   pip install -U huggingface_hub
-   huggingface-cli login   # paste your HF access token from https://huggingface.co/settings/tokens
-   huggingface-cli download meta-llama/Llama-2-7b-hf --include "config.json" \
-       --local-dir /tmp/llama2_test && echo "OK" && rm -rf /tmp/llama2_test
-   ```
-   If the command prints `OK` (no `401 Client Error`), access is granted and C1.3 can proceed.
-7. Delete this file with a commit: `git rm audit/C1_llama2_access.md && git commit -m "fix(v26-c1.0.0): Llama 2 Meta access granted"`
+### Browser-only steps (irreducible — only the human can do these)
+
+1. **Revoke any leaked tokens** at https://huggingface.co/settings/tokens. If a
+   token was ever pasted into an untrusted environment (chat, public log, screen
+   share, screenshot), revoke it. Tokens grant API access to your HF account.
+2. **Create a new token** at https://huggingface.co/settings/tokens with **`Read`
+   scope only**. Copy it once — you cannot view it again later.
+3. **Log in** to HuggingFace if not already.
+4. Open https://huggingface.co/meta-llama/Llama-2-7b-hf logged in.
+5. The page shows: *"You need to share contact information with Meta to access
+   this model"*. Click **"Submit"** on the access form.
+6. **Wait** for Meta approval (typical: a few hours to 1 day; you'll get an email).
+
+### Local config (one-time, ~30 seconds — token never touches the command line)
+
+Pick **one** of the two patterns. Both keep the token out of shell history, `ps`
+listings, and committed files.
+
+```bash
+# OPTION A — env var (cleanest for one-off CLI use)
+echo 'export HF_TOKEN=hf_<your-new-token>' >> ~/.huggingface_env
+chmod 600 ~/.huggingface_env
+echo 'source ~/.huggingface_env' >> ~/.bashrc   # or ~/.zshrc
+source ~/.huggingface_env
+```
+
+```bash
+# OPTION B — huggingface-cli (recommended if you also use the HF Python API)
+pip install -U huggingface_hub
+huggingface-cli login   # paste token interactively, hidden from shell history
+# token is cached at ~/.cache/huggingface/token (file mode 600)
+```
+
+**Both options work transparently with `extract_kv_cache.py` — no `--token` arg needed.** The script's token resolution order is:
+
+1. `--token` CLI arg (DISCOURAGED — leaks via ps + shell history)
+2. `$HF_TOKEN` env var (Option A)
+3. `~/.cache/huggingface/token` cache (Option B, via huggingface_hub fallback)
+
+### Verify access works
+
+```bash
+# Verification 1 — only checks login, not Meta gate
+pip install -U huggingface_hub
+huggingface-cli whoami   # should print your HF username
+
+# Verification 2 — checks both login AND Meta gate (this is the real one)
+huggingface-cli download meta-llama/Llama-2-7b-hf --include "config.json" \
+    --local-dir /tmp/llama2_test && echo "ACCESS OK" && rm -rf /tmp/llama2_test
+```
+
+If verification 2 prints `ACCESS OK` (no `401 Client Error: Cannot access gated repo`), you're done. Delete this file with a commit:
+
+```bash
+cd ~/Documents/fajarquant
+git rm audit/C1_llama2_access.md
+git commit -m "fix(v26-c1.0.0): Llama 2 Meta access granted, cleanup gate"
+```
 
 ## Fallback (if Meta denies or takes too long)
 
