@@ -1,0 +1,134 @@
+================================================================================
+FajarQuant Benchmark Hardware Provenance Snapshot
+V26 Phase C2.0.2 deliverable
+Captured: 2026-04-11
+================================================================================
+
+SUMMARY
+-------
+Machine:        Lenovo Legion Pro
+CPU:            Intel(R) Core(TM) i9-14900HX (24 cores / 32 threads)
+GPU:            NVIDIA GeForce RTX 4090 Laptop GPU (compute_cap 8.9)
+RAM:            31 GiB DDR5
+OS:             Linux 6.17.0-20-generic (Ubuntu 24.04.1, gcc 13.3.0)
+Compiler:       Fajar Lang `fj` (release build)
+LLVM backend:   O2 native, AVX2+FMA+POPCNT+AES enabled
+
+Critical for benchmark reproducibility:
+  - CPU governor: **powersave** (MUST be switched to **performance**
+    before any C2.x benchmark via bench/setup_perf.sh — see C2.0.4)
+  - HWP (Hardware P-states) enabled — may cause frequency drift even
+    under performance governor; consider `intel_pstate=passive` boot arg
+  - Hyperthreading ON (24 cores × 2 = 32 threads); benchmarks should
+    pin to even-numbered cores only (sibling threads off) for stable
+    cache behavior
+
+================================================================================
+RAW OUTPUTS (verbatim)
+================================================================================
+
+uname -a
+--------
+Linux LegionPro 6.17.0-20-generic #20~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Mar 19 01:28:37 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+
+/proc/version
+-------------
+Linux version 6.17.0-20-generic (buildd@lcy02-amd64-120) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #20~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Mar 19 01:28:37 UTC 2
+
+lscpu (head 25)
+---------------
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           39 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  32
+On-line CPU(s) list:                     0-31
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Core(TM) i9-14900HX
+CPU family:                              6
+Model:                                   183
+Thread(s) per core:                      2
+Core(s) per socket:                      24
+Socket(s):                               1
+Stepping:                                1
+CPU(s) scaling MHz:                      36%
+CPU max MHz:                             5800.0000
+CPU min MHz:                             800.0000
+BogoMIPS:                                4838.40
+L1d cache:                               896 KiB (24 instances)
+L1i cache:                               1.3 MiB (24 instances)
+L2 cache:                                32 MiB (12 instances)
+L3 cache:                                36 MiB (1 instance)
+NUMA node(s):                            1
+Virtualization:                          VT-x
+
+CPU flags (relevant for FajarQuant SIMD paths)
+----------------------------------------------
+avx avx2 avx_vnni fma f16c sse4_1 sse4_2 ssse3 sha_ni aes vaes
+pclmulqdq vpclmulqdq gfni rdrand rdseed bmi1 bmi2 popcnt clflushopt
+clwb x2apic vmx ept vpid hwp hwp_notify hwp_act_window hwp_epp
+hwp_pkg_req smep smap
+
+Memory
+------
+               total        used        free      shared  buff/cache   available
+Mem:            31Gi       7.4Gi       5.8Gi       974Mi        19Gi        23Gi
+Swap:          8.0Gi       4.6Gi       3.4Gi
+
+GPU (nvidia-smi --query-gpu=...)
+--------------------------------
+name, driver_version, memory.total [MiB], memory.free [MiB], compute_cap
+NVIDIA GeForce RTX 4090 Laptop GPU, 590.48.01, 16376 MiB, 15933 MiB, 8.9
+
+CPU frequency state at capture
+------------------------------
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq:    5600000  (5.6 GHz)
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor:    powersave  ⚠️
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq:    800000   (0.8 GHz)
+
+⚠️  Governor MUST be switched to `performance` before any benchmark.
+    The bench/setup_perf.sh script (C2.0.4 deliverable, pending) will
+    handle this. Until then, any cargo bench result is invalid for
+    paper-grade reproducibility.
+
+================================================================================
+ENVIRONMENT (relevant ML toolchain versions)
+================================================================================
+
+Python venv: /home/primecore/Documents/Fajar Lang/.venv
+Python:      3.12.3
+torch:       2.11.0+cu128
+transformers: 5.5.0
+numpy:       2.4.3
+huggingface_hub: 1.9.1
+hf_transfer: NOT installed (would speed up large downloads ~5-10×)
+aria2c:      NOT installed
+CUDA toolkit: bundled with torch (cu128 = CUDA 12.8)
+NVIDIA driver: 590.48.01
+
+================================================================================
+NOTES FOR FUTURE READERS
+================================================================================
+
+This snapshot is for the V26 Phase C2 benchmark methodology. When
+re-running benchmarks for paper publication or peer-review, capture
+a fresh hardware_snapshot.txt at that time and diff against this one
+to detect drift.
+
+The two most likely sources of variance between runs on the same
+machine:
+
+1. Background load (Mistral 7B was being downloaded in parallel when
+   this snapshot was captured — `swap used 4.6 GiB` reflects that.
+   For benchmark runs, ensure no background ML workloads.)
+
+2. CPU governor + HWP (powersave at capture time. Performance governor
+   alone is insufficient because HWP can still throttle. Use
+   `intel_pstate=passive` boot arg + governor=performance for the
+   most stable timing baseline.)
+
+Verification command:
+    cd ~/Documents/fajarquant && \
+        test -f bench/hardware_snapshot.txt && \
+        grep -c 'CPU\|GPU\|kernel' bench/hardware_snapshot.txt
+    Expected: ≥ 3 matches (this file has many more)
