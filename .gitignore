@@ -21,6 +21,14 @@ venv/
 # Data caches (large; can be regenerated)
 data/kv_cache/*.tar.gz
 data/cache/
+# C1.0 dry-run outputs (small N, sanity-check only — committed paper data
+# lives in data/kv_cache/prompt_* + data/kv_cache/{ablation,comparison,
+# perplexity}_results.json)
+data/kv_cache/*_dryrun/
+data/kv_cache/dryrun_*/
+
+# Local HF token (defensive — should live in $HOME, never in repo)
+.huggingface_env
 
 # IDE
 .vscode/
