@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Install pre-commit hook for fajarquant repo.
+# Install git hooks for fajarquant repo.
 # Mirror of fajar-lang's pattern (commits 6775e44 + 0fdf477 + audit_unwrap.py).
+#
+# Installs:
+#   - pre-commit  (fmt + clippy + production-unwrap audit)
+#   - commit-msg  (V26 Plan Hygiene Rule 6 mechanical gates — currently C3.2)
 #
 # Run from repo root: bash scripts/install-git-hooks.sh
 
@@ -9,6 +13,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HOOK_DIR="$REPO_ROOT/.git/hooks"
 HOOK_FILE="$HOOK_DIR/pre-commit"
+COMMIT_MSG_FILE="$HOOK_DIR/commit-msg"
 
 mkdir -p "$HOOK_DIR"
 
@@ -60,8 +65,58 @@ HOOK
 
 chmod +x "$HOOK_FILE"
 
+# ─────────────────────────────────────────────────────────────────
+# commit-msg hook — V26 Plan Hygiene Rule 6 mechanical gates
+# ─────────────────────────────────────────────────────────────────
+cat > "$COMMIT_MSG_FILE" <<'COMMITMSG'
+#!/usr/bin/env bash
+# fajarquant commit-msg hook — V26 Plan Hygiene Rule 6 mechanical gates
+#
+# Currently enforces:
+#   - C3.2 (paper venue decision): block any commit whose message contains
+#     the 'v26-c3' scope token if paper/SUBMISSION.md is missing on disk
+#     on or after 2026-04-25.
+#
+# Rationale: Plan Hygiene Rule 6 — decisions must be committed files,
+# not prose paragraphs. Without a mechanical gate, the C3.2 deadline
+# would be a soft prose deadline that gets skipped under execution
+# pressure (V26 Phase A1.4 lesson).
+
+set -e
+
+MSG_FILE="$1"
+MSG="$(cat "$MSG_FILE")"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# C3.2 mechanical gate
+if printf '%s' "$MSG" | grep -qE 'v26-c3'; then
+    DEADLINE="2026-04-25"
+    TODAY="$(date +%Y-%m-%d)"
+    if [ "$TODAY" \> "$DEADLINE" ] || [ "$TODAY" = "$DEADLINE" ]; then
+        if [ ! -f "$REPO_ROOT/paper/SUBMISSION.md" ]; then
+            echo "❌ V26 C3.2 mechanical gate: paper/SUBMISSION.md is missing"
+            echo "   and the 2026-04-25 deadline has passed."
+            echo ""
+            echo "   Plan Hygiene Rule 6 requires venue decisions to live in"
+            echo "   committed files. Restore paper/SUBMISSION.md or remove"
+            echo "   'v26-c3' from this commit message."
+            exit 1
+        fi
+    fi
+fi
+
+exit 0
+COMMITMSG
+
+chmod +x "$COMMIT_MSG_FILE"
+
 echo "✅ pre-commit hook (v2) installed at $HOOK_FILE"
-echo "   Test it with: bash $HOOK_FILE"
+echo "✅ commit-msg hook (v1, V26 C3.2 gate) installed at $COMMIT_MSG_FILE"
+echo "   Test pre-commit with: bash $HOOK_FILE"
 echo ""
-echo "   v2 uses scripts/audit_unwrap.py for accurate 3-layer filtering."
+echo "   pre-commit v2 uses scripts/audit_unwrap.py for accurate 3-layer filtering."
 echo "   Make sure that script is committed and executable."
+echo ""
+echo "   commit-msg v1 enforces V26 Plan Hygiene Rule 6 mechanical gates."
+echo "   Currently enforces C3.2 (paper/SUBMISSION.md required after 2026-04-25"
+echo "   for any commit message containing 'v26-c3')."
