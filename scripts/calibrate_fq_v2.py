@@ -74,11 +74,12 @@ def collect_streaming_stats(
         n_layers = len(cache.layers)
         if i == 0:
             n_layers_out = n_layers
-            # Detect head_dim from first layer
+            # Detect head_dim per layer (may vary for shared-KV architectures)
             k0 = cache.layers[0].keys.squeeze(0)
             head_dim_out = k0.shape[-1]
-            D = head_dim_out
-            for _ in range(n_layers):
+            for li in range(n_layers):
+                kl = cache.layers[li].keys.squeeze(0)
+                D = kl.shape[-1]
                 layer_stats.append({
                     "k_count": 0,
                     "k_sum": np.zeros(D, dtype=np.float64),
@@ -88,6 +89,7 @@ def collect_streaming_stats(
                     "v_sum": np.zeros(D, dtype=np.float64),
                     "v_sum_sq": np.zeros(D, dtype=np.float64),
                     "v_cov_acc": np.zeros((D, D), dtype=np.float64),
+                    "_head_dim": D,
                 })
 
         for layer_idx in range(n_layers):
@@ -95,11 +97,19 @@ def collect_streaming_stats(
             k = layer.keys.squeeze(0).float().cpu()   # (H, S, D)
             v = layer.values.squeeze(0).float().cpu()
 
-            k_flat = k.reshape(-1, k.shape[-1]).numpy().astype(np.float64)
-            v_flat = v.reshape(-1, v.shape[-1]).numpy().astype(np.float64)
+            D_k = k.shape[-1]
+            D_v = v.shape[-1]
+            st = layer_stats[layer_idx]
+
+            # Skip layers whose head_dim doesn't match (shared-KV
+            # layers in Gemma can accumulate extra seq positions)
+            if D_k != st["_head_dim"]:
+                continue
+
+            k_flat = k.reshape(-1, D_k).numpy().astype(np.float64)
+            v_flat = v.reshape(-1, D_v).numpy().astype(np.float64)
             n = k_flat.shape[0]
 
-            st = layer_stats[layer_idx]
             st["k_count"] += n
             st["k_sum"] += k_flat.sum(axis=0)
             st["k_sum_sq"] += (k_flat ** 2).sum(axis=0)
@@ -195,8 +205,8 @@ def main():
     parser.add_argument(
         "--outlier-percentile",
         type=float,
-        default=99.0,
-        help="Percentile threshold for outlier channels (default: 99 = top 1%%)",
+        default=85.0,
+        help="Percentile threshold for outlier channels (default: 85 = top 15%%)",
     )
     parser.add_argument("--token", default=None)
     parser.add_argument(
