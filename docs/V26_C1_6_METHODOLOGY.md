@@ -8,7 +8,118 @@
 
 ---
 
-## Decision: (b)
+## Amendment 2026-04-12 (later same day) — superseded by R-α.1
+
+**Status:** option (b) below was implemented (commit `c9b2ff5`,
+`scripts/eval_perplexity.py` symmetric prefix+target scoring) and
+smoke-tested on Gemma 4 E2B at 256-ctx (5 samples) and 512-ctx (10
+samples). The 512-ctx smoke test produced a structurally implausible
+result: **all 3 quantized methods scored 5–6 PPL points BELOW FP16
+baseline** (FQ 32.79, KIVI 34.22, TQ 33.39 vs FP16 38.68). Quantization
+noise cannot improve a model — the result indicated a protocol bug.
+
+**Literature investigation (P2 in the C1.6.1.6 task):** all three
+reference KV-quantization repos use a fundamentally different protocol:
+
+| Repo | Chunking | Quantization application |
+|---|---|---|
+| KVQuant (NeurIPS 2024) | Non-overlapping `model.seqlen` chunks | Model-internal patching during forward |
+| SKVQ (COLM 2024) | Non-overlapping `input_len` chunks | `plug_quantizer_into_model()` modifies model in-place |
+| KIVI (ICML 2024) | Delegated to lm-eval-harness | Custom `LlamaForCausalLM_KIVI` patches attention forward |
+
+**Pattern:** all three patch attention layers to apply quantization
+*during* the forward pass, before K/V are written to cache. The
+prefix+target post-hoc cache mutation approach in commit `c9b2ff5`
+does not match this canonical pattern, and produced the observed
+anomaly because:
+
+1. The mutation breaks the cache continuity in a way the model handles
+   inconsistently between FP16 and quantized paths.
+2. Even when mutation works, the protocol measures something different
+   from "quantization during attention" — target tokens have fresh
+   self-K/V mixed in, diluting the impact of the quantized prefix
+   cache.
+
+The post-hoc cache mutation approach is **not viable** for paper-quality
+PPL evaluation comparable to KIVI/KVQuant/SKVQ.
+
+### New decision: R-α.1 — literal per-architecture attention surgery
+
+**Effective 2026-04-12 (this amendment):**
+
+Implement model surgery via per-architecture quantized forward subclasses,
+matching the canonical KIVI/KVQuant/SKVQ pattern. Quantization is
+inserted **between RoPE application and `past_key_values.update()`**
+in each attention layer's forward method, so the cache stores
+already-quantized K/V and subsequent attention reads use the quantized
+versions throughout the forward pass.
+
+**Architectures patched (transformers 5.5.0):**
+
+| Class | Source | Quirks handled |
+|---|---|---|
+| `MistralAttention` | `mistral/modeling_mistral.py:122` | Vanilla |
+| `Qwen2Attention` | `qwen2/modeling_qwen2.py:187` | `bias=True`, instance `sliding_window` |
+| `Gemma4TextAttention` | `gemma4/modeling_gemma4.py:1126` | K/V `RMSNorm`, `is_kv_shared_layer` (skip re-quant), `store_full_length_kv`, optional `v_proj=None`, `unsqueeze_dim=2` for RoPE |
+
+**Implementation files:**
+
+- `scripts/quant_attention.py` (NEW, ~480 LOC) — vectorized 4D quant
+  primitives, three per-architecture quantized forwards, monkey-patch
+  helpers (`patch_model_for_quantization` / `unpatch_model`), self-test.
+- `scripts/eval_perplexity.py` (REWRITE) — drops `evaluate_perplexity`
+  prefix+target version. New `evaluate_perplexity_canonical` does
+  non-overlapping `--seq-len` chunks, fresh `DynamicCache` per chunk,
+  full forward, standard shift-labels cross-entropy. Calls `patch_model
+  _for_quantization` per (method, bits) and `unpatch_model` between.
+
+**Plumbing:** module-level `_QUANT_METHOD` / `_QUANT_BITS` globals in
+`quant_attention.py`. `patch_model_for_quantization(model, method, bits)`
+walks `model.modules()`, identifies supported attention modules by class
+name, saves their original `forward` (per-instance via `id(module)` →
+`_ORIGINAL_FORWARDS` dict), and replaces with the matching
+`{class}_quantized_forward` bound via `types.MethodType`. `unpatch_model`
+restores from the dict and resets globals to `("none", 0)`.
+
+**Step B verification (no GPU, completed):**
+
+```
+quant_attention self-test:
+  FP32→FQ-2bit relerr: 0.4485
+  FP32→FQ-4bit relerr: 0.0901
+  PASS (all 4 quant fns return correct shape, finite values, dispatch works)
+
+eval_perplexity import + CLI smoke:
+  imports clean, exports evaluate_perplexity_canonical / load_wikitext2 / main
+  CLI shows --model, --bits, --seq-len, --max-samples, --token, --output
+```
+
+Step C (GPU smoke test on Gemma 4 E2B, 10 samples, 512-ctx, 2-bit) is
+the next checkpoint — pending user authorization per the C1.6 plan.
+
+**Risk that the amendment failed to address:**
+
+- (R1) `attention_interface(self, ...)` may have undeclared `self`
+  attribute requirements. Monkey-patching preserves `self`, so
+  unlikely.
+- (R2) Gemma4 `is_kv_shared_layer` skip-quantization assumption: if
+  the source layer's K/V were not yet quantized when stored to
+  `shared_layers`, the share would propagate unquantized. The
+  implementation places quantization BEFORE the `store_full_length_kv`
+  block, so this should be correct. Verify in Step C.
+- (R3) `seq_len=2048` may OOM with 7B models on RTX 4090 16GB.
+  Fallback: `--seq-len 1024` or 512. Decided per smoke test.
+- (R4) PCA degenerate at very short S: handled — `apply_fajarquant_4d`
+  early-returns the input unchanged when `S < 2`. Eval seq_len ≥ 512
+  is far above this guard.
+
+The remainder of this file (below) records the original option (b)
+decision for historical traceability. **The active decision for C1.6
+is R-α.1, implemented in commit TBD.**
+
+---
+
+## Decision: (b)  *(SUPERSEDED — see amendment above)*
 
 **Fix `scripts/eval_perplexity.py` to symmetric prefix+target scoring, then re-run Gemma 4 E2B alongside Mistral 7B + Qwen2-7B.**
 
