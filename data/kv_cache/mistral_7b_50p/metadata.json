@@ -1,0 +1,12 @@
+{
+  "model": "mistralai/Mistral-7B-v0.1",
+  "num_layers": 32,
+  "num_kv_heads": 8,
+  "d_head": 128,
+  "num_attention_heads": 32,
+  "hidden_size": 4096,
+  "max_length": 512,
+  "num_prompts": 50,
+  "dtype": "float16",
+  "extraction_date": "2026-04-12 07:28:57"
+}

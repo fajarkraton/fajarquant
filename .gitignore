@@ -21,10 +21,20 @@ venv/
 # Data caches (large; can be regenerated)
 data/kv_cache/*.tar.gz
 data/cache/
-# C1.0 dry-run outputs (small N, sanity-check only — committed paper data
-# lives in data/kv_cache/prompt_* + data/kv_cache/{ablation,comparison,
-# perplexity}_results.json)
-data/kv_cache/*_dryrun/
+# Multi-model extraction outputs (V26 Phase C1) — ignore the raw .npy
+# files (huge, regeneratable via scripts/extract_kv_cache.py) but KEEP
+# the small JSON outputs (metadata.json + comparison_results.json) so
+# the GONOGO amendment + paper tables remain verifiable from the repo
+# without re-running the extraction.
+#
+# Pattern: ignore prompt_*/ subdirs and stats.json (large) inside any
+# model-specific dir like mistral_7b_50p/, qwen2_7b_dryrun/, etc.
+# The committed Gemma 4 E2B paper data at data/kv_cache/prompt_* (no
+# parent model dir) is unaffected.
+data/kv_cache/*_50p/prompt_*/
+data/kv_cache/*_50p/stats.json
+data/kv_cache/*_dryrun/prompt_*/
+data/kv_cache/*_dryrun/stats.json
 data/kv_cache/dryrun_*/
 
 # Local HF token (defensive — should live in $HOME, never in repo)
