@@ -144,12 +144,38 @@ def evaluate_perplexity(
 ):
     """Evaluate perplexity with optional KV cache quantization.
 
-    Uses sliding window approach: process text in overlapping chunks,
-    only score the non-overlapping portion of each chunk.
+    Uses a sliding-window prefix+target split for *symmetric* scoring:
+
+      1. Each window of length L is split into prefix (first L/2 tokens)
+         + target (remaining L/2 tokens, must be ≥ 2).
+      2. The prefix is forwarded through the model with use_cache=True to
+         populate past_key_values.
+      3. If method != "none", past_key_values are quantized in place using
+         the chosen method (FajarQuant / KIVI / TurboQuant).
+      4. The target is forwarded with past_key_values=cache, and the
+         target's next-token predictions (logits[:, :-1]) are scored
+         against the target's own tokens (target[:, 1:]) via
+         cross-entropy. This yields target_len - 1 scored tokens per
+         window.
+
+    Both FP16 baseline and quantized methods use the same protocol; the
+    only difference is whether step 3 runs. This makes their PPL numbers
+    directly comparable on the same scored token set, fixing the
+    historical asymmetry where FP16 scored ~7,650 tokens while quantized
+    methods scored only 30 (single last-token re-forward).
+
+    See `docs/V26_C1_6_METHODOLOGY.md` for the full rationale and the
+    decision committed under CLAUDE.md §6.8 Rule 6.
     """
     encodings = tokenizer(dataset_text, return_tensors="pt")
     input_ids = encodings.input_ids.to(model.device)
     total_len = input_ids.size(1)
+
+    prefix_len = max_length // 2
+    if prefix_len < 2:
+        raise ValueError(
+            f"max_length={max_length} too small for prefix+target split"
+        )
 
     nlls = []
     n_tokens = 0
@@ -158,50 +184,55 @@ def evaluate_perplexity(
     for begin in range(0, total_len - 1, stride):
         end = min(begin + max_length, total_len)
         chunk = input_ids[:, begin:end]
-        target_len = end - begin - 1
+        chunk_len = chunk.size(1)
 
-        if chunk.size(1) < 4:
+        # Need prefix_len cache tokens + ≥ 2 target tokens for ≥ 1
+        # next-token prediction to score.
+        if chunk_len < prefix_len + 2:
             break
 
+        prefix = chunk[:, :prefix_len]
+        target = chunk[:, prefix_len:]
+
         with torch.no_grad():
-            outputs = model(chunk, use_cache=True)
+            # 1. Forward prefix → KV cache.
+            prefix_out = model(prefix, use_cache=True)
+            past_kv = prefix_out.past_key_values
 
-            # Quantize KV cache and re-run if method != "none"
-            if method != "none" and hasattr(outputs, "past_key_values"):
-                past_kv = outputs.past_key_values
-                if hasattr(past_kv, "layers"):
-                    for layer in past_kv.layers:
-                        k = layer.keys  # (batch, heads, seq, d)
-                        v = layer.values
-                        if method == "fajarquant":
-                            layer.keys = apply_fajarquant(k, bits, is_key=True)
-                            layer.values = apply_fajarquant(v, bits, is_key=False)
-                        elif method == "kivi":
-                            layer.keys = apply_kivi(k, bits, is_key=True)
-                            layer.values = apply_kivi(v, bits, is_key=False)
-                        elif method == "turboquant":
-                            layer.keys = apply_turboquant(k, bits)
-                            layer.values = apply_turboquant(v, bits)
+            # 2. Quantize cache in place if requested. FP16 baseline
+            #    skips this block but takes the same code path otherwise.
+            if (
+                method != "none"
+                and past_kv is not None
+                and hasattr(past_kv, "layers")
+            ):
+                for layer in past_kv.layers:
+                    k = layer.keys
+                    v = layer.values
+                    if method == "fajarquant":
+                        layer.keys = apply_fajarquant(k, bits, is_key=True)
+                        layer.values = apply_fajarquant(v, bits, is_key=False)
+                    elif method == "kivi":
+                        layer.keys = apply_kivi(k, bits, is_key=True)
+                        layer.values = apply_kivi(v, bits, is_key=False)
+                    elif method == "turboquant":
+                        layer.keys = apply_turboquant(k, bits)
+                        layer.values = apply_turboquant(v, bits)
 
-                    # Re-forward with quantized cache (only last token to get logits)
-                    outputs = model(
-                        chunk[:, -1:],
-                        past_key_values=past_kv,
-                        use_cache=False,
-                    )
+            # 3. Forward target with (possibly quantized) prefix cache.
+            target_out = model(
+                target,
+                past_key_values=past_kv,
+                use_cache=False,
+            )
+            target_logits = target_out.logits  # (1, target_len, vocab)
 
-            logits = outputs.logits
-
-        # Compute NLL for scoring region
-        if method == "none":
-            # Full sequence logits available
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = chunk[:, 1:].contiguous()
-        else:
-            # Only last-token logits after quantized cache re-forward
-            # Score just the last token prediction
-            shift_logits = logits[:, -1:, :].contiguous()
-            shift_labels = chunk[:, -1:].contiguous()
+        # 4. Score next-token predictions inside the target window.
+        #    target_logits[:, t, :] is the model's distribution over the
+        #    token at relative position (t+1) within the target, given
+        #    the (possibly quantized) prefix cache plus target[0..t].
+        shift_logits = target_logits[:, :-1, :].contiguous()
+        shift_labels = target[:, 1:].contiguous()
 
         loss = F.cross_entropy(
             shift_logits.view(-1, shift_logits.size(-1)),
@@ -216,8 +247,8 @@ def evaluate_perplexity(
         if samples >= max_samples:
             break
 
-        # Free GPU memory
-        del outputs
+        # Free GPU memory between windows.
+        del prefix_out, target_out, past_kv
         torch.cuda.empty_cache()
 
     avg_nll = sum(nlls) / max(n_tokens, 1)
