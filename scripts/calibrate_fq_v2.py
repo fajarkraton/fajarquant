@@ -27,19 +27,24 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def collect_kv_tensors(
+def collect_streaming_stats(
     model,
     tokenizer,
     text: str,
     n_samples: int = 128,
     seq_len: int = 2048,
-) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-    """Forward n_samples chunks through the model, collecting per-layer
-    K and V tensors from the DynamicCache.
+) -> tuple[list[dict], int, int]:
+    """Forward n_samples chunks, accumulating per-layer statistics in
+    O(D^2) memory instead of storing all raw K/V tensors.
 
-    Returns (all_keys, all_values) where each is a list of length
-    n_layers, and each element is a tensor of shape
-    (n_samples * num_kv_heads * seq_len, head_dim).
+    For each layer, accumulates:
+      - count: number of (H*S) samples seen
+      - sum_x: sum of samples, shape (D,)
+      - sum_x2: sum of outer products (for covariance), shape (D, D)
+      - var_acc: per-channel sum of squares for variance, shape (D,)
+
+    Returns (layer_stats, n_layers, head_dim).
+    Memory: O(n_layers * D^2) ≈ 32 * 128^2 * 4 bytes ≈ 2 MB for Mistral.
     """
     try:
         from transformers.cache_utils import DynamicCache
@@ -55,9 +60,9 @@ def collect_kv_tensors(
             f"text too short ({total_len} tokens) for {n_samples} × {seq_len}"
         )
 
-    # Storage: per-layer list of (num_kv_heads * seq_len, head_dim) tensors
-    per_layer_keys: list[list[torch.Tensor]] = []
-    per_layer_vals: list[list[torch.Tensor]] = []
+    layer_stats: list[dict] = []
+    n_layers_out = 0
+    head_dim_out = 0
 
     for i in range(n_chunks):
         chunk = input_ids[:, i * seq_len : (i + 1) * seq_len]
@@ -68,17 +73,42 @@ def collect_kv_tensors(
 
         n_layers = len(cache.layers)
         if i == 0:
-            per_layer_keys = [[] for _ in range(n_layers)]
-            per_layer_vals = [[] for _ in range(n_layers)]
+            n_layers_out = n_layers
+            # Detect head_dim from first layer
+            k0 = cache.layers[0].keys.squeeze(0)
+            head_dim_out = k0.shape[-1]
+            D = head_dim_out
+            for _ in range(n_layers):
+                layer_stats.append({
+                    "k_count": 0,
+                    "k_sum": np.zeros(D, dtype=np.float64),
+                    "k_sum_sq": np.zeros(D, dtype=np.float64),
+                    "k_cov_acc": np.zeros((D, D), dtype=np.float64),
+                    "v_count": 0,
+                    "v_sum": np.zeros(D, dtype=np.float64),
+                    "v_sum_sq": np.zeros(D, dtype=np.float64),
+                    "v_cov_acc": np.zeros((D, D), dtype=np.float64),
+                })
 
         for layer_idx in range(n_layers):
             layer = cache.layers[layer_idx]
-            # .keys shape: (1, num_kv_heads, seq_len, head_dim)
-            k = layer.keys.squeeze(0).float().cpu()  # (H, S, D)
+            k = layer.keys.squeeze(0).float().cpu()   # (H, S, D)
             v = layer.values.squeeze(0).float().cpu()
-            # Flatten to (H*S, D)
-            per_layer_keys[layer_idx].append(k.reshape(-1, k.shape[-1]))
-            per_layer_vals[layer_idx].append(v.reshape(-1, v.shape[-1]))
+
+            k_flat = k.reshape(-1, k.shape[-1]).numpy().astype(np.float64)
+            v_flat = v.reshape(-1, v.shape[-1]).numpy().astype(np.float64)
+            n = k_flat.shape[0]
+
+            st = layer_stats[layer_idx]
+            st["k_count"] += n
+            st["k_sum"] += k_flat.sum(axis=0)
+            st["k_sum_sq"] += (k_flat ** 2).sum(axis=0)
+            st["k_cov_acc"] += k_flat.T @ k_flat
+
+            st["v_count"] += n
+            st["v_sum"] += v_flat.sum(axis=0)
+            st["v_sum_sq"] += (v_flat ** 2).sum(axis=0)
+            st["v_cov_acc"] += v_flat.T @ v_flat
 
         del cache
         torch.cuda.empty_cache()
@@ -86,21 +116,19 @@ def collect_kv_tensors(
         if (i + 1) % 16 == 0 or i == n_chunks - 1:
             print(f"  Collected {i + 1}/{n_chunks} chunks")
 
-    # Concatenate per layer
-    all_keys = [torch.cat(chunks, dim=0) for chunks in per_layer_keys]
-    all_vals = [torch.cat(chunks, dim=0) for chunks in per_layer_vals]
-
-    return all_keys, all_vals
+    return layer_stats, n_layers_out, head_dim_out
 
 
-def compute_calibration(
-    data: torch.Tensor,
+def compute_calibration_from_stats(
+    stats: dict,
+    kv_type: str,
     outlier_percentile: float = 99.0,
 ) -> dict[str, np.ndarray]:
-    """Compute F2-D calibration for a single layer's K or V data.
+    """Compute F2-D calibration from streaming statistics.
 
     Args:
-        data: shape (N, D) — concatenated K or V across all samples
+        stats: accumulated statistics dict for one layer
+        kv_type: "k" or "v"
         outlier_percentile: percentile threshold for outlier channels
 
     Returns dict with:
@@ -109,47 +137,46 @@ def compute_calibration(
         pca_mean: float32 array (D',) — mean of clean data
         per_channel_var: float32 array (D,) — variance of each channel
     """
-    N, D = data.shape
+    prefix = kv_type
+    N = stats[f"{prefix}_count"]
+    sum_x = stats[f"{prefix}_sum"]
+    sum_x2 = stats[f"{prefix}_sum_sq"]
+    cov_acc = stats[f"{prefix}_cov_acc"]
 
-    # Step 1: per-channel variance
-    var_per_channel = data.var(dim=0).numpy()  # (D,)
+    D = len(sum_x)
+    mean_all = sum_x / N  # (D,)
+
+    # Step 1: per-channel variance = E[x^2] - E[x]^2
+    var_per_channel = (sum_x2 / N - mean_all ** 2).astype(np.float32)
 
     # Step 2: identify outlier channels (top 1%)
     threshold = np.percentile(var_per_channel, outlier_percentile)
-    outlier_mask = var_per_channel >= threshold  # (D,)
-    n_outlier = outlier_mask.sum()
+    outlier_mask = var_per_channel >= threshold
 
-    # Step 3: remove outlier channels
-    clean_mask = ~outlier_mask
-    data_clean = data[:, clean_mask].numpy()  # (N, D')
-    D_clean = data_clean.shape[1]
+    # Step 3: remove outlier channels — recompute stats on clean subset
+    clean_idx = np.where(~outlier_mask)[0]
+    D_clean = len(clean_idx)
 
-    # Step 4: PCA on clean data
-    mean = data_clean.mean(axis=0)  # (D',)
-    centered = data_clean - mean  # (N, D')
+    mean_clean = mean_all[clean_idx].astype(np.float64)
 
-    # Use SVD for numerical stability (better than cov + eigh for large N)
-    # Only need the right singular vectors (eigenvectors of cov)
-    # cov = (centered.T @ centered) / (N-1), eigvecs of cov = V from SVD
-    # For memory efficiency with large N, compute cov explicitly
-    if N > 10000:
-        cov = (centered.T @ centered) / max(N - 1, 1)  # (D', D')
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        # Sort descending
-        idx = np.argsort(eigvals)[::-1]
-        eigvecs = eigvecs[:, idx]
-    else:
-        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
-        eigvecs = Vt.T  # columns are eigenvectors, already sorted desc
+    # Covariance on clean channels:
+    # cov = (sum(x_i @ x_i.T) / N) - mean @ mean.T
+    # Extract clean submatrix from cov_acc
+    cov_clean_acc = cov_acc[np.ix_(clean_idx, clean_idx)]
+    cov_clean = (cov_clean_acc / N) - np.outer(mean_clean, mean_clean)
 
-    # R has eigenvectors as rows: (D', D')
+    # Step 4: eigendecomposition
+    eigvals, eigvecs = np.linalg.eigh(cov_clean)
+    idx = np.argsort(eigvals)[::-1]
+    eigvecs = eigvecs[:, idx]
+
     R = eigvecs.T.astype(np.float32)
 
     return {
         "outlier_mask": outlier_mask.astype(np.bool_),
         "pca_rotation": R,
-        "pca_mean": mean.astype(np.float32),
-        "per_channel_var": var_per_channel.astype(np.float32),
+        "pca_mean": mean_clean.astype(np.float32),
+        "per_channel_var": var_per_channel,
     }
 
 
@@ -210,25 +237,24 @@ def main():
     model.eval()
     print(f"Model loaded on {model.device}")
 
-    # Collect K/V tensors
-    print(f"\nCollecting K/V from {args.n_samples} chunks...")
+    # Collect K/V statistics (streaming — O(D^2) memory per layer)
+    print(f"\nCollecting K/V statistics from {args.n_samples} chunks (streaming)...")
     t0 = time.time()
-    all_keys, all_vals = collect_kv_tensors(
+    layer_stats, n_layers, head_dim = collect_streaming_stats(
         model, tokenizer, text, n_samples=args.n_samples, seq_len=args.seq_len
     )
     collect_time = time.time() - t0
-    n_layers = len(all_keys)
-    head_dim = all_keys[0].shape[1]
+    n_total = layer_stats[0]["k_count"]
     print(
         f"  Collected {n_layers} layers, head_dim={head_dim}, "
-        f"{all_keys[0].shape[0]} samples/layer, {collect_time:.1f}s"
+        f"{n_total} samples/layer, {collect_time:.1f}s"
     )
 
-    # Free model GPU memory — we only need the CPU tensors now
+    # Free model GPU memory
     del model
     torch.cuda.empty_cache()
 
-    # Compute calibration per layer
+    # Compute calibration per layer from streaming stats
     print(f"\nComputing calibration (outlier identification + PCA)...")
     t0 = time.time()
 
@@ -245,9 +271,10 @@ def main():
     total_outliers_v = 0
 
     for layer_idx in range(n_layers):
-        # Keys
-        cal_k = compute_calibration(
-            all_keys[layer_idx], outlier_percentile=args.outlier_percentile
+        st = layer_stats[layer_idx]
+
+        cal_k = compute_calibration_from_stats(
+            st, "k", outlier_percentile=args.outlier_percentile
         )
         save_dict[f"k_{layer_idx}_outlier_mask"] = cal_k["outlier_mask"]
         save_dict[f"k_{layer_idx}_pca_rotation"] = cal_k["pca_rotation"]
@@ -255,9 +282,8 @@ def main():
         save_dict[f"k_{layer_idx}_channel_var"] = cal_k["per_channel_var"]
         total_outliers_k += cal_k["outlier_mask"].sum()
 
-        # Values
-        cal_v = compute_calibration(
-            all_vals[layer_idx], outlier_percentile=args.outlier_percentile
+        cal_v = compute_calibration_from_stats(
+            st, "v", outlier_percentile=args.outlier_percentile
         )
         save_dict[f"v_{layer_idx}_outlier_mask"] = cal_v["outlier_mask"]
         save_dict[f"v_{layer_idx}_pca_rotation"] = cal_v["pca_rotation"]
