@@ -1,0 +1,12 @@
+{
+  "model": "Qwen/Qwen2-7B",
+  "num_layers": 28,
+  "num_kv_heads": 4,
+  "d_head": 128,
+  "num_attention_heads": 28,
+  "hidden_size": 3584,
+  "max_length": 512,
+  "num_prompts": 50,
+  "dtype": "float16",
+  "extraction_date": "2026-04-12 08:23:37"
+}

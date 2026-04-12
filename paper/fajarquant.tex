@@ -233,11 +233,12 @@ re-run the 3-way comparison (Table~\ref{tab:crossmodel}).
 \caption{Cross-architecture key MSE delta (\% — positive = FajarQuant
 better, negative = baseline better). FajarQuant wins keys across all
 3 architectures and all 3 bit widths (9 of 9 cells), confirming the
-PCA-rotation advantage is architecture-agnostic. Mistral data is from
-50 prompts ($n{=}12{,}800$ samples per cell); Qwen2-7B is from 5 prompts
-($n{=}560$). Gemma~4~E2B numbers are from Table~\ref{tab:ablation}
-($n{=}1{,}500$). The KV-head ratio column reports attention\_heads :
-KV\_heads, where $1{:}1$ is full multi-head attention.}
+PCA-rotation advantage is architecture-agnostic. Both Mistral 7B and
+Qwen2-7B data are from 50-prompt extractions: Mistral $n{=}12{,}800$
+samples per cell, Qwen2-7B $n{=}5{,}600$. Gemma~4~E2B numbers are
+from Table~\ref{tab:ablation} ($n{=}1{,}500$). The KV-head ratio
+column reports attention\_heads : KV\_heads, where $1{:}1$ is full
+multi-head attention.}
 \label{tab:crossmodel}
 \begin{tabular}{lccccccc}
 \toprule
@@ -247,7 +248,7 @@ KV\_heads, where $1{:}1$ is full multi-head attention.}
 \midrule
 Gemma~4~E2B  & MQA      & 35 & $8{:}1$ & 2.67 & $\mathbf{+4.9\%}$ & $\mathbf{+4.3\%}$ & $\mathbf{+4.8\%}$ \\
 Mistral 7B   & GQA      & 32 & $32{:}8$ & 2.95 & $\mathbf{+3.6\%}$ & $\mathbf{+4.2\%}$ & $\mathbf{+4.3\%}$ \\
-Qwen2-7B     & GQA      & 28 & $28{:}4$ & $\mathbf{7.70}$ & $\mathbf{+5.1\%}$ & $\mathbf{+5.6\%}$ & $\mathbf{+6.1\%}$ \\
+Qwen2-7B     & GQA      & 28 & $28{:}4$ & $\mathbf{7.71}$ & $\mathbf{+4.7\%}$ & $\mathbf{+5.4\%}$ & $\mathbf{+5.4\%}$ \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -276,10 +277,13 @@ the value distribution.
 
 \textbf{Qwen2-7B exhibits a regime change.} On Qwen2-7B at 2-bit
 quantization, the FajarQuant-vs-TurboQuant value-MSE delta closes
-entirely to $+0.2\%$ (statistical tie), versus $-2.8\%$ on Gemma and
-$-11.1\%$ on Mistral at the same bit width. This is the first model
-in our evaluation where FajarQuant's value performance matches
-TurboQuant's at the most aggressive quantization level.
+entirely to $+0.3\%$ (statistical tie at $n{=}5{,}600$), versus
+$-2.8\%$ on Gemma and $-11.1\%$ on Mistral at the same bit width.
+This is the first model in our evaluation where FajarQuant's value
+performance matches TurboQuant's at the most aggressive quantization
+level. The tie was observed at both $n{=}560$ (5-prompt dry run,
+$+0.2\%$) and $n{=}5{,}600$ (50-prompt production, $+0.3\%$),
+confirming it is not a small-sample artifact.
 
 The closure correlates with Qwen2-7B's exceptional key low-rank
 structure: its top-2 singular value ratio is $\sigma_1/\sigma_2 = 7.70$
