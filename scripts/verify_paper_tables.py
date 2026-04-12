@@ -70,6 +70,20 @@ def pca_vs_kivi_pct(bits: int) -> float:
     return float(data[f"{bits}bit"]["key"]["fq_vs_kivi_pct"])
 
 
+def pca_vs_turbo_pct_for(model_subdir: str, bits: int) -> float:
+    """V26 Phase C1.7 — generic loader for cross-model claims.
+    Reads data/kv_cache/<model_subdir>/comparison_results.json.
+    """
+    data = load_json(f"{model_subdir}/comparison_results.json")
+    return float(data[f"{bits}bit"]["key"]["fq_vs_turbo_pct"])
+
+
+def pca_vs_kivi_pct_for(model_subdir: str, bits: int) -> float:
+    """V26 Phase C1.7 — generic KIVI loader for cross-model claims."""
+    data = load_json(f"{model_subdir}/comparison_results.json")
+    return float(data[f"{bits}bit"]["key"]["fq_vs_kivi_pct"])
+
+
 # ─────────────────────────────────────────────────────────────────
 # Claims registered as of paper version 2026-04-11 (V26 Phase C0)
 # Add new claims when the paper changes; this list is the source
@@ -141,6 +155,49 @@ CLAIMS: list[Claim] = [
         source_loader=lambda: pca_vs_turbo_pct(4),
         tolerance=0.05,
         paper_line=271,
+    ),
+    # ─────────────────────────────────────────────────────────────────
+    # V26 Phase C1.7 — Cross-Model Validation table (paper §Cross-Model
+    # Validation, table tab:crossmodel). 6 new claims covering Mistral
+    # 7B (n=12800) and Qwen2-7B (n=560) Key MSE deltas vs TurboQuant
+    # at 2/3/4 bit. Sources are the small JSON evidence files committed
+    # in commit 682a6f9.
+    # ─────────────────────────────────────────────────────────────────
+    Claim(
+        name="Cross-Model Mistral 7B 2-bit Key vs TurboQuant (3.6%)",
+        paper_value=3.6,
+        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 2),
+        tolerance=0.1,
+    ),
+    Claim(
+        name="Cross-Model Mistral 7B 3-bit Key vs TurboQuant (4.2%)",
+        paper_value=4.2,
+        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 3),
+        tolerance=0.1,
+    ),
+    Claim(
+        name="Cross-Model Mistral 7B 4-bit Key vs TurboQuant (4.3%)",
+        paper_value=4.3,
+        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 4),
+        tolerance=0.1,
+    ),
+    Claim(
+        name="Cross-Model Qwen2-7B 2-bit Key vs TurboQuant (5.1%)",
+        paper_value=5.1,
+        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_dryrun", 2),
+        tolerance=0.1,
+    ),
+    Claim(
+        name="Cross-Model Qwen2-7B 3-bit Key vs TurboQuant (5.6%)",
+        paper_value=5.6,
+        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_dryrun", 3),
+        tolerance=0.1,
+    ),
+    Claim(
+        name="Cross-Model Qwen2-7B 4-bit Key vs TurboQuant (6.1%)",
+        paper_value=6.1,
+        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_dryrun", 4),
+        tolerance=0.1,
     ),
 ]
 
