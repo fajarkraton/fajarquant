@@ -1,0 +1,87 @@
+{
+  "fp16": {
+    "ppl": 7.549110445798909,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_2bit": {
+    "ppl": 262.88876302724947,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_2bit": {
+    "ppl": 46.69670795791696,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_2bit": {
+    "ppl": 464.34534904791445,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_outlier_2bit": {
+    "ppl": 165.60265456090562,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_3bit": {
+    "ppl": 8.925339060235896,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "kivi_3bit": {
+    "ppl": 8.010362664130785,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_3bit": {
+    "ppl": 8.52197206626993,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_outlier_3bit": {
+    "ppl": 8.261535671436945,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_4bit": {
+    "ppl": 7.744093837530741,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_4bit": {
+    "ppl": 7.620747411713894,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_4bit": {
+    "ppl": 7.706354663681198,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_outlier_4bit": {
+    "ppl": 7.673046454097265,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery",
+    "model": "Qwen/Qwen2-7B",
+    "seq_len": 2048,
+    "max_samples": 30,
+    "source": "scripts/quant_attention.py",
+    "methodology_doc": "docs/V26_C1_6_METHODOLOGY.md"
+  }
+}
