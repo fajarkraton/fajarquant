@@ -176,6 +176,13 @@ def apply_turboquant_4d(data: torch.Tensor, bits: int, seed: int = 42) -> torch.
     A single fixed random orthogonal matrix R of shape (D, D) is
     generated per head dimension and cached. Equivalent to
     eval_perplexity.apply_turboquant.
+
+    NOTE: this is the "naive" TurboQuant — random rotation only, no
+    outlier preservation. The published TurboQuant ICLR 2026 method
+    additionally keeps top-15% high-variance channels in bf16; that
+    fairer comparison is implemented as
+    `apply_turboquant_4d_with_outliers` below. Use that one for paper
+    comparisons; this one stays for ablation only.
     """
     B, H, S, D = data.shape
     cache_key = (D, str(data.device))
@@ -200,12 +207,80 @@ def apply_turboquant_4d(data: torch.Tensor, bits: int, seed: int = 42) -> torch.
     return recon.to(data.dtype)
 
 
+def apply_turboquant_4d_with_outliers(
+    data: torch.Tensor,
+    bits: int,
+    outlier_pct: float = 0.15,
+    seed: int = 42,
+) -> torch.Tensor:
+    """TurboQuant with outlier preservation (published ICLR 2026 spec).
+
+    Per the published TurboQuant method:
+      1. Identify the top-`outlier_pct` channels (per-(B,H) variance over
+         the sequence dimension) — these are the high-variance channels
+         where quantization noise hurts most.
+      2. Store outlier channels in fp16 (passthrough, no quantization).
+      3. For the remaining (1 - outlier_pct) channels, apply random
+         orthogonal rotation + per-coordinate uniform quantization just
+         like the naive TurboQuant path.
+      4. Reassemble the full (B, H, S, D) tensor by writing outlier
+         channels back at their original positions.
+
+    Default `outlier_pct=0.15` matches the published TurboQuant top-15%
+    bf16 preservation. The fp16 vs bf16 distinction does not matter
+    here because we operate in float32 internally and cast back to the
+    input dtype at the end.
+
+    This is the version to compare against in paper benchmarks. The
+    naive `apply_turboquant_4d` is retained for ablation studies that
+    want to isolate the rotation contribution from the outlier
+    preservation contribution.
+    """
+    B, H, S, D = data.shape
+    if S < 2:
+        return data
+
+    work = data.float()
+
+    # Variance per channel, computed per (B, H, D) over S
+    variance = work.var(dim=2, keepdim=False)  # (B, H, D)
+
+    # Pick top-k outlier channels per (B, H). Same k for every (B, H)
+    # so the bookkeeping is simpler. With outlier_pct=0.15 on D=128 →
+    # k = 19; on D=256 → k = 38.
+    k = max(1, int(round(D * outlier_pct)))
+    # Sort variance descending; take top-k indices per (B, H)
+    _, top_idx = variance.topk(k, dim=-1)  # (B, H, k)
+
+    # Build a boolean mask of which channels are outliers per (B, H, D)
+    outlier_mask = torch.zeros_like(variance, dtype=torch.bool)
+    outlier_mask.scatter_(dim=-1, index=top_idx, value=True)
+    # Expand mask to (B, H, S, D) so we can apply it element-wise
+    mask_4d = outlier_mask.unsqueeze(2).expand(-1, -1, S, -1)
+
+    # Quantize the entire tensor via the naive turboquant path; we'll
+    # overwrite the outlier positions with the original (un-quantized)
+    # values immediately after.
+    rotated_quant = apply_turboquant_4d(data, bits, seed=seed).float()
+
+    # Restore outlier channels from the original (fp32 work copy)
+    result = torch.where(mask_4d, work, rotated_quant)
+    return result.to(data.dtype)
+
+
 def _quantize_kv(
     kv: torch.Tensor, method: str, bits: int, is_key: bool
 ) -> torch.Tensor:
     """Dispatch to the selected quantization method.
 
     Returns the input unchanged if method == "none".
+
+    Methods:
+      - "fajarquant"          → PCA rotation + per-coord uniform quant (FQ v1)
+      - "kivi"                → per-channel keys / per-token values (KIVI 2024)
+      - "turboquant"          → random ortho rotation + per-coord (NAIVE TQ)
+      - "turboquant_outlier"  → naive TQ + top-15% outlier preservation
+                                (= published TurboQuant ICLR 2026)
     """
     if method == "none" or bits <= 0:
         return kv
@@ -215,6 +290,8 @@ def _quantize_kv(
         return apply_kivi_keys_4d(kv, bits) if is_key else apply_kivi_values_4d(kv, bits)
     if method == "turboquant":
         return apply_turboquant_4d(kv, bits)
+    if method == "turboquant_outlier":
+        return apply_turboquant_4d_with_outliers(kv, bits)
     raise ValueError(f"unknown quantization method: {method}")
 
 
@@ -471,7 +548,7 @@ def patch_model_for_quantization(model: nn.Module, method: str, bits: int) -> in
     """
     global _QUANT_METHOD, _QUANT_BITS
 
-    if method not in ("none", "fajarquant", "kivi", "turboquant"):
+    if method not in ("none", "fajarquant", "kivi", "turboquant", "turboquant_outlier"):
         raise ValueError(f"unknown quantization method: {method}")
     if method != "none" and bits not in (2, 3, 4):
         raise ValueError(f"bits must be 2, 3, or 4 (got {bits})")
@@ -539,21 +616,41 @@ def _self_test() -> None:
     tq2 = apply_turboquant_4d(k, 2)
     assert tq2.shape == k.shape and torch.isfinite(tq2).all()
 
+    # B1.1: published TurboQuant with outlier preservation
+    tqo2 = apply_turboquant_4d_with_outliers(k, 2, outlier_pct=0.15)
+    assert tqo2.shape == k.shape, "TQ outlier shape mismatch"
+    assert torch.isfinite(tqo2).all(), "TQ outlier produced NaN/Inf"
+
     # Round-trip sanity: at 4-bit, FQ should be very close to input
     fq4 = apply_fajarquant_4d(k, 4)
     rel_err = (fq4 - k).abs().mean().item() / k.abs().mean().item()
     assert rel_err < 0.5, f"FQ 4-bit unreasonably lossy: rel_err={rel_err:.3f}"
 
+    # TQ outlier should be ≤ TQ naive in MSE because it preserves the
+    # high-variance channels that quantization hurts most.
+    tq_naive_mse = (tq2 - k).pow(2).mean().item()
+    tq_outlier_mse = (tqo2 - k).pow(2).mean().item()
+    assert tq_outlier_mse <= tq_naive_mse, (
+        f"TQ outlier ({tq_outlier_mse:.6f}) should not be worse than "
+        f"naive TQ ({tq_naive_mse:.6f})"
+    )
+
     # Dispatch
     fq_via_dispatch = _quantize_kv(k, "fajarquant", 2, is_key=True)
     assert torch.allclose(fq_via_dispatch, fq2, atol=1e-5), "dispatch mismatch"
+
+    tqo_via_dispatch = _quantize_kv(k, "turboquant_outlier", 2, is_key=True)
+    assert torch.allclose(tqo_via_dispatch, tqo2, atol=1e-5), "TQ outlier dispatch mismatch"
 
     none_via_dispatch = _quantize_kv(k, "none", 0, is_key=True)
     assert torch.equal(none_via_dispatch, k), "none dispatch mutated input"
 
     print("[quant_attention] self-test PASS")
-    print(f"  FP32→FQ-2bit relerr: {(fq2 - k).abs().mean().item() / k.abs().mean().item():.4f}")
-    print(f"  FP32→FQ-4bit relerr: {rel_err:.4f}")
+    print(f"  FP32→FQ-2bit relerr:        {(fq2 - k).abs().mean().item() / k.abs().mean().item():.4f}")
+    print(f"  FP32→FQ-4bit relerr:        {rel_err:.4f}")
+    print(f"  TQ-naive 2bit MSE:          {tq_naive_mse:.6f}")
+    print(f"  TQ-outlier 2bit MSE:        {tq_outlier_mse:.6f}")
+    print(f"  Outlier preservation gain:  {(1 - tq_outlier_mse/tq_naive_mse) * 100:.2f}%")
 
 
 if __name__ == "__main__":

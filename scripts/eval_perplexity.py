@@ -155,7 +155,10 @@ def main():
     args = parser.parse_args()
 
     bits_list = [int(b) for b in args.bits.split(",")]
-    methods = ["fajarquant", "kivi", "turboquant"]
+    # B1.1: turboquant_outlier added as 4th method = published TurboQuant
+    # ICLR 2026 spec (top-15% high-variance channels in fp16 + naive TQ
+    # for the rest). The naive `turboquant` is retained for ablation.
+    methods = ["fajarquant", "kivi", "turboquant", "turboquant_outlier"]
 
     print("Loading WikiText-2 test set...")
     text = load_wikitext2()
