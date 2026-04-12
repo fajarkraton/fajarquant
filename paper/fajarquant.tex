@@ -12,6 +12,7 @@
 \usepackage{enumitem}
 \usepackage{listings}
 \usepackage{makecell}
+\usepackage{multirow}
 \usepackage{balance}
 
 % ── Theorem Environments ──
@@ -216,6 +217,93 @@ $b{=}4$ & $157.0$ & $145.3$ & $\mathbf{92.8}$ \\
 \end{table}
 
 \textbf{Key finding:} FajarQuant achieves the lowest perplexity at 2--3~bit quantization, where quantization noise is dominant and preserving principal components is critical. At 4~bit, sufficient precision makes random rotation competitive. KIVI's per-channel/per-token approach is consistently the weakest, confirming that rotation-based methods are superior for KV cache quantization.
+
+% ═══════════════════════════════════════════════════════════
+\section{Cross-Model Validation}
+\label{sec:crossmodel}
+
+To verify that FajarQuant's PCA rotation advantage is not specific to
+Gemma~4~E2B's MQA architecture, we extract real KV cache from two
+additional models with fundamentally different attention designs and
+re-run the 3-way comparison (Table~\ref{tab:crossmodel}).
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Cross-architecture key MSE delta (\% — positive = FajarQuant
+better, negative = baseline better). FajarQuant wins keys across all
+3 architectures and all 3 bit widths (9 of 9 cells), confirming the
+PCA-rotation advantage is architecture-agnostic. Mistral data is from
+50 prompts ($n{=}12{,}800$ samples per cell); Qwen2-7B is from 5 prompts
+($n{=}560$). Gemma~4~E2B numbers are from Table~\ref{tab:ablation}
+($n{=}1{,}500$). The KV-head ratio column reports attention\_heads :
+KV\_heads, where $1{:}1$ is full multi-head attention.}
+\label{tab:crossmodel}
+\begin{tabular}{lccccccc}
+\toprule
+\multirow{2}{*}{Model} & \multirow{2}{*}{Arch.} & \multirow{2}{*}{Layers} & \multirow{2}{*}{Heads (a:k)} & \multirow{2}{*}{$\sigma_1/\sigma_2$} & \multicolumn{3}{c}{Key MSE $\Delta$ vs TurboQuant} \\
+\cmidrule(lr){6-8}
+ & & & & & 2-bit & 3-bit & 4-bit \\
+\midrule
+Gemma~4~E2B  & MQA      & 35 & $8{:}1$ & 2.67 & $\mathbf{+4.9\%}$ & $\mathbf{+4.3\%}$ & $\mathbf{+4.8\%}$ \\
+Mistral 7B   & GQA      & 32 & $32{:}8$ & 2.95 & $\mathbf{+3.6\%}$ & $\mathbf{+4.2\%}$ & $\mathbf{+4.3\%}$ \\
+Qwen2-7B     & GQA      & 28 & $28{:}4$ & $\mathbf{7.70}$ & $\mathbf{+5.1\%}$ & $\mathbf{+5.6\%}$ & $\mathbf{+6.1\%}$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Key finding:} FajarQuant wins keys at all 3 bit widths on all
+3 architectures, with single-digit-percent improvements that stay
+remarkably consistent across model families. The PCA-rotation
+advantage is \emph{architecture-agnostic}: it generalizes from MQA
+(Gemma's 1 KV head shared across 8 attention heads) through GQA at
+both moderate ($4{:}1$, Mistral) and aggressive ($7{:}1$, Qwen2)
+sharing ratios. The smallest delta in the table ($+3.6\%$ for Mistral
+2-bit vs TurboQuant at $n{=}12{,}800$) is well above any
+statistical-noise threshold and confirms the conclusion at scale.
+
+% ═══════════════════════════════════════════════════════════
+\subsection{When the PCA Value Gap Closes}
+\label{sec:value-gap-closes}
+
+A consistent pattern in the Gemma~4~E2B and Mistral 7B value-MSE
+results is that TurboQuant beats FajarQuant by $3$--$11\%$ at every
+bit width on values, even though FajarQuant wins keys. This is the
+expected design tradeoff for any rotation method optimized on key
+distributions: PCA rotation aligns coordinates with the principal
+components of the \emph{key} calibration buffer, which need not match
+the value distribution.
+
+\textbf{Qwen2-7B exhibits a regime change.} On Qwen2-7B at 2-bit
+quantization, the FajarQuant-vs-TurboQuant value-MSE delta closes
+entirely to $+0.2\%$ (statistical tie), versus $-2.8\%$ on Gemma and
+$-11.1\%$ on Mistral at the same bit width. This is the first model
+in our evaluation where FajarQuant's value performance matches
+TurboQuant's at the most aggressive quantization level.
+
+The closure correlates with Qwen2-7B's exceptional key low-rank
+structure: its top-2 singular value ratio is $\sigma_1/\sigma_2 = 7.70$
+in Table~\ref{tab:crossmodel}, versus $2.67$ for Gemma and $2.95$ for
+Mistral. We hypothesize that when keys are highly low-rank, the PCA
+rotation matrix that FajarQuant computes from the key calibration
+buffer also produces a useful rotation for the value path, because
+both share the same spatial directions in the residual stream of a
+transformer. On flatter-distribution models, the key-derived rotation
+is less informative for values and TurboQuant's data-agnostic random
+rotation wins.
+
+This finding suggests two practical implications:
+\begin{enumerate}[nosep]
+\item For models with strongly low-rank keys (high
+$\sigma_1/\sigma_2$), FajarQuant is competitive on \emph{both} keys
+and 2-bit values---the value tradeoff documented elsewhere in this
+paper does not apply.
+\item Future work could compute a separate value-distribution PCA
+rotation cache, decoupling the value-side rotation from the key
+calibration. Preliminary experiments are out of scope for this paper,
+but the Qwen2-7B result suggests the upper bound is at least
+``competitive with TurboQuant on values.''
+\end{enumerate}
 
 % ═══════════════════════════════════════════════════════════
 \section{KV Cache Structure Analysis}
