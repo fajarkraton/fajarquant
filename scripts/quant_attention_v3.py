@@ -66,16 +66,51 @@ def _path_a_kivi(kv: torch.Tensor, bits: int, is_key: bool) -> torch.Tensor:
     return apply_kivi_values_4d(kv, bits)
 
 
+def _get_head_cal(layer_cal: dict, head_idx: int, kv_type: str) -> dict | None:
+    """Get calibration dict for a specific head, with per-head or per-layer fallback."""
+    heads = layer_cal.get("heads")
+    if heads and head_idx < len(heads):
+        return heads[head_idx]
+    # Per-layer fallback (Gemma or old .npz)
+    return layer_cal
+
+
+def _get_gpu_tensors_v3(
+    head_cal: dict, kv_type: str, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Lazy GPU tensor caching for one head's calibration data."""
+    cache_key = f"_v3_{kv_type}_gpu_{device}"
+    if cache_key not in head_cal:
+        head_cal[cache_key] = (
+            torch.from_numpy(head_cal[f"{kv_type}_outlier_mask"]).to(device),
+            torch.from_numpy(head_cal[f"{kv_type}_pca_rotation"]).float().to(device),
+            torch.from_numpy(head_cal[f"{kv_type}_pca_mean"]).float().to(device),
+        )
+    return head_cal[cache_key]
+
+
+def _quantize_per_coord_uniform(data: torch.Tensor, bits: int) -> torch.Tensor:
+    """Per-coordinate unsigned uniform quantization (v2a style)."""
+    levels = (1 << bits) - 1
+    dmin = data.amin(dim=(0, 1), keepdim=True)
+    dmax = data.amax(dim=(0, 1), keepdim=True)
+    scale = (dmax - dmin).clamp(min=1e-8) / levels
+    q = ((data - dmin) / scale).round().clamp(0, levels)
+    return q * scale + dmin
+
+
 def _path_b_pca(kv: torch.Tensor, bits: int, layer_idx: int, is_key: bool,
                 cal: dict | None) -> torch.Tensor:
     """Path B: Calibrated PCA rotation + per-coord quantization.
 
-    Uses v2 calibration data from load_calibration() which returns:
-      {"layers": [{"k_outlier_mask": ..., "k_pca_rotation": ..., ...}, ...]}
-    Lazy GPU tensor caching via _get_gpu_tensors (from quant_attention_v2).
-
-    B-fix D6: fixed calibration key format — was using flat keys
-    "layer_0_k_outlier_mask" that never existed in the nested cal dict.
+    v3.1 enhancements:
+    - Per-head PCA: when cal has per-head format, each head gets its own
+      rotation matrix (eliminates cross-head contamination for GQA).
+    - v2a outlier mode: at >=4 bits, outlier channels are quantized with
+      per-coord uniform instead of fp16 preservation (matches v2a which
+      beats KIVI on Gemma 4-bit: 26.51 vs 35.17).
+    - At <4 bits, outliers preserved in fp16 (v2 original, prevents
+      the 2-bit outlier crush that makes v2a worse at 2-bit).
     """
     if cal is None:
         import warnings
@@ -85,59 +120,49 @@ def _path_b_pca(kv: torch.Tensor, bits: int, layer_idx: int, is_key: bool,
     layers = cal.get("layers")
     if layers is None or layer_idx >= len(layers):
         import warnings
-        warnings.warn(f"Path B: layer {layer_idx} not in calibration ({len(layers) if layers else 0} layers), "
-                       "falling back to Path A")
+        warnings.warn(f"Path B: layer {layer_idx} not in calibration "
+                      f"({len(layers) if layers else 0} layers), falling back to Path A")
         return _path_a_kivi(kv, bits, is_key)
 
     layer_cal = layers[layer_idx]
     kv_type = "k" if is_key else "v"
-
-    outlier_mask_np = layer_cal.get(f"{kv_type}_outlier_mask")
-    pca_rotation_np = layer_cal.get(f"{kv_type}_pca_rotation")
-    pca_mean_np = layer_cal.get(f"{kv_type}_pca_mean")
-
-    if outlier_mask_np is None or pca_rotation_np is None or pca_mean_np is None:
-        import warnings
-        warnings.warn(f"Path B: missing calibration arrays for layer {layer_idx} {kv_type}, "
-                       "falling back to Path A")
-        return _path_a_kivi(kv, bits, is_key)
-
     device = kv.device
     dtype = kv.dtype
     B, H, S, D = kv.shape
+    # v2a mode: quantize outliers at >=4 bits instead of fp16 preservation
+    quantize_outliers = (bits >= 4)
 
-    # Lazy GPU tensor caching (same pattern as v2 _get_gpu_tensors)
-    cache_key = f"_v3_{kv_type}_gpu_{device}"
-    if cache_key not in layer_cal:
-        layer_cal[cache_key] = (
-            torch.from_numpy(outlier_mask_np).to(device),
-            torch.from_numpy(pca_rotation_np).float().to(device),
-            torch.from_numpy(pca_mean_np).float().to(device),
-        )
-    outlier_mask_t, rot_t, mean_t = layer_cal[cache_key]
-    clean_mask = ~outlier_mask_t
-
-    D_clean = int(clean_mask.sum())
     result = kv.clone()
     for h in range(H):
+        # Per-head calibration lookup
+        head_cal = _get_head_cal(layer_cal, h, kv_type)
+        if head_cal.get(f"{kv_type}_outlier_mask") is None:
+            continue  # no cal for this head, keep original
+
+        outlier_mask_t, rot_t, mean_t = _get_gpu_tensors_v3(head_cal, kv_type, device)
+        clean_mask = ~outlier_mask_t
+        D_clean = int(clean_mask.sum())
+
         head_data = kv[:, h, :, :]  # (B, S, D)
-        # Preserve outlier channels in full precision
-        outlier_data = head_data[:, :, outlier_mask_t].clone()
+
         # Clean channels: center → rotate → quantize → inverse rotate → uncenter
         clean = head_data[:, :, clean_mask].float()
         centered = clean - mean_t[:D_clean]
         rotated = centered @ rot_t[:D_clean, :D_clean].T
-        # Per-coord asymmetric quantize (matching v2's unsigned uniform grid)
-        levels = (1 << bits) - 1
-        rmin = rotated.amin(dim=(0, 1), keepdim=True)
-        rmax = rotated.amax(dim=(0, 1), keepdim=True)
-        scale = (rmax - rmin).clamp(min=1e-8) / levels
-        quantized = ((rotated - rmin) / scale).round().clamp(0, levels)
-        dequantized = quantized * scale + rmin
-        # Inverse rotate + uncenter
+        dequantized = _quantize_per_coord_uniform(rotated, bits)
         restored = dequantized @ rot_t[:D_clean, :D_clean] + mean_t[:D_clean]
         result[:, h, :, clean_mask] = restored.to(dtype)
-        result[:, h, :, outlier_mask_t] = outlier_data
+
+        # Outlier channels
+        if quantize_outliers:
+            # v2a mode: quantize outliers with per-coord uniform (better at 4-bit)
+            outlier_data = head_data[:, :, outlier_mask_t].float()
+            outlier_quant = _quantize_per_coord_uniform(outlier_data, bits)
+            result[:, h, :, outlier_mask_t] = outlier_quant.to(dtype)
+        else:
+            # v2 mode: preserve outliers in fp16 (better at 2-3 bit)
+            result[:, h, :, outlier_mask_t] = head_data[:, :, outlier_mask_t]
+
     return result
 
 

@@ -66,31 +66,62 @@ _CALIBRATION: dict | None = None  # loaded calibration data
 def load_calibration(path: str) -> dict:
     """Load a .npz calibration file produced by calibrate_fq_v2.py.
 
-    Returns a dict with metadata and per-layer calibration arrays,
-    plus pre-built GPU tensors for efficient inference.
+    Supports both per-layer (v2 original) and per-head (v3.1) formats.
+    Auto-detects format by checking for `k_0_h0_pca_rotation` key.
+
+    Returns a dict with metadata and per-layer calibration arrays.
+    Per-head format adds `cal["layers"][i]["heads"]` list.
+    Per-layer format uses `cal["layers"][i]["k_pca_rotation"]` directly.
     """
     raw = dict(np.load(path, allow_pickle=True))
 
     n_layers = int(raw["_n_layers"])
     head_dim = int(raw["_head_dim"])
+    n_heads = int(raw["_n_heads"]) if "_n_heads" in raw else 1
+    is_per_head = "k_0_h0_pca_rotation" in raw
 
     cal: dict = {
         "model": str(raw["_model"]),
         "n_layers": n_layers,
         "head_dim": head_dim,
+        "n_heads": n_heads,
+        "per_head": is_per_head,
         "layers": [],
     }
 
     for i in range(n_layers):
-        layer_cal = {
-            "k_outlier_mask": raw[f"k_{i}_outlier_mask"],  # (D,) bool
-            "k_pca_rotation": raw[f"k_{i}_pca_rotation"],  # (D', D') float32
-            "k_pca_mean": raw[f"k_{i}_pca_mean"],          # (D',) float32
-            "v_outlier_mask": raw[f"v_{i}_outlier_mask"],
-            "v_pca_rotation": raw[f"v_{i}_pca_rotation"],
-            "v_pca_mean": raw[f"v_{i}_pca_mean"],
-        }
-        cal["layers"].append(layer_cal)
+        if is_per_head:
+            # Per-head format: cal["layers"][i]["heads"][h]["k_pca_rotation"]
+            layer_cal = {"heads": []}
+            for h in range(n_heads):
+                head_cal = {
+                    "k_outlier_mask": raw[f"k_{i}_h{h}_outlier_mask"],
+                    "k_pca_rotation": raw[f"k_{i}_h{h}_pca_rotation"],
+                    "k_pca_mean": raw[f"k_{i}_h{h}_pca_mean"],
+                    "v_outlier_mask": raw[f"v_{i}_h{h}_outlier_mask"],
+                    "v_pca_rotation": raw[f"v_{i}_h{h}_pca_rotation"],
+                    "v_pca_mean": raw[f"v_{i}_h{h}_pca_mean"],
+                }
+                layer_cal["heads"].append(head_cal)
+            # Also keep layer-level access for backward compat (use head 0)
+            layer_cal["k_outlier_mask"] = layer_cal["heads"][0]["k_outlier_mask"]
+            layer_cal["k_pca_rotation"] = layer_cal["heads"][0]["k_pca_rotation"]
+            layer_cal["k_pca_mean"] = layer_cal["heads"][0]["k_pca_mean"]
+            layer_cal["v_outlier_mask"] = layer_cal["heads"][0]["v_outlier_mask"]
+            layer_cal["v_pca_rotation"] = layer_cal["heads"][0]["v_pca_rotation"]
+            layer_cal["v_pca_mean"] = layer_cal["heads"][0]["v_pca_mean"]
+            cal["layers"].append(layer_cal)
+        else:
+            # Per-layer format (original v2)
+            layer_cal = {
+                "k_outlier_mask": raw[f"k_{i}_outlier_mask"],
+                "k_pca_rotation": raw[f"k_{i}_pca_rotation"],
+                "k_pca_mean": raw[f"k_{i}_pca_mean"],
+                "v_outlier_mask": raw[f"v_{i}_outlier_mask"],
+                "v_pca_rotation": raw[f"v_{i}_pca_rotation"],
+                "v_pca_mean": raw[f"v_{i}_pca_mean"],
+            }
+            cal["layers"].append(layer_cal)
 
     return cal
 
