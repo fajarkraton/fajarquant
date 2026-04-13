@@ -2,213 +2,117 @@
   "_model": "google/gemma-4-E2B",
   "_bits": 4,
   "_thresholds": {
-    "T_cv": 2.0,
-    "T_svd": 5.0,
-    "T_kurt": 6.0,
-    "T_skew": 1.5
+    "T_cv": 3.0,
+    "T_svd": 1.2,
+    "T_kurt": 1.0,
+    "T_skew": 0.1,
+    "T_kurt_residual": 1.0
   },
   "assignments": [
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "B",
+        "v": "A"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "B",
+        "v": "A"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "A"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "C"
+        "k": "A",
+        "v": "A"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ],
     [
       {
-        "k": "C",
-        "v": "D"
+        "k": "A",
+        "v": "B"
       }
     ]
   ],
   "path_counts": {
-    "A": 0,
-    "B": 0,
-    "C": 24,
-    "D": 6,
+    "A": 17,
+    "B": 13,
+    "C": 0,
+    "D": 0,
     "E": 0
   },
   "path_fractions": {
-    "A": 0.0,
-    "B": 0.0,
-    "C": 1.0,
+    "A": 0.567,
+    "B": 0.433,
+    "C": 0.0,
     "D": 0.0,
     "E": 0.0
   },
-  "n_unique_paths": 2,
-  "_verification": {
-    "swaps": 6,
-    "total_heads": 30,
-    "swap_rate": 0.2,
-    "swap_log": [
-      {
-        "layer": 14,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003665,
-        "mse_after": 4.4e-05
-      },
-      {
-        "layer": 8,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003504,
-        "mse_after": 4e-05
-      },
-      {
-        "layer": 4,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003415,
-        "mse_after": 3.9e-05
-      },
-      {
-        "layer": 3,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003407,
-        "mse_after": 4e-05
-      },
-      {
-        "layer": 13,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.00338,
-        "mse_after": 4e-05
-      },
-      {
-        "layer": 7,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003347,
-        "mse_after": 4e-05
-      },
-      {
-        "layer": 5,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003274,
-        "mse_after": 3.9e-05
-      },
-      {
-        "layer": 1,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003268,
-        "mse_after": 3.8e-05
-      },
-      {
-        "layer": 11,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003242,
-        "mse_after": 3.8e-05
-      },
-      {
-        "layer": 10,
-        "head": 0,
-        "kv": "v",
-        "from": "C",
-        "to": "D",
-        "mse_before": 0.003174,
-        "mse_after": 3.8e-05
-      }
-    ]
-  }
+  "n_unique_paths": 2
 }
