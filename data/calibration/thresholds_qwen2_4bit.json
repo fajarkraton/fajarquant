@@ -12,7 +12,7 @@
     "T_skew": 0.3,
     "T_kurt_residual": 1.0
   },
-  "default_mse": 0.019789333172898944,
+  "default_mse": 0.01776642728688265,
   "optimal_thresholds": {
     "T_cv": 0.5,
     "T_svd": 2.0,
@@ -20,9 +20,9 @@
     "T_skew": 0.3,
     "T_kurt_residual": 1.0
   },
-  "train_mse": 0.019388570051725246,
-  "test_mse": 0.01965039567351466,
-  "overfit_ratio": 1.0135,
+  "train_mse": 0.017405647915666123,
+  "test_mse": 0.01723655139994662,
+  "overfit_ratio": 0.9903,
   "optimal_path_counts": {
     "A": 224,
     "B": 0,
@@ -38,5 +38,5 @@
     "E": 2
   },
   "grid_size": 625,
-  "elapsed_seconds": 149.8
+  "elapsed_seconds": 85.6
 }

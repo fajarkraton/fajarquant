@@ -26,6 +26,10 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cache_compat import get_cache_n_layers, get_cache_kv
+
 
 def _init_head_stats(D: int) -> dict:
     """Initialize streaming stats for one (layer, head) or one layer."""
@@ -88,16 +92,18 @@ def collect_streaming_stats(
             cache = DynamicCache()
             model(chunk, past_key_values=cache, use_cache=True)
 
-        n_layers = len(cache.key_cache)
+        n_layers = get_cache_n_layers(cache)
         if i == 0:
             n_layers_out = n_layers
-            k0 = cache.key_cache[0].squeeze(0)  # (H, S, D)
+            k0_raw, _ = get_cache_kv(cache, 0)
+            k0 = k0_raw.squeeze(0)  # (H, S, D)
             head_dim_out = k0.shape[-1]
             n_kv_heads_out = k0.shape[0]
             use_per_head = per_head and n_kv_heads_out > 1
 
             for li in range(n_layers):
-                kl = cache.key_cache[li].squeeze(0)
+                kl_raw, _ = get_cache_kv(cache, li)
+                kl = kl_raw.squeeze(0)
                 D = kl.shape[-1]
                 H = kl.shape[0]
                 if use_per_head:
@@ -106,8 +112,9 @@ def collect_streaming_stats(
                     layer_stats.append(_init_head_stats(D))
 
         for layer_idx in range(n_layers):
-            k = cache.key_cache[layer_idx].squeeze(0).float().cpu()   # (H, S, D)
-            v = cache.value_cache[layer_idx].squeeze(0).float().cpu()
+            k_raw, v_raw = get_cache_kv(cache, layer_idx)
+            k = k_raw.squeeze(0).float().cpu()   # (H, S, D)
+            v = v_raw.squeeze(0).float().cpu()
             H, S, D_k = k.shape
             D_v = v.shape[-1]
 

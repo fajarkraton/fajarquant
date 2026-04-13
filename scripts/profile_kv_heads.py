@@ -23,6 +23,7 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from scipy import stats as scipy_stats
+from cache_compat import get_cache_n_layers, get_cache_kv
 
 # B-fix D9: fixed seed for reproducible subsampling near decision thresholds
 np.random.seed(42)
@@ -112,11 +113,12 @@ def profile_model(
         cache = DynamicCache()
         model(chunk0, past_key_values=cache, use_cache=True)
 
-    n_layers = len(cache.layers)
+    n_layers = get_cache_n_layers(cache)
     # Detect per-layer head count and dim
     layer_info = []
     for li in range(n_layers):
-        k = cache.layers[li].keys.squeeze(0)  # (H, S, D)
+        k_raw, _ = get_cache_kv(cache, li)
+        k = k_raw.squeeze(0)  # (H, S, D)
         H, S, D = k.shape
         layer_info.append({"n_heads": H, "head_dim": D})
     del cache
@@ -136,8 +138,9 @@ def profile_model(
             model(chunk, past_key_values=cache, use_cache=True)
 
         for li in range(n_layers):
-            k = cache.layers[li].keys.squeeze(0).float().cpu().numpy()  # (H, S, D)
-            v = cache.layers[li].values.squeeze(0).float().cpu().numpy()
+            k_raw, v_raw = get_cache_kv(cache, li)
+            k = k_raw.squeeze(0).float().cpu().numpy()  # (H, S, D)
+            v = v_raw.squeeze(0).float().cpu().numpy()
             H = k.shape[0]
 
             for h in range(H):

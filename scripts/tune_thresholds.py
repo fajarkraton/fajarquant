@@ -47,6 +47,7 @@ from quant_attention import (
 )
 from quant_attention_v2 import load_calibration
 from quant_attention_v3 import _path_b_pca
+from cache_compat import get_cache_n_layers, get_cache_kv
 
 
 # Grid values — calibrated to real profile data ranges (B-fix.1)
@@ -89,9 +90,10 @@ def extract_kv_cache(model, tokenizer, text: str, n_chunks: int = 5,
             model(chunk, past_key_values=cache, use_cache=True)
 
         layers_kv = []
-        for li in range(len(cache.layers)):
-            k = cache.layers[li].keys.squeeze(0).float().cpu()   # (H, S, D)
-            v = cache.layers[li].values.squeeze(0).float().cpu()
+        for li in range(get_cache_n_layers(cache)):
+            k_raw, v_raw = get_cache_kv(cache, li)
+            k = k_raw.squeeze(0).float().cpu()   # (H, S, D)
+            v = v_raw.squeeze(0).float().cpu()
             layers_kv.append({"k": k, "v": v})
         all_chunks.append(layers_kv)
 
