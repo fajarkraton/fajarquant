@@ -52,3 +52,5 @@ Thumbs.db
 
 # Local env
 .env
+paper/mlsys_template/
+paper/mlsys2026style.zip
