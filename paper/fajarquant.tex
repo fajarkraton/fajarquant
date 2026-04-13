@@ -264,6 +264,19 @@ systems language with dual-context safety annotations. This is the first
 KV cache quantization method with compile-time safety guarantees
 enforced by the language itself.
 
+\textbf{Implementation note.} This paper evaluates two distinct
+implementations: (1)~a \textbf{Python/PyTorch reference}
+(\texttt{fajarkraton/fajarquant} on GitHub) used for all perplexity
+and MSE benchmarks in \S\ref{sec:perplexity}--\S\ref{sec:v3},
+running on an RTX~4090 GPU; and (2)~a \textbf{native Fajar Lang
+implementation} (\texttt{fajarkraton/fajar-lang}, \texttt{src/runtime/ml/})
+used for the embedded deployment story in this section and for the
+performance comparison in \S\ref{sec:perf}. A separate kernel-mode port
+exists in FajarOS (\texttt{fajarkraton/fajaros-x86},
+\texttt{kernel/compute/fajarquant.fj}) demonstrating Ring~0 KV cache
+quantization for SmolLM-135M inference without userspace---that port is
+a deployment demonstration, not a benchmark target.
+
 \subsection{Language-Level Quantization Types}
 
 Fajar Lang provides a first-class \texttt{Quantized<T, BITS>} type

@@ -22,7 +22,7 @@ signed_at: 2026-04-11
 
 # FajarQuant Paper Submission Decision
 
-**Status:** committed 2026-04-11 (V26 Phase C3.2, Plan Hygiene Rule 6 mechanical gate satisfied — 14 days ahead of the 2026-04-25 internal deadline).
+**Status:** committed 2026-04-11, updated 2026-04-14 with v3.1 results (V26 Phase C3.2, Plan Hygiene Rule 6 mechanical gate satisfied — 11 days ahead of the 2026-04-25 internal deadline).
 
 ## Decision
 
@@ -32,7 +32,7 @@ signed_at: 2026-04-11
 
 1. **arXiv preprint first** establishes priority for the three FajarQuant innovations (PCA-based adaptive rotation, fused quantized attention, hierarchical multi-resolution allocation) before any external review window opens. It protects against scoop risk during the long MLSys review cycle and gives reviewers a stable citable artifact regardless of subsequent venue outcome. This matches the V26 plan §6 risk register directive: *"Workshop track as backup; arXiv preprint regardless."*
 
-2. **MLSys 2027 is the best venue fit.** The paper's core contribution — hardware-aware quantization for embedded inference targets — is exactly the systems-meets-ML niche MLSys was created for. The 2-3 bit perplexity wins over KIVI and TurboQuant on real Gemma 4 E2B data (PPL 80.1 at 2-bit vs TurboQuant 117.1, KIVI 231.9) are competitive with prior MLSys-accepted KV cache quantization work. The V26 plan §C explicitly identifies MLSys 2027 as the highest-leverage acceptance target.
+2. **MLSys 2027 is the best venue fit.** The paper's core contribution — adaptive per-head KV cache quantization for embedded inference — is exactly the systems-meets-ML niche MLSys was created for. The v3.1 adaptive selector matches or beats the best fixed method in 7/9 cells across 3 architectures (MQA/GQA), with wins of -24% PPL on Gemma 3-bit and -35% on Qwen2 2-bit vs KIVI, plus zero catastrophic failures. This cross-architecture analysis is competitive with prior MLSys-accepted KV cache quantization work. The V26 plan §C explicitly identifies MLSys 2027 as the highest-leverage acceptance target.
 
 3. **NeurIPS 2026 ML Systems workshop is the fallback** because the paper is already 5 pages (workshop length without extension), workshop turnaround is faster (~Dec 2026 vs ~March 2027), the NeurIPS umbrella still provides citation visibility, and pre-authorising the fallback in this committed file removes future decision overhead if MLSys rejects.
 
