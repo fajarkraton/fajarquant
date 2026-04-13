@@ -201,6 +201,7 @@ FajarQuant consistently achieves the lowest key MSE at all bit widths, with 4--6
 
 % ═══════════════════════════════════════════════════════════
 \section{Innovation 2: Fused Quantized Attention}
+\label{sec:fused}
 
 Standard attention dequantizes all $N$ key vectors before computing dot products, requiring $O(N \cdot d)$ extra memory. We eliminate this by computing directly on quantized indices via codebook lookup:
 \begin{equation}
@@ -536,7 +537,7 @@ $+0.2\%$) and $n{=}5{,}600$ (50-prompt production, $+0.3\%$),
 confirming it is not a small-sample artifact.
 
 The closure correlates with Qwen2-7B's exceptional key low-rank
-structure: its top-2 singular value ratio is $\sigma_1/\sigma_2 = 7.70$
+structure: its top-2 singular value ratio is $\sigma_1/\sigma_2 = 7.71$
 in Table~\ref{tab:crossmodel}, versus $2.67$ for Gemma and $2.95$ for
 Mistral. We hypothesize that when keys are highly low-rank, the PCA
 rotation matrix that FajarQuant computes from the key calibration
@@ -827,7 +828,7 @@ This validates the memory savings claimed in \S\ref{sec:fused}
 \centering
 \caption{Peak RSS at 16K context (megabytes; lower is better).
 Data source: \texttt{bench/results/memory\_profile.csv}.}
-\label{tab:memory}
+\label{tab:memory_rss}
 \begin{tabular}{l|c|c|c|c}
 \hline
 Algorithm & 2-bit & 3-bit & 4-bit & FP16 baseline \\
@@ -1110,6 +1111,7 @@ safety guarantees.
 \appendix
 
 \section{Reproducibility}
+\label{sec:reprod}
 
 \begin{lstlisting}[language=bash,caption={Reproducing all results}]
 git clone https://github.com/fajarkraton/fajar-lang
