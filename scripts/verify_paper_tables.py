@@ -50,155 +50,67 @@ def load_json(rel_path: str) -> dict[str, Any]:
         return json.load(f)
 
 
-def perplexity(method: str, bits: int) -> float:
-    data = load_json("perplexity_results.json")
-    return float(data[f"{method}_{bits}bit"]["ppl"])
+def ppl_v2(model: str, method: str) -> float:
+    """Load PPL from canonical v2 results."""
+    data = load_json(f"perplexity_v2_{model}.json")
+    return float(data[method]["ppl"])
 
 
-def hierarchical_savings(seq_len_key: str) -> float:
-    data = load_json("ablation_results.json")
-    return float(data["hierarchical_ablation"][seq_len_key]["savings_pct"])
+def v1v2_improvement_pct(model: str) -> float:
+    """Compute (v1 - v2) / v1 * 100 at 2-bit."""
+    data = load_json(f"perplexity_v2_{model}.json")
+    v1 = data["fajarquant_2bit"]["ppl"]
+    v2 = data["fajarquant_v2_2bit"]["ppl"]
+    return (v1 - v2) / v1 * 100
 
 
-def pca_vs_turbo_pct(bits: int) -> float:
-    data = load_json("comparison_results.json")
-    return float(data[f"{bits}bit"]["key"]["fq_vs_turbo_pct"])
-
-
-def pca_vs_kivi_pct(bits: int) -> float:
-    data = load_json("comparison_results.json")
-    return float(data[f"{bits}bit"]["key"]["fq_vs_kivi_pct"])
-
-
-def pca_vs_turbo_pct_for(model_subdir: str, bits: int) -> float:
-    """V26 Phase C1.7 — generic loader for cross-model claims.
-    Reads data/kv_cache/<model_subdir>/comparison_results.json.
-    """
-    data = load_json(f"{model_subdir}/comparison_results.json")
-    return float(data[f"{bits}bit"]["key"]["fq_vs_turbo_pct"])
-
-
-def pca_vs_kivi_pct_for(model_subdir: str, bits: int) -> float:
-    """V26 Phase C1.7 — generic KIVI loader for cross-model claims."""
-    data = load_json(f"{model_subdir}/comparison_results.json")
-    return float(data[f"{bits}bit"]["key"]["fq_vs_kivi_pct"])
+def fqv2_vs_tq_pct(model: str) -> float:
+    """Compute (TQ - FQv2) / TQ * 100 at 2-bit (positive = FQ better)."""
+    data = load_json(f"perplexity_v2_{model}.json")
+    tq = data["turboquant_outlier_2bit"]["ppl"]
+    fq = data["fajarquant_v2_2bit"]["ppl"]
+    return (tq - fq) / tq * 100
 
 
 # ─────────────────────────────────────────────────────────────────
-# Claims registered as of paper version 2026-04-11 (V26 Phase C0)
-# Add new claims when the paper changes; this list is the source
-# of truth for what verify_paper_tables.py guards.
+# Claims registered for reframed paper (V26 C1.6 B6, 2026-04-13)
+# Source: data/kv_cache/perplexity_v2_{gemma,mistral,qwen2}.json
 # ─────────────────────────────────────────────────────────────────
 CLAIMS: list[Claim] = [
-    # Perplexity claims (paper line 39, 211, 290, 291)
-    Claim(
-        name="PPL 2-bit FajarQuant (abstract + Table)",
-        paper_value=80.1,
-        source_loader=lambda: perplexity("fajarquant", 2),
-        tolerance=0.1,
-        paper_line=39,
-    ),
-    Claim(
-        name="PPL 2-bit TurboQuant",
-        paper_value=117.1,
-        source_loader=lambda: perplexity("turboquant", 2),
-        tolerance=0.1,
-        paper_line=39,
-    ),
-    Claim(
-        name="PPL 2-bit KIVI",
-        paper_value=231.9,
-        source_loader=lambda: perplexity("kivi", 2),
-        tolerance=0.1,
-        paper_line=39,
-    ),
-    Claim(
-        name="PPL 3-bit FajarQuant",
-        paper_value=75.6,
-        source_loader=lambda: perplexity("fajarquant", 3),
-        tolerance=0.1,
-        paper_line=291,
-    ),
-    # Hierarchical savings claims (paper lines 37, 175, 266, 271, 339)
-    Claim(
-        name="Hierarchical 48.7% at 10K context",
-        paper_value=48.7,
-        source_loader=lambda: hierarchical_savings("N=10000"),
-        tolerance=0.05,
-        paper_line=37,
-    ),
-    Claim(
-        name="Hierarchical 55.7% at 16K context",
-        paper_value=55.7,
-        source_loader=lambda: hierarchical_savings("N=16384"),
-        tolerance=0.05,
-        paper_line=271,
-    ),
-    # PCA per-bit improvements (paper line 271)
-    Claim(
-        name="PCA vs TurboQuant 2-bit (4.9%)",
-        paper_value=4.9,
-        source_loader=lambda: pca_vs_turbo_pct(2),
-        tolerance=0.05,
-        paper_line=271,
-    ),
-    Claim(
-        name="PCA vs TurboQuant 3-bit (4.3%)",
-        paper_value=4.3,
-        source_loader=lambda: pca_vs_turbo_pct(3),
-        tolerance=0.05,
-        paper_line=271,
-    ),
-    Claim(
-        name="PCA vs TurboQuant 4-bit (4.8%)",
-        paper_value=4.8,
-        source_loader=lambda: pca_vs_turbo_pct(4),
-        tolerance=0.05,
-        paper_line=271,
-    ),
-    # ─────────────────────────────────────────────────────────────────
-    # V26 Phase C1.7 — Cross-Model Validation table (paper §Cross-Model
-    # Validation, table tab:crossmodel). 6 new claims covering Mistral
-    # 7B (n=12800) and Qwen2-7B (n=560) Key MSE deltas vs TurboQuant
-    # at 2/3/4 bit. Sources are the small JSON evidence files committed
-    # in commit 682a6f9.
-    # ─────────────────────────────────────────────────────────────────
-    Claim(
-        name="Cross-Model Mistral 7B 2-bit Key vs TurboQuant (3.6%)",
-        paper_value=3.6,
-        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 2),
-        tolerance=0.1,
-    ),
-    Claim(
-        name="Cross-Model Mistral 7B 3-bit Key vs TurboQuant (4.2%)",
-        paper_value=4.2,
-        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 3),
-        tolerance=0.1,
-    ),
-    Claim(
-        name="Cross-Model Mistral 7B 4-bit Key vs TurboQuant (4.3%)",
-        paper_value=4.3,
-        source_loader=lambda: pca_vs_turbo_pct_for("mistral_7b_50p", 4),
-        tolerance=0.1,
-    ),
-    Claim(
-        name="Cross-Model Qwen2-7B 2-bit Key vs TurboQuant (4.7%)",
-        paper_value=4.7,
-        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_50p", 2),
-        tolerance=0.1,
-    ),
-    Claim(
-        name="Cross-Model Qwen2-7B 3-bit Key vs TurboQuant (5.4%)",
-        paper_value=5.4,
-        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_50p", 3),
-        tolerance=0.1,
-    ),
-    Claim(
-        name="Cross-Model Qwen2-7B 4-bit Key vs TurboQuant (5.4%)",
-        paper_value=5.4,
-        source_loader=lambda: pca_vs_turbo_pct_for("qwen2_7b_50p", 4),
-        tolerance=0.1,
-    ),
+    # ── tab:ppl_crossmodel — Gemma ──
+    Claim("Gemma FP16", 28.13, lambda: ppl_v2("gemma", "fp16"), 0.01),
+    Claim("Gemma FQ v1 2-bit", 125.19, lambda: ppl_v2("gemma", "fajarquant_2bit"), 0.01),
+    Claim("Gemma FQ v2 2-bit", 46.20, lambda: ppl_v2("gemma", "fajarquant_v2_2bit"), 0.01),
+    Claim("Gemma KIVI 2-bit", 470.50, lambda: ppl_v2("gemma", "kivi_2bit"), 0.01),
+    Claim("Gemma TQ outlier 2-bit", 39.73, lambda: ppl_v2("gemma", "turboquant_outlier_2bit"), 0.01),
+    Claim("Gemma KIVI 3-bit", 21.90, lambda: ppl_v2("gemma", "kivi_3bit"), 0.01),
+    Claim("Gemma FQ v2 3-bit", 24.55, lambda: ppl_v2("gemma", "fajarquant_v2_3bit"), 0.01),
+    Claim("Gemma KIVI 4-bit", 35.17, lambda: ppl_v2("gemma", "kivi_4bit"), 0.01),
+    # ── tab:ppl_crossmodel — Mistral ──
+    Claim("Mistral FP16", 5.67, lambda: ppl_v2("mistral", "fp16"), 0.01),
+    Claim("Mistral KIVI 2-bit", 23.96, lambda: ppl_v2("mistral", "kivi_2bit"), 0.01),
+    Claim("Mistral FQ v2 2-bit", 208.16, lambda: ppl_v2("mistral", "fajarquant_v2_2bit"), 0.01),
+    Claim("Mistral KIVI 3-bit", 5.99, lambda: ppl_v2("mistral", "kivi_3bit"), 0.01),
+    Claim("Mistral KIVI 4-bit", 5.73, lambda: ppl_v2("mistral", "kivi_4bit"), 0.01),
+    # ── tab:ppl_crossmodel — Qwen2 ──
+    Claim("Qwen2 FP16", 7.55, lambda: ppl_v2("qwen2", "fp16"), 0.01),
+    Claim("Qwen2 FQ v2 2-bit", 50.10, lambda: ppl_v2("qwen2", "fajarquant_v2_2bit"), 0.01),
+    Claim("Qwen2 KIVI 2-bit", 46.70, lambda: ppl_v2("qwen2", "kivi_2bit"), 0.01),
+    Claim("Qwen2 TQ outlier 2-bit", 165.60, lambda: ppl_v2("qwen2", "turboquant_outlier_2bit"), 0.01),
+    Claim("Qwen2 KIVI 3-bit", 8.01, lambda: ppl_v2("qwen2", "kivi_3bit"), 0.01),
+    Claim("Qwen2 KIVI 4-bit", 7.62, lambda: ppl_v2("qwen2", "kivi_4bit"), 0.01),
+    # ── Abstract claims ──
+    Claim("Abstract: FQ v2 69.7% better on Qwen2 2-bit", 69.7, lambda: fqv2_vs_tq_pct("qwen2"), 0.5),
+    Claim("Abstract: v1→v2 improvement Gemma ≥63%", 63.1, lambda: v1v2_improvement_pct("gemma"), 0.5),
+    Claim("Abstract: v1→v2 improvement Mistral ≥76%", 76.0, lambda: v1v2_improvement_pct("mistral"), 0.5),
+    Claim("Abstract: v1→v2 improvement Qwen2 ≥80%", 80.9, lambda: v1v2_improvement_pct("qwen2"), 0.5),
+    # ── tab:v1v2_ablation (Gemma 2-bit) ──
+    Claim("Ablation: FQ v1 Gemma 2-bit", 125.19, lambda: ppl_v2("gemma", "fajarquant_2bit"), 0.01),
+    Claim("Ablation: FQ v2a Gemma 2-bit", 161.31, lambda: ppl_v2("gemma", "fajarquant_v2a_2bit"), 0.01),
+    Claim("Ablation: FQ v2 Gemma 2-bit", 46.20, lambda: ppl_v2("gemma", "fajarquant_v2_2bit"), 0.01),
+    # ── Protocol parameters ──
+    Claim("Protocol: 30 chunks", 30, lambda: float(load_json("perplexity_v2_gemma.json")["fp16"]["samples"]), 0),
+    Claim("Protocol: 61410 tokens", 61410, lambda: float(load_json("perplexity_v2_gemma.json")["fp16"]["tokens"]), 0),
 ]
 
 
