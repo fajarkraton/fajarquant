@@ -53,9 +53,9 @@ pub struct KiviQuantizedValues {
 
 /// Quantize keys per-channel (KIVI method).
 ///
-/// For each channel d in [0, d_head):
-///   scale_d = (max_d - min_d) / (2^b - 1)
-///   q[t][d] = round((key[t][d] - min_d) / scale_d)
+/// For each channel `d` in `[0, d_head)`:
+///   `scale_d = (max_d - min_d) / (2^b - 1)`
+///   `q[t][d] = round((key[t][d] - min_d) / scale_d)`
 pub fn kivi_quantize_keys(keys: &Array2<f64>, bits: u8) -> KiviQuantizedKeys {
     let (seq_len, d_head) = keys.dim();
     let levels = (1u32 << bits) - 1;
@@ -106,9 +106,9 @@ pub fn kivi_dequantize_keys(qk: &KiviQuantizedKeys) -> Array2<f64> {
 
 /// Quantize values per-token (KIVI method).
 ///
-/// For each token t in [0, seq_len):
-///   scale_t = (max_t - min_t) / (2^b - 1)
-///   q[t][d] = round((value[t][d] - min_t) / scale_t)
+/// For each token `t` in `[0, seq_len)`:
+///   `scale_t = (max_t - min_t) / (2^b - 1)`
+///   `q[t][d] = round((value[t][d] - min_t) / scale_t)`
 pub fn kivi_quantize_values(values: &Array2<f64>, bits: u8) -> KiviQuantizedValues {
     let (seq_len, d_head) = values.dim();
     let levels = (1u32 << bits) - 1;
@@ -198,17 +198,24 @@ pub fn kivi_memory_bytes(seq_len: usize, d_head: usize, bits: u8) -> usize {
 /// Result of a 3-way comparison.
 #[derive(Debug, Clone)]
 pub struct ComparisonResult {
+    /// Quantization bit width (2, 3, or 4).
     pub bits: u8,
+    /// Head dimension (d_head).
     pub dimension: usize,
+    /// Sequence length (number of tokens).
     pub seq_len: usize,
-    /// MSE for each method.
+    /// MSE for FajarQuant (calibrated PCA rotation).
     pub fajarquant_mse: f64,
+    /// MSE for KIVI per-channel key quantization.
     pub kivi_key_mse: f64,
+    /// MSE for KIVI per-token value quantization.
     pub kivi_value_mse: f64,
+    /// MSE for TurboQuant (random rotation + Lloyd-Max).
     pub turboquant_mse: f64,
-    /// Improvement ratios.
-    pub fq_vs_kivi_key: f64, // (kivi - fq) / kivi * 100
-    pub fq_vs_turbo: f64, // (turbo - fq) / turbo * 100
+    /// Improvement of FQ over KIVI keys: `(kivi - fq) / kivi * 100`.
+    pub fq_vs_kivi_key: f64,
+    /// Improvement of FQ over TurboQuant: `(turbo - fq) / turbo * 100`.
+    pub fq_vs_turbo: f64,
 }
 
 /// Run 3-way comparison on a given data matrix.

@@ -1,8 +1,8 @@
 //! FajarQuant Innovation 2: Fused Quantized Attention.
 //!
 //! Compute attention scores directly on quantized KV cache WITHOUT full
-//! dequantization. The key insight: q^T * dequant(k) = sum_j q[j] * c[idx[j]]
-//! — we never allocate the dequantized vector, saving O(N*d) memory.
+//! dequantization. The key insight: `q^T * dequant(k) = sum_j q[j] * c[idx[j]]`
+//! — we never allocate the dequantized vector, saving O(N\*d) memory.
 
 use ndarray::Array1;
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ impl QuantizedKVCache {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Compute dot product between a query vector and a quantized key vector
-/// WITHOUT dequantizing: score = sum_j q[j] * codebook.centroids[k_idx[j]].
+/// WITHOUT dequantizing: `score = sum_j q[j] * codebook.centroids[k_idx[j]]`.
 pub fn codebook_dot_product(query: &Array1<f64>, k_indices: &[u8], codebook: &Codebook) -> f64 {
     query
         .iter()
@@ -86,7 +86,7 @@ pub fn codebook_dot_product(query: &Array1<f64>, k_indices: &[u8], codebook: &Co
 }
 
 /// Compute weighted sum of quantized value vectors WITHOUT dequantizing:
-/// output[j] = sum_i weights[i] * codebook.centroids[v_indices[i][j]].
+/// `output[j] = sum_i weights[i] * codebook.centroids[v_indices[i][j]]`.
 pub fn codebook_weighted_sum(
     weights: &[f64],
     v_entries: &[&[u8]],
@@ -115,9 +115,9 @@ pub fn codebook_weighted_sum(
 /// apply Pi^T to get back to the original space.
 ///
 /// Steps:
-/// 1. Compute attention scores: score[i] = q_rot * c[k_idx[i]] via codebook lookup
-/// 2. Softmax: attn[i] = exp(score[i]) / sum(exp(scores))
-/// 3. Weighted sum: output = sum(attn[i] * c[v_idx[i]]) via codebook lookup
+/// 1. Compute attention scores: `score[i] = q_rot * c[k_idx[i]]` via codebook lookup
+/// 2. Softmax: `attn[i] = exp(score[i]) / sum(exp(scores))`
+/// 3. Weighted sum: `output = sum(attn[i] * c[v_idx[i]])` via codebook lookup
 ///
 /// Zero extra memory allocation for dequantized keys/values.
 pub fn fused_quantized_attention(
