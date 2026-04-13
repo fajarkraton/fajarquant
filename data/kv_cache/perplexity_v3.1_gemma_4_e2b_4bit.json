@@ -1,0 +1,33 @@
+{
+  "fp16": {
+    "ppl": 28.109329223632812,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_v3_4bit": {
+    "ppl": 28.128562927246094,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_4bit": {
+    "ppl": 35.10621643066406,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_outlier_4bit": {
+    "ppl": 27.520532608032227,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery (v3)",
+    "model": "google/gemma-4-E2B",
+    "strategy": "data/calibration/strategy_gemma_4_e2b_4bit.json",
+    "calibration": "data/calibration/fq_v2_gemma_4_e2b.npz",
+    "seq_len": 2048,
+    "max_samples": 30
+  }
+}

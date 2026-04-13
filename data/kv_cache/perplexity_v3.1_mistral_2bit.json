@@ -1,0 +1,33 @@
+{
+  "fp16": {
+    "ppl": 5.669079780578613,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_v3_2bit": {
+    "ppl": 24.951536178588867,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_2bit": {
+    "ppl": 24.951536178588867,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_outlier_2bit": {
+    "ppl": 163.96051025390625,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery (v3)",
+    "model": "mistralai/Mistral-7B-v0.1",
+    "strategy": "data/calibration/strategy_mistral_7b_v0.1_2bit_ppl_guided.json",
+    "calibration": "data/calibration/fq_v2_mistral_7b_v0.1_perhead.npz",
+    "seq_len": 2048,
+    "max_samples": 30
+  }
+}
