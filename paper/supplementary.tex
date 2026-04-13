@@ -1,0 +1,230 @@
+\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{listings}
+\usepackage{enumitem}
+
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,frame=single}
+
+\title{Supplementary Materials:\\Cross-Architecture KV Cache Quantization}
+\author{Muhamad Fajar Putranto\\TaxPrime / PrimeCore.id, Jakarta, Indonesia}
+\date{}
+
+\begin{document}
+\maketitle
+
+% ═══════════════════════════════════════════════════════════
+\section{Reproduction Commands}
+\label{sec:reprod}
+
+All results in the paper can be reproduced from a clean checkout of the
+\texttt{fajarkraton/fajarquant} repository. GPU access (NVIDIA with
+$\geq$16\,GB VRAM) and a HuggingFace account with model access are
+required.
+
+\begin{lstlisting}[language=bash,caption={Full reproduction pipeline}]
+# Clone and set up environment
+git clone https://github.com/fajarkraton/fajarquant
+cd fajarquant
+python3 -m venv .venv
+source .venv/bin/activate
+pip install torch torchvision --index-url \
+  https://download.pytorch.org/whl/cu124
+pip install transformers datasets numpy
+
+# Step 1: Calibrate PCA rotations (per-layer + per-head)
+# Gemma (MQA, 1 head -- per-layer = per-head)
+python3 scripts/calibrate_fq_v2.py \
+  --model google/gemma-4-E2B \
+  --output data/calibration/fq_v2_gemma_4_e2b.npz
+
+# Mistral (GQA, 8 heads -- per-head calibration)
+python3 scripts/calibrate_fq_v2.py \
+  --model mistralai/Mistral-7B-v0.1 --per-head \
+  --output data/calibration/fq_v2_mistral_7b_v0.1_perhead.npz
+
+# Qwen2 (GQA, 4 heads -- per-head calibration)
+python3 scripts/calibrate_fq_v2.py \
+  --model Qwen/Qwen2-7B --per-head \
+  --output data/calibration/fq_v2_qwen2_7b_perhead.npz
+
+# Step 2: Profile KV heads
+for model in google/gemma-4-E2B mistralai/Mistral-7B-v0.1 \
+             Qwen/Qwen2-7B; do
+  python3 scripts/profile_kv_heads.py --model "$model"
+done
+
+# Step 3: Tune thresholds + generate strategies
+python3 scripts/tune_thresholds.py \
+  --model mistralai/Mistral-7B-v0.1 --bits 3,4 \
+  --calibration data/calibration/fq_v2_mistral_7b_v0.1_perhead.npz
+python3 scripts/tune_thresholds.py \
+  --model Qwen/Qwen2-7B --bits 3,4 \
+  --calibration data/calibration/fq_v2_qwen2_7b_perhead.npz
+
+# Step 4: PPL-guided 2-bit strategy selection
+for model in google/gemma-4-E2B mistralai/Mistral-7B-v0.1 \
+             Qwen/Qwen2-7B; do
+  python3 scripts/ppl_guided_select.py --model "$model"
+done
+
+# Step 5: Full perplexity evaluation (Table 7)
+# Gemma (seq_len=2048)
+for bits in 2 3 4; do
+  python3 scripts/eval_perplexity_v3.py \
+    --model google/gemma-4-E2B \
+    --strategy data/calibration/strategy_gemma_4_e2b_${bits}bit*.json \
+    --calibration data/calibration/fq_v2_gemma_4_e2b.npz \
+    --bits $bits --seq-len 2048 --max-samples 30 \
+    --output data/kv_cache/perplexity_v3.1_gemma_${bits}bit.json
+done
+
+# Mistral (seq_len=2048)
+for bits in 2 3 4; do
+  python3 scripts/eval_perplexity_v3.py \
+    --model mistralai/Mistral-7B-v0.1 \
+    --strategy data/calibration/strategy_mistral_7b_v0.1_${bits}bit*.json \
+    --calibration data/calibration/fq_v2_mistral_7b_v0.1_perhead.npz \
+    --bits $bits --seq-len 2048 --max-samples 30 \
+    --output data/kv_cache/perplexity_v3.1_mistral_${bits}bit.json
+done
+
+# Qwen2 (seq_len=1024 due to OOM at 2048)
+for bits in 2 3 4; do
+  python3 scripts/eval_perplexity_v3.py \
+    --model Qwen/Qwen2-7B \
+    --strategy data/calibration/strategy_qwen2_7b_${bits}bit*.json \
+    --calibration data/calibration/fq_v2_qwen2_7b_perhead.npz \
+    --bits $bits --seq-len 1024 --max-samples 30 \
+    --output data/kv_cache/perplexity_v3.1_qwen2_${bits}bit.json
+done
+
+# Step 6: Verify paper tables
+python3 scripts/verify_paper_tables.py --strict
+\end{lstlisting}
+
+\textbf{Expected runtime:} Steps 1--4 require $\sim$4 GPU hours
+(dominated by calibration). Step~5 requires $\sim$4 GPU hours
+($\sim$30 minutes per model$\times$bit evaluation). Total: $\sim$8 GPU
+hours on RTX~4090.
+
+% ═══════════════════════════════════════════════════════════
+\section{Dataset Provenance}
+
+\subsection{Evaluation Dataset}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Evaluation dataset}
+\begin{tabular}{ll}
+\toprule
+Dataset & Salesforce/wikitext (wikitext-2-raw-v1) \\
+Split & test \\
+Tokens (Gemma/Mistral, $L{=}2048$) & 61,410 (30 chunks) \\
+Tokens (Qwen2, $L{=}1024$) & 30,690 (30 chunks) \\
+License & CC BY-SA 3.0 \\
+Source & \url{https://huggingface.co/datasets/Salesforce/wikitext} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Calibration Data}
+
+PCA rotation matrices and per-head statistics are calibrated on the
+first 128 samples from WikiText-2 training split, processed through each
+model's attention layers. Calibration is performed once and reused for
+all evaluations.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Calibration data checksums (SHA-256, first 16 hex chars)}
+\label{tab:checksums}
+\begin{tabular}{lrl}
+\toprule
+File & Size & SHA-256 prefix \\
+\midrule
+\texttt{fq\_v2\_gemma\_4\_e2b.npz} & 8.2 MB & \texttt{b4d43463daad65c0} \\
+\texttt{fq\_v2\_mistral\_7b\_v0.1.npz} & 2.8 MB & \texttt{ad791e983d539689} \\
+\texttt{fq\_v2\_mistral\_perhead.npz} & 23 MB & \texttt{c4518c63a0ca7f41} \\
+\texttt{fq\_v2\_qwen2\_7b.npz} & 2.5 MB & \texttt{834f206fcd665425} \\
+\texttt{fq\_v2\_qwen2\_perhead.npz} & 9.8 MB & \texttt{d7c5e9daa83a7b2c} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════
+\section{Model Provenance}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Models used in evaluation}
+\begin{tabular}{llll}
+\toprule
+Model & HuggingFace ID & License & KV Heads \\
+\midrule
+Gemma 4 E2B & \texttt{google/gemma-4-E2B} & Gemma & 1 (MQA) \\
+Mistral 7B v0.1 & \texttt{mistralai/Mistral-7B-v0.1} & Apache 2.0 & 8 (GQA) \\
+Qwen2 7B & \texttt{Qwen/Qwen2-7B} & Apache 2.0 & 4 (GQA) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All models are publicly available on HuggingFace. Gemma~4~E2B requires
+accepting Google's Gemma license agreement. Mistral~7B and Qwen2-7B
+are Apache~2.0 licensed with no access restrictions.
+
+% ═══════════════════════════════════════════════════════════
+\section{Hardware and Software Environment}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Evaluation environment}
+\begin{tabular}{ll}
+\toprule
+CPU & Intel Core i9-14900HX (24 cores / 32 threads) \\
+GPU & NVIDIA GeForce RTX 4090 Laptop (16,376 MiB) \\
+RAM & 32 GB DDR5 \\
+OS & Ubuntu 24.04, Linux 6.17.0-20-generic \\
+GPU Driver & 590.48.01 \\
+\midrule
+Python & 3.12 \\
+PyTorch & 2.6.0+cu124 \\
+Transformers & 5.5.3 \\
+NumPy & 2.4.3 \\
+Datasets & 4.8.4 \\
+Rust & 1.87 (for native Fajar Lang benchmarks) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════
+\section{Qwen2 Sequence Length Note}
+
+Qwen2-7B evaluations use $L{=}1024$ instead of $L{=}2048$ due to GPU
+memory constraints. At $L{=}2048$, the model triggers CUDA OOM on our
+16~GB RTX~4090 Laptop GPU because Qwen2's 28-layer, 28-head architecture
+requires more activation memory than Gemma (15 layers) or Mistral (32
+layers but efficient GQA-8). The shorter sequence length means Qwen2
+perplexity values are not directly comparable in absolute terms to
+Gemma/Mistral, but the \emph{relative ordering} between methods
+(FQ~v3.1 vs KIVI vs TQ) is valid within the Qwen2 column.
+
+% ═══════════════════════════════════════════════════════════
+\section{Code and Data Availability}
+
+\begin{itemize}[nosep]
+\item \textbf{Algorithm + scripts:} \url{https://github.com/fajarkraton/fajarquant}
+\item \textbf{Native implementation:} \url{https://github.com/fajarkraton/fajar-lang} (\texttt{src/runtime/ml/})
+\item \textbf{Kernel port:} \url{https://github.com/fajarkraton/fajaros-x86} (\texttt{kernel/compute/fajarquant.fj})
+\item \textbf{Calibration data:} included in the \texttt{fajarquant} repo under \texttt{data/calibration/}
+\item \textbf{Evaluation results:} included under \texttt{data/kv\_cache/perplexity\_v3.1\_*.json}
+\end{itemize}
+
+\end{document}
