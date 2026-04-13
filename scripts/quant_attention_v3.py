@@ -68,44 +68,72 @@ def _path_a_kivi(kv: torch.Tensor, bits: int, is_key: bool) -> torch.Tensor:
 
 def _path_b_pca(kv: torch.Tensor, bits: int, layer_idx: int, is_key: bool,
                 cal: dict | None) -> torch.Tensor:
-    """Path B: Calibrated PCA rotation + per-coord quantization."""
+    """Path B: Calibrated PCA rotation + per-coord quantization.
+
+    Uses v2 calibration data from load_calibration() which returns:
+      {"layers": [{"k_outlier_mask": ..., "k_pca_rotation": ..., ...}, ...]}
+    Lazy GPU tensor caching via _get_gpu_tensors (from quant_attention_v2).
+
+    B-fix D6: fixed calibration key format — was using flat keys
+    "layer_0_k_outlier_mask" that never existed in the nested cal dict.
+    """
     if cal is None:
-        return _path_a_kivi(kv, bits, is_key)  # fallback
+        import warnings
+        warnings.warn(f"Path B: no calibration data, falling back to Path A (layer {layer_idx})")
+        return _path_a_kivi(kv, bits, is_key)
 
+    layers = cal.get("layers")
+    if layers is None or layer_idx >= len(layers):
+        import warnings
+        warnings.warn(f"Path B: layer {layer_idx} not in calibration ({len(layers) if layers else 0} layers), "
+                       "falling back to Path A")
+        return _path_a_kivi(kv, bits, is_key)
+
+    layer_cal = layers[layer_idx]
     kv_type = "k" if is_key else "v"
-    prefix = f"layer_{layer_idx}_{kv_type}"
 
-    outlier_mask = cal.get(f"{prefix}_outlier_mask")
-    pca_rotation = cal.get(f"{prefix}_pca_rotation")
-    pca_mean = cal.get(f"{prefix}_pca_mean")
+    outlier_mask_np = layer_cal.get(f"{kv_type}_outlier_mask")
+    pca_rotation_np = layer_cal.get(f"{kv_type}_pca_rotation")
+    pca_mean_np = layer_cal.get(f"{kv_type}_pca_mean")
 
-    if outlier_mask is None or pca_rotation is None or pca_mean is None:
+    if outlier_mask_np is None or pca_rotation_np is None or pca_mean_np is None:
+        import warnings
+        warnings.warn(f"Path B: missing calibration arrays for layer {layer_idx} {kv_type}, "
+                       "falling back to Path A")
         return _path_a_kivi(kv, bits, is_key)
 
     device = kv.device
     dtype = kv.dtype
     B, H, S, D = kv.shape
 
-    outlier_mask_t = torch.tensor(outlier_mask, device=device, dtype=torch.bool)
+    # Lazy GPU tensor caching (same pattern as v2 _get_gpu_tensors)
+    cache_key = f"_v3_{kv_type}_gpu_{device}"
+    if cache_key not in layer_cal:
+        layer_cal[cache_key] = (
+            torch.from_numpy(outlier_mask_np).to(device),
+            torch.from_numpy(pca_rotation_np).float().to(device),
+            torch.from_numpy(pca_mean_np).float().to(device),
+        )
+    outlier_mask_t, rot_t, mean_t = layer_cal[cache_key]
     clean_mask = ~outlier_mask_t
 
+    D_clean = int(clean_mask.sum())
     result = kv.clone()
     for h in range(H):
         head_data = kv[:, h, :, :]  # (B, S, D)
-        # Preserve outlier channels
+        # Preserve outlier channels in full precision
         outlier_data = head_data[:, :, outlier_mask_t].clone()
         # Clean channels: center → rotate → quantize → inverse rotate → uncenter
         clean = head_data[:, :, clean_mask].float()
-        D_clean = clean.shape[-1]
-        mean_t = torch.tensor(pca_mean, device=device, dtype=torch.float32)
-        rot_t = torch.tensor(pca_rotation, device=device, dtype=torch.float32)
         centered = clean - mean_t[:D_clean]
         rotated = centered @ rot_t[:D_clean, :D_clean].T
-        # Per-coord symmetric quantize
-        max_q = (1 << (bits - 1)) - 1
-        scale = rotated.abs().amax(dim=(0, 1), keepdim=True).clamp(min=1e-8) / max_q
-        quantized = (rotated / scale).round().clamp(-max_q, max_q)
-        dequantized = quantized * scale
+        # Per-coord asymmetric quantize (matching v2's unsigned uniform grid)
+        levels = (1 << bits) - 1
+        rmin = rotated.amin(dim=(0, 1), keepdim=True)
+        rmax = rotated.amax(dim=(0, 1), keepdim=True)
+        scale = (rmax - rmin).clamp(min=1e-8) / levels
+        quantized = ((rotated - rmin) / scale).round().clamp(0, levels)
+        dequantized = quantized * scale + rmin
         # Inverse rotate + uncenter
         restored = dequantized @ rot_t[:D_clean, :D_clean] + mean_t[:D_clean]
         result[:, h, :, clean_mask] = restored.to(dtype)

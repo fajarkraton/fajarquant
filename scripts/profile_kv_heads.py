@@ -24,6 +24,9 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from scipy import stats as scipy_stats
 
+# B-fix D9: fixed seed for reproducible subsampling near decision thresholds
+np.random.seed(42)
+
 
 def load_wikitext2() -> str:
     ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="test")
