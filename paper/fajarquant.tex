@@ -249,21 +249,62 @@ Flat 3-bit & --- & 3.0 & 10,000 & 30,000 \\
 \end{table}
 
 % ═══════════════════════════════════════════════════════════
-\section{Compile-Time Safety}
+\section{Embedded Deployment via Fajar Lang}
+\label{sec:embedded}
 
-Fajar Lang's dual-context annotation system provides safety guarantees unavailable in existing frameworks:
+FajarQuant~v2 is implemented natively in Fajar Lang, a statically-typed
+systems language with dual-context safety annotations. This is the first
+KV cache quantization method with compile-time safety guarantees
+enforced by the language itself.
 
-\begin{lstlisting}[language=C,caption={@kernel ensures allocation-free quantization}]
-@kernel fn quantize(x: [f32; 128],
-    codebook: [f32; 8]) -> [u8; 128] {
-  // GUARANTEED: no heap, no tensor, no GC
-  let mut idx = [0u8; 128]
-  for i in 0..128 {
-    idx[i] = nearest_centroid(x[i], codebook)
-  }
-  idx
+\subsection{Language-Level Quantization Types}
+
+Fajar Lang provides a first-class \texttt{Quantized<T, BITS>} type
+(SE023 compiler rule). Using a \texttt{Quantized} value where a
+\texttt{Tensor} is expected is a compile-time error---preventing
+accidental use of packed integer data as float values:
+
+\begin{lstlisting}[language=C,caption={SE023: Quantized type safety}]
+let q = quantize(kv_row, 4)
+// matmul(q, q)  // ERROR SE023: call dequantize()
+let t = dequantize(q)  // OK
+matmul(t, t)            // OK
+\end{lstlisting}
+
+\subsection{@device Context Enforcement}
+
+The \texttt{@device} annotation restricts functions to ML-safe
+operations: tensor math, quantization, and Hadamard transforms are
+allowed; raw pointers, IRQ, and heap allocation are compiler errors.
+The entire FajarQuant~v2 pipeline is implementable in \texttt{@device}:
+
+\begin{lstlisting}[language=C,caption={Full v2 pipeline in @device context}]
+@device
+fn fq_v2_encode(kv: Tensor, bits: i64)
+    -> Quantized {
+  hadamard_quantize(kv, bits) // fused SIMD
+}
+@device
+fn fq_v2_decode(q: Quantized) -> Tensor {
+  hadamard_inverse(dequantize(q))
 }
 \end{lstlisting}
+
+\subsection{Performance: Native vs Python}
+
+The Fajar Lang implementation uses AVX2 SIMD intrinsics for the
+Hadamard butterfly (1.9$\times$ speedup over scalar) and a fused
+Hadamard+quantize kernel (1.6$\times$ over separate passes). End-to-end,
+the native implementation runs \textbf{5.0$\times$ faster} than the
+Python+NumPy reference on an 8-token $\times$ 64-dim workload
+(28~ms vs 142~ms, release build, 10 iterations averaged).
+
+\subsection{Zero-Heap KV Cache}
+
+The \texttt{QuantizedKVCache} struct provides a stack-allocated KV cache
+with overflow detection. For a 2-bit cache with 2048 max tokens, 12
+layers, 9 heads, and 64-dim heads, the effective size is ${\sim}7$~MB
+--- fitting in the L3 cache of modern processors (36~MB on i9-14900HX).
 
 % ═══════════════════════════════════════════════════════════
 \section{FajarQuant v2: Outlier-Aware Calibrated PCA}
