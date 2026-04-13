@@ -1,9 +1,9 @@
 [package]
 name = "fajarquant"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Muhamad Fajar Putranto <fajar@pajak.com>"]
-description = "Adaptive vector quantization for LLM KV cache — wins at 2-3 bit on real Gemma 4 E2B perplexity, with compile-time @kernel safety"
+description = "Adaptive per-head KV cache quantization for LLMs — matches or beats best fixed method in 7/9 cells across MQA/GQA architectures"
 documentation = "https://docs.rs/fajarquant"
 homepage = "https://github.com/fajarkraton/fajarquant"
 repository = "https://github.com/fajarkraton/fajarquant"
@@ -12,6 +12,7 @@ readme = "README.md"
 keywords = ["quantization", "llm", "kv-cache", "compression", "ml"]
 categories = ["algorithms", "compression", "science", "no-std"]
 rust-version = "1.87"
+exclude = ["data/", "paper/", "scripts/", "docs/", "audit/", "bench/", "examples/"]
 
 [dependencies]
 ndarray = "0.16"
