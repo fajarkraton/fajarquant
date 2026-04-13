@@ -88,16 +88,16 @@ def collect_streaming_stats(
             cache = DynamicCache()
             model(chunk, past_key_values=cache, use_cache=True)
 
-        n_layers = len(cache.layers)
+        n_layers = len(cache.key_cache)
         if i == 0:
             n_layers_out = n_layers
-            k0 = cache.layers[0].keys.squeeze(0)  # (H, S, D)
+            k0 = cache.key_cache[0].squeeze(0)  # (H, S, D)
             head_dim_out = k0.shape[-1]
             n_kv_heads_out = k0.shape[0]
             use_per_head = per_head and n_kv_heads_out > 1
 
             for li in range(n_layers):
-                kl = cache.layers[li].keys.squeeze(0)
+                kl = cache.key_cache[li].squeeze(0)
                 D = kl.shape[-1]
                 H = kl.shape[0]
                 if use_per_head:
@@ -106,9 +106,8 @@ def collect_streaming_stats(
                     layer_stats.append(_init_head_stats(D))
 
         for layer_idx in range(n_layers):
-            layer = cache.layers[layer_idx]
-            k = layer.keys.squeeze(0).float().cpu()   # (H, S, D)
-            v = layer.values.squeeze(0).float().cpu()
+            k = cache.key_cache[layer_idx].squeeze(0).float().cpu()   # (H, S, D)
+            v = cache.value_cache[layer_idx].squeeze(0).float().cpu()
             H, S, D_k = k.shape
             D_v = v.shape[-1]
 
@@ -286,7 +285,7 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         token=args.token,
-        dtype=torch.float16,
+        torch_dtype=torch.float16,
         device_map="auto",
         trust_remote_code=True,
     )
