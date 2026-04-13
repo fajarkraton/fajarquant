@@ -25,12 +25,18 @@ import argparse
 import json
 
 
-# Default thresholds (tunable via B2.T auto-tuning)
+# Default thresholds — calibrated to real profile data ranges.
+# B-fix.0 found: cv=[0.07, 4.99], kurt=[-0.85, 10.52], svd=[1.0, 2.92],
+# |skew|=[0.05, 0.74]. Old T_kurt=6.0 and T_svd=5.0 were above nearly
+# all real values, causing everything to fall to default Path A.
+# These defaults are conservative starting points; B-fix.2 auto-tuner
+# refines them per-model using real reconstruction MSE.
 DEFAULT_THRESHOLDS = {
-    "T_cv": 2.0,       # channel variance CV → Path A
-    "T_svd": 5.0,      # σ1/σ2 ratio → Path B
-    "T_kurt": 6.0,     # excess kurtosis → Path C
-    "T_skew": 1.5,     # absolute skewness → Path E
+    "T_cv": 1.5,             # channel variance CV → Path A (was 2.0)
+    "T_svd": 2.0,            # σ1/σ2 ratio → Path B (was 5.0)
+    "T_kurt": 2.0,           # excess kurtosis → Path C (was 6.0)
+    "T_skew": 0.3,           # absolute skewness → Path E (was 1.5)
+    "T_kurt_residual": 1.0,  # kurtosis threshold for Path D at 2-bit
 }
 
 
@@ -42,10 +48,15 @@ def select_strategy(
 ) -> str:
     """Select the optimal quantization path for a single head.
 
+    Pure threshold-based decision tree — NO architecture gates.
+    Architecture (n_kv_heads) is a profile stat, not a path override.
+    Thresholds should be calibrated per-model via tune_thresholds.py
+    using real reconstruction MSE (B-fix.2).
+
     Args:
         stats: per-head statistics from profile_kv_heads.py
         bits: target bit width
-        n_kv_heads: total KV heads in the model (architecture-aware)
+        n_kv_heads: total KV heads (unused in selection, kept for API compat)
         thresholds: override default thresholds
 
     Returns one of: 'A', 'B', 'C', 'D', 'E'.
@@ -54,42 +65,22 @@ def select_strategy(
     cv = stats.get("channel_var_cv", 0.0)
     svd = stats.get("svd_ratio", 1.0)
     kurt = stats.get("kurtosis", 0.0)
-    skew = stats.get("skewness", 0.0)
+    skew = abs(stats.get("skewness", 0.0))
 
-    # Architecture-aware gate: MQA (1 head) should NEVER use KIVI
-    # because per-channel quantization catastrophically fails without
-    # head redundancy (Gemma 2-bit: KIVI PPL 470 vs TQ 40).
-    is_mqa = n_kv_heads <= 1
-    is_narrow_gqa = 2 <= n_kv_heads <= 4
-    is_wide_gqa = n_kv_heads >= 8
-
-    # Wide-GQA (≥8 heads): prefer KIVI — it dominates empirically
-    if is_wide_gqa and cv > t["T_cv"] * 0.5:
-        return "A"  # KIVI works great with many heads
-
-    # MQA: never KIVI, prefer rotation-based methods
-    if is_mqa:
-        if kurt > t["T_kurt"] * 0.5:
-            return "C"  # Hadamard + outlier (best for MQA 2-bit)
-        if svd > t["T_svd"] * 0.5:
-            return "B"  # PCA rotation
-        if bits == 2:
-            return "C"  # Default for MQA 2-bit: Hadamard + outlier
-        return "C"  # MQA default: Hadamard + outlier
-
-    # Narrow-GQA (2-4 heads): use statistical thresholds
+    # Pure threshold tree — same logic for ALL architectures.
+    # Order: cv → svd → kurt → skew → residual(2-bit) → default
     if cv > t["T_cv"]:
-        return "A"  # KIVI-like
+        return "A"  # KIVI-like per-channel symmetric
     if svd > t["T_svd"]:
-        return "B"  # PCA rotation
+        return "B"  # PCA rotation + per-coord
     if kurt > t["T_kurt"]:
-        return "C"  # Hadamard + outlier
+        return "C"  # Hadamard + adaptive outlier
     if skew > t["T_skew"]:
-        return "E"  # Asymmetric
-    if bits == 2 and kurt > 3.0:
-        return "D"  # Residual
+        return "E"  # Asymmetric per-channel
+    if bits <= 2 and kurt > t.get("T_kurt_residual", 1.0):
+        return "D"  # Residual quantization for extreme low-bit
 
-    return "A"  # Default: KIVI (safest for multi-head architectures)
+    return "A"  # Default: KIVI (will be overridden by B-fix.2 tuner)
 
 
 def assign_strategies(
