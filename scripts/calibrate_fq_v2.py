@@ -27,24 +27,39 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
+def _init_head_stats(D: int) -> dict:
+    """Initialize streaming stats for one (layer, head) or one layer."""
+    return {
+        "k_count": 0,
+        "k_sum": np.zeros(D, dtype=np.float64),
+        "k_sum_sq": np.zeros(D, dtype=np.float64),
+        "k_cov_acc": np.zeros((D, D), dtype=np.float64),
+        "v_count": 0,
+        "v_sum": np.zeros(D, dtype=np.float64),
+        "v_sum_sq": np.zeros(D, dtype=np.float64),
+        "v_cov_acc": np.zeros((D, D), dtype=np.float64),
+        "_head_dim": D,
+    }
+
+
 def collect_streaming_stats(
     model,
     tokenizer,
     text: str,
     n_samples: int = 128,
     seq_len: int = 2048,
-) -> tuple[list[dict], int, int]:
-    """Forward n_samples chunks, accumulating per-layer statistics in
-    O(D^2) memory instead of storing all raw K/V tensors.
+    per_head: bool = True,
+) -> tuple[list, int, int, int]:
+    """Forward n_samples chunks, accumulating statistics in O(D^2) memory.
 
-    For each layer, accumulates:
-      - count: number of (H*S) samples seen
-      - sum_x: sum of samples, shape (D,)
-      - sum_x2: sum of outer products (for covariance), shape (D, D)
-      - var_acc: per-channel sum of squares for variance, shape (D,)
+    v3.1: when per_head=True and n_kv_heads > 1, accumulates per-head
+    covariance instead of pooling all heads. This produces per-head PCA
+    rotations that eliminate cross-head contamination in GQA models.
 
-    Returns (layer_stats, n_layers, head_dim).
-    Memory: O(n_layers * D^2) ≈ 32 * 128^2 * 4 bytes ≈ 2 MB for Mistral.
+    Returns (layer_stats, n_layers, head_dim, n_kv_heads).
+    layer_stats structure:
+      - per_head=False or n_heads==1: list[dict] (one stats dict per layer)
+      - per_head=True and n_heads>1:  list[list[dict]] (list of H dicts per layer)
     """
     try:
         from transformers.cache_utils import DynamicCache
@@ -60,9 +75,11 @@ def collect_streaming_stats(
             f"text too short ({total_len} tokens) for {n_samples} × {seq_len}"
         )
 
-    layer_stats: list[dict] = []
+    layer_stats: list = []
     n_layers_out = 0
     head_dim_out = 0
+    n_kv_heads_out = 0
+    use_per_head = False
 
     for i in range(n_chunks):
         chunk = input_ids[:, i * seq_len : (i + 1) * seq_len]
@@ -74,59 +91,76 @@ def collect_streaming_stats(
         n_layers = len(cache.layers)
         if i == 0:
             n_layers_out = n_layers
-            # Detect head_dim per layer (may vary for shared-KV architectures)
-            k0 = cache.layers[0].keys.squeeze(0)
+            k0 = cache.layers[0].keys.squeeze(0)  # (H, S, D)
             head_dim_out = k0.shape[-1]
+            n_kv_heads_out = k0.shape[0]
+            use_per_head = per_head and n_kv_heads_out > 1
+
             for li in range(n_layers):
                 kl = cache.layers[li].keys.squeeze(0)
                 D = kl.shape[-1]
-                layer_stats.append({
-                    "k_count": 0,
-                    "k_sum": np.zeros(D, dtype=np.float64),
-                    "k_sum_sq": np.zeros(D, dtype=np.float64),
-                    "k_cov_acc": np.zeros((D, D), dtype=np.float64),
-                    "v_count": 0,
-                    "v_sum": np.zeros(D, dtype=np.float64),
-                    "v_sum_sq": np.zeros(D, dtype=np.float64),
-                    "v_cov_acc": np.zeros((D, D), dtype=np.float64),
-                    "_head_dim": D,
-                })
+                H = kl.shape[0]
+                if use_per_head:
+                    layer_stats.append([_init_head_stats(D) for _ in range(H)])
+                else:
+                    layer_stats.append(_init_head_stats(D))
 
         for layer_idx in range(n_layers):
             layer = cache.layers[layer_idx]
             k = layer.keys.squeeze(0).float().cpu()   # (H, S, D)
             v = layer.values.squeeze(0).float().cpu()
-
-            D_k = k.shape[-1]
+            H, S, D_k = k.shape
             D_v = v.shape[-1]
-            st = layer_stats[layer_idx]
 
-            # Skip layers whose head_dim doesn't match (shared-KV
-            # layers in Gemma can accumulate extra seq positions)
-            if D_k != st["_head_dim"]:
+            # Skip layers whose head_dim doesn't match
+            ref_dim = layer_stats[layer_idx][0]["_head_dim"] if use_per_head else layer_stats[layer_idx]["_head_dim"]
+            if D_k != ref_dim:
                 continue
 
-            k_flat = k.reshape(-1, D_k).numpy().astype(np.float64)
-            v_flat = v.reshape(-1, D_v).numpy().astype(np.float64)
-            n = k_flat.shape[0]
+            if use_per_head:
+                # Per-head accumulation — each head gets its own covariance
+                for h in range(H):
+                    if h >= len(layer_stats[layer_idx]):
+                        continue
+                    st = layer_stats[layer_idx][h]
+                    k_h = k[h].numpy().astype(np.float64)  # (S, D)
+                    v_h = v[h].numpy().astype(np.float64)
+                    n = k_h.shape[0]
 
-            st["k_count"] += n
-            st["k_sum"] += k_flat.sum(axis=0)
-            st["k_sum_sq"] += (k_flat ** 2).sum(axis=0)
-            st["k_cov_acc"] += k_flat.T @ k_flat
+                    st["k_count"] += n
+                    st["k_sum"] += k_h.sum(axis=0)
+                    st["k_sum_sq"] += (k_h ** 2).sum(axis=0)
+                    st["k_cov_acc"] += k_h.T @ k_h
 
-            st["v_count"] += n
-            st["v_sum"] += v_flat.sum(axis=0)
-            st["v_sum_sq"] += (v_flat ** 2).sum(axis=0)
-            st["v_cov_acc"] += v_flat.T @ v_flat
+                    st["v_count"] += n
+                    st["v_sum"] += v_h.sum(axis=0)
+                    st["v_sum_sq"] += (v_h ** 2).sum(axis=0)
+                    st["v_cov_acc"] += v_h.T @ v_h
+            else:
+                # Original per-layer accumulation (pools all heads)
+                st = layer_stats[layer_idx]
+                k_flat = k.reshape(-1, D_k).numpy().astype(np.float64)
+                v_flat = v.reshape(-1, D_v).numpy().astype(np.float64)
+                n = k_flat.shape[0]
+
+                st["k_count"] += n
+                st["k_sum"] += k_flat.sum(axis=0)
+                st["k_sum_sq"] += (k_flat ** 2).sum(axis=0)
+                st["k_cov_acc"] += k_flat.T @ k_flat
+
+                st["v_count"] += n
+                st["v_sum"] += v_flat.sum(axis=0)
+                st["v_sum_sq"] += (v_flat ** 2).sum(axis=0)
+                st["v_cov_acc"] += v_flat.T @ v_flat
 
         del cache
         torch.cuda.empty_cache()
 
         if (i + 1) % 16 == 0 or i == n_chunks - 1:
-            print(f"  Collected {i + 1}/{n_chunks} chunks")
+            mode = "per-head" if use_per_head else "per-layer"
+            print(f"  Collected {i + 1}/{n_chunks} chunks ({mode})")
 
-    return layer_stats, n_layers_out, head_dim_out
+    return layer_stats, n_layers_out, head_dim_out, n_kv_heads_out
 
 
 def compute_calibration_from_stats(
@@ -214,6 +248,18 @@ def main():
         default=None,
         help="Output .npz path (default: data/calibration/fq_v2_{model_short}.npz)",
     )
+    parser.add_argument(
+        "--per-head",
+        action="store_true",
+        default=True,
+        help="Per-head PCA for GQA models (default: True, auto-disabled for MQA)",
+    )
+    parser.add_argument(
+        "--no-per-head",
+        action="store_false",
+        dest="per_head",
+        help="Force per-layer PCA (original v2 behavior)",
+    )
     args = parser.parse_args()
 
     # Derive short model name for default output path
@@ -247,17 +293,21 @@ def main():
     model.eval()
     print(f"Model loaded on {model.device}")
 
-    # Collect K/V statistics (streaming — O(D^2) memory per layer)
+    # Collect K/V statistics (streaming — O(D^2) memory per layer or per head)
     print(f"\nCollecting K/V statistics from {args.n_samples} chunks (streaming)...")
     t0 = time.time()
-    layer_stats, n_layers, head_dim = collect_streaming_stats(
-        model, tokenizer, text, n_samples=args.n_samples, seq_len=args.seq_len
+    layer_stats, n_layers, head_dim, n_kv_heads = collect_streaming_stats(
+        model, tokenizer, text, n_samples=args.n_samples, seq_len=args.seq_len,
+        per_head=args.per_head,
     )
     collect_time = time.time() - t0
-    n_total = layer_stats[0]["k_count"]
+    is_per_head = isinstance(layer_stats[0], list)
+    first_st = layer_stats[0][0] if is_per_head else layer_stats[0]
+    n_total = first_st["k_count"]
+    mode = f"per-head ({n_kv_heads} heads)" if is_per_head else "per-layer"
     print(
-        f"  Collected {n_layers} layers, head_dim={head_dim}, "
-        f"{n_total} samples/layer, {collect_time:.1f}s"
+        f"  Collected {n_layers} layers, head_dim={head_dim}, {n_kv_heads} KV heads, "
+        f"{n_total} samples/{'head' if is_per_head else 'layer'}, {collect_time:.1f}s ({mode})"
     )
 
     # Free model GPU memory
@@ -275,38 +325,73 @@ def main():
         "_outlier_percentile": np.array(args.outlier_percentile),
         "_n_layers": np.array(n_layers),
         "_head_dim": np.array(head_dim),
+        "_n_heads": np.array(n_kv_heads),
+        "_per_head": np.array(is_per_head),
     }
 
     total_outliers_k = 0
     total_outliers_v = 0
 
     for layer_idx in range(n_layers):
-        st = layer_stats[layer_idx]
+        if is_per_head:
+            # Per-head calibration: compute PCA per (layer, head)
+            heads_in_layer = layer_stats[layer_idx]
+            for head_idx, st in enumerate(heads_in_layer):
+                prefix_k = f"k_{layer_idx}_h{head_idx}"
+                prefix_v = f"v_{layer_idx}_h{head_idx}"
 
-        cal_k = compute_calibration_from_stats(
-            st, "k", outlier_percentile=args.outlier_percentile
-        )
-        save_dict[f"k_{layer_idx}_outlier_mask"] = cal_k["outlier_mask"]
-        save_dict[f"k_{layer_idx}_pca_rotation"] = cal_k["pca_rotation"]
-        save_dict[f"k_{layer_idx}_pca_mean"] = cal_k["pca_mean"]
-        save_dict[f"k_{layer_idx}_channel_var"] = cal_k["per_channel_var"]
-        total_outliers_k += cal_k["outlier_mask"].sum()
+                cal_k = compute_calibration_from_stats(
+                    st, "k", outlier_percentile=args.outlier_percentile
+                )
+                save_dict[f"{prefix_k}_outlier_mask"] = cal_k["outlier_mask"]
+                save_dict[f"{prefix_k}_pca_rotation"] = cal_k["pca_rotation"]
+                save_dict[f"{prefix_k}_pca_mean"] = cal_k["pca_mean"]
+                save_dict[f"{prefix_k}_channel_var"] = cal_k["per_channel_var"]
+                total_outliers_k += cal_k["outlier_mask"].sum()
 
-        cal_v = compute_calibration_from_stats(
-            st, "v", outlier_percentile=args.outlier_percentile
-        )
-        save_dict[f"v_{layer_idx}_outlier_mask"] = cal_v["outlier_mask"]
-        save_dict[f"v_{layer_idx}_pca_rotation"] = cal_v["pca_rotation"]
-        save_dict[f"v_{layer_idx}_pca_mean"] = cal_v["pca_mean"]
-        save_dict[f"v_{layer_idx}_channel_var"] = cal_v["per_channel_var"]
-        total_outliers_v += cal_v["outlier_mask"].sum()
+                cal_v = compute_calibration_from_stats(
+                    st, "v", outlier_percentile=args.outlier_percentile
+                )
+                save_dict[f"{prefix_v}_outlier_mask"] = cal_v["outlier_mask"]
+                save_dict[f"{prefix_v}_pca_rotation"] = cal_v["pca_rotation"]
+                save_dict[f"{prefix_v}_pca_mean"] = cal_v["pca_mean"]
+                save_dict[f"{prefix_v}_channel_var"] = cal_v["per_channel_var"]
+                total_outliers_v += cal_v["outlier_mask"].sum()
 
-        if (layer_idx + 1) % 8 == 0 or layer_idx == n_layers - 1:
-            print(
-                f"  Layer {layer_idx + 1}/{n_layers}: "
-                f"K outliers={cal_k['outlier_mask'].sum()}/{head_dim}, "
-                f"V outliers={cal_v['outlier_mask'].sum()}/{head_dim}"
+            if (layer_idx + 1) % 8 == 0 or layer_idx == n_layers - 1:
+                # Show stats for head 0 as sample
+                print(
+                    f"  Layer {layer_idx + 1}/{n_layers} ({n_kv_heads} heads): "
+                    f"h0 K outliers={save_dict[f'k_{layer_idx}_h0_outlier_mask'].sum()}/{head_dim}"
+                )
+        else:
+            # Original per-layer calibration
+            st = layer_stats[layer_idx]
+
+            cal_k = compute_calibration_from_stats(
+                st, "k", outlier_percentile=args.outlier_percentile
             )
+            save_dict[f"k_{layer_idx}_outlier_mask"] = cal_k["outlier_mask"]
+            save_dict[f"k_{layer_idx}_pca_rotation"] = cal_k["pca_rotation"]
+            save_dict[f"k_{layer_idx}_pca_mean"] = cal_k["pca_mean"]
+            save_dict[f"k_{layer_idx}_channel_var"] = cal_k["per_channel_var"]
+            total_outliers_k += cal_k["outlier_mask"].sum()
+
+            cal_v = compute_calibration_from_stats(
+                st, "v", outlier_percentile=args.outlier_percentile
+            )
+            save_dict[f"v_{layer_idx}_outlier_mask"] = cal_v["outlier_mask"]
+            save_dict[f"v_{layer_idx}_pca_rotation"] = cal_v["pca_rotation"]
+            save_dict[f"v_{layer_idx}_pca_mean"] = cal_v["pca_mean"]
+            save_dict[f"v_{layer_idx}_channel_var"] = cal_v["per_channel_var"]
+            total_outliers_v += cal_v["outlier_mask"].sum()
+
+            if (layer_idx + 1) % 8 == 0 or layer_idx == n_layers - 1:
+                print(
+                    f"  Layer {layer_idx + 1}/{n_layers}: "
+                    f"K outliers={cal_k['outlier_mask'].sum()}/{head_dim}, "
+                    f"V outliers={cal_v['outlier_mask'].sum()}/{head_dim}"
+                )
 
     cal_time = time.time() - t0
 
@@ -317,12 +402,14 @@ def main():
     np.savez_compressed(args.output, **save_dict)
     file_size = os.path.getsize(args.output)
 
-    print(f"\nCalibration complete ({cal_time:.1f}s)")
-    print(f"  Total K outlier channels: {total_outliers_k} across {n_layers} layers")
-    print(f"  Total V outlier channels: {total_outliers_v} across {n_layers} layers")
-    print(f"  Avg K outliers/layer: {total_outliers_k / n_layers:.1f}/{head_dim}")
-    print(f"  Avg V outliers/layer: {total_outliers_v / n_layers:.1f}/{head_dim}")
-    print(f"  Saved to {args.output} ({file_size / 1024:.1f} KB)")
+    n_units = n_layers * n_kv_heads if is_per_head else n_layers
+    unit_name = "head" if is_per_head else "layer"
+    print(f"\nCalibration complete ({cal_time:.1f}s, {'per-head' if is_per_head else 'per-layer'})")
+    print(f"  Total K outlier channels: {total_outliers_k} across {n_units} {unit_name}s")
+    print(f"  Total V outlier channels: {total_outliers_v} across {n_units} {unit_name}s")
+    print(f"  Avg K outliers/{unit_name}: {total_outliers_k / n_units:.1f}/{head_dim}")
+    print(f"  Avg V outliers/{unit_name}: {total_outliers_v / n_units:.1f}/{head_dim}")
+    print(f"  Saved to {args.output} ({file_size / 1024:.1f} KB, {len(save_dict)} arrays)")
 
 
 if __name__ == "__main__":
