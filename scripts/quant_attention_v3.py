@@ -327,29 +327,68 @@ def _make_v3_forward_qwen2(layer_idx: int):
 
 
 def _make_v3_forward_gemma4(layer_idx: int):
-    """Create a closure for Gemma4 v3 forward."""
+    """Create a closure for Gemma4 v3 forward.
+
+    Gemma4 quirks: q_norm/k_norm/v_norm, shared KV layers,
+    unsqueeze_dim=2, v_proj may be None.
+    """
     def forward(self, hidden_states, position_embeddings, attention_mask=None,
                 past_key_values=None, **kwargs):
         from transformers.models.gemma4.modeling_gemma4 import (
-            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb,
+            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb, eager_attention_forward,
         )
-        bsz, q_len, _ = hidden_states.size()
-        qs = self.q_proj(hidden_states)
-        ks = self.k_proj(hidden_states)
-        vs = self.v_proj(hidden_states)
-        qs = qs.view(bsz, q_len, self.config.num_attention_heads, self.head_dim).transpose(1, 2)
-        ks = ks.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
-        vs = vs.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
         cos, sin = position_embeddings
-        qs, ks = apply_rotary_pos_emb(qs, ks, cos, sin)
-        ks = _quantize_kv_v3(ks, _V3_BITS, True, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
-        vs = _quantize_kv_v3(vs, _V3_BITS, False, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+
+        query_states = self.q_proj(hidden_states).view(hidden_shape)
+        query_states = self.q_norm(query_states)
+        query_states = apply_rotary_pos_emb(query_states, cos, sin, unsqueeze_dim=2)
+        query_states = query_states.transpose(1, 2)
+
+        if self.is_kv_shared_layer and past_key_values is not None:
+            key_states, value_states = past_key_values.shared_layers[self.kv_shared_layer_index]
+            key_states = key_states.to(query_states.device)
+            value_states = value_states.to(query_states.device)
+        else:
+            key_states = self.k_proj(hidden_states).view(hidden_shape)
+            value_states = (
+                self.v_proj(hidden_states).view(hidden_shape)
+                if self.v_proj is not None
+                else key_states
+            )
+            key_states = self.k_norm(key_states)
+            key_states = apply_rotary_pos_emb(key_states, cos, sin, unsqueeze_dim=2)
+            key_states = key_states.transpose(1, 2)
+            value_states = self.v_norm(value_states)
+            value_states = value_states.transpose(1, 2)
+
+            # v3: per-head quantization
+            key_states = _quantize_kv_v3(key_states, _V3_BITS, True, layer_idx,
+                                         _V3_STRATEGY, _V3_CALIBRATION)
+            value_states = _quantize_kv_v3(value_states, _V3_BITS, False, layer_idx,
+                                           _V3_STRATEGY, _V3_CALIBRATION)
+
         if past_key_values is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": kwargs.get("cache_position")}
-            ks, vs = past_key_values.update(ks, vs, layer_idx, cache_kwargs)
-        attn_fn = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-        ao, aw = attn_fn(self, qs, ks, vs, attention_mask, **kwargs)
-        ao = ao.reshape(bsz, q_len, -1).contiguous()
+            if not self.is_kv_shared_layer:
+                key_states, value_states = past_key_values.update(
+                    key_states, value_states, self.layer_idx
+                )
+            if self.store_full_length_kv:
+                if not hasattr(past_key_values, "shared_layers"):
+                    past_key_values.shared_layers = {}
+                past_key_values.shared_layers[self.layer_idx] = key_states, value_states
+
+        attention_interface = eager_attention_forward
+        if self.config._attn_implementation != "eager":
+            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+
+        ao, aw = attention_interface(
+            self, query_states, key_states, value_states, attention_mask,
+            dropout=self.attention_dropout if self.training else 0.0,
+            **kwargs,
+        )
+        ao = ao.reshape(*input_shape, -1).contiguous()
         ao = self.o_proj(ao)
         return ao, aw
     return forward
