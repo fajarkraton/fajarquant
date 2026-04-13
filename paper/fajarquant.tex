@@ -987,6 +987,48 @@ confirms KIVI's optimality rather than competing with it---a finding
 that strengthens the ``no single method wins'' thesis from a different
 angle.
 
+\subsection{Ablation: v3.0 vs v3.1}
+
+Table~\ref{tab:v3_ablation} isolates the impact of each v3.1 fix by
+comparing against v3.0 (MSE-only selection, per-layer PCA, no
+PPL-guided fallback).
+
+\begin{table}[t]
+\centering
+\small
+\caption{v3.0 $\to$ v3.1 ablation: PPL per cell. Bold = improved.
+$\dagger$ = catastrophic failure in v3.0 (PPL $> 50$).}
+\label{tab:v3_ablation}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{ll|cc|l}
+\toprule
+Model & Bits & v3.0 & \textbf{v3.1} & Fix applied \\
+\midrule
+Gemma   & 2 & 171.19$^\dagger$ & \textbf{39.91} & PPL-guided \\
+Gemma   & 3 & 25.17 & \textbf{16.51} & Fixed patching \\
+Gemma   & 4 & \textbf{27.31} & 28.13 & (regression) \\
+\midrule
+Mistral & 2 & 78.69$^\dagger$ & \textbf{24.95} & PPL-guided \\
+Mistral & 3 & 6.38 & \textbf{6.32} & Per-head PCA \\
+Mistral & 4 & 5.76 & \textbf{5.73} & Per-head PCA \\
+\midrule
+Qwen2   & 2 & 27.88 & \textbf{18.44} & PPL-guided \\
+Qwen2   & 3 & \textbf{8.13} & 8.15 & (noise) \\
+Qwen2   & 4 & \textbf{7.77} & 7.78 & (noise) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key takeaways:} (1)~PPL-guided 2-bit fallback is the most
+impactful fix, eliminating both catastrophic failures ($-$131 PPL on
+Gemma, $-$54 on Mistral) and discovering a novel optimum on Qwen2
+($-$9.4 PPL). (2)~Per-head PCA calibration provides marginal but
+consistent improvements on Mistral GQA ($-$0.03 to $-$0.06 PPL).
+(3)~Two cells show noise-level regressions ($<$0.02 PPL) that are
+within measurement variance. (4)~Gemma 4-bit regresses by 0.82 PPL;
+this is the cost of using the same strategy (17A+13B) that was
+optimized for 3-bit---a future per-bit strategy could recover this.
+
 % ═══════════════════════════════════════════════════════════
 \section{Conclusion}
 
