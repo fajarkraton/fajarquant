@@ -1043,6 +1043,32 @@ this is the cost of using the same strategy (17A+13B) that was
 optimized for 3-bit---a future per-bit strategy could recover this.
 
 % ═══════════════════════════════════════════════════════════
+\section{Broader Impact}
+
+Aggressive KV cache quantization enables LLM deployment on
+resource-constrained devices (drones, medical instruments, automotive
+ECUs) that would otherwise require cloud connectivity. This has positive
+implications for latency-critical applications, data privacy (on-device
+inference avoids transmitting sensitive inputs), and accessibility
+(lower hardware cost broadens who can deploy LLMs).
+
+However, quantization degrades model quality in ways that are
+input-dependent and difficult to predict. At 2-bit, perplexity
+increases 3--7$\times$ over FP16 even with adaptive selection
+(Table~\ref{tab:v3_results}). For safety-critical applications, the
+gap between ``works on WikiText-2'' and ``works on the deployment
+distribution'' must be validated per deployment. We recommend that any
+production deployment of sub-4-bit KV cache quantization include
+distribution-specific perplexity monitoring and automatic fallback to
+higher precision when quality degrades beyond a user-defined threshold.
+
+Our adaptive selector partially mitigates this risk by eliminating
+catastrophic failures (PPL $>$ 50$\times$ FP16), but it does not
+guarantee bounded degradation on arbitrary inputs. The PPL-guided
+fallback (\S\ref{sec:ppl-mse-gap}) is a step toward runtime safety
+but currently operates offline during calibration, not during inference.
+
+% ═══════════════════════════════════════════════════════════
 \section{Conclusion}
 
 We present the first systematic cross-architecture evaluation of KV
