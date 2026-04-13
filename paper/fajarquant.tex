@@ -527,17 +527,78 @@ $N$ & FP16 & Flat 3-bit & Hier. & Ratio \\
 % ═══════════════════════════════════════════════════════════
 \section{Related Work}
 
-\textbf{TurboQuant} \citep{zandieh2025turboquant}: Our baseline. Achieves $2.7\times$-optimal MSE via random rotation + Lloyd-Max.
+\subsection{Per-Channel / Per-Token Methods}
 
-\textbf{KIVI} \citep{liu2024kivi}: Per-channel key / per-token value quantization. Strong for key MSE but we show rotation-based methods are superior overall, especially at low bit widths.
+\textbf{KIVI} \citep{liu2024kivi} observes that keys have large
+magnitude variation across channels and values across tokens, using
+per-channel key and per-token value quantization. Our cross-architecture
+evaluation reveals KIVI is the dominant method on wide-GQA models but
+fails on MQA (Table~\ref{tab:ppl_crossmodel}).
 
-\textbf{AQLM} \citep{egiazarian2024aqlm}: Additive quantization for model weights (not KV cache).
+\textbf{KVQuant} \citep{hooper2024kvquant} extends per-channel
+quantization with non-uniform datatypes and dense-and-sparse
+decomposition. We adopt their model-surgery evaluation protocol
+(R-$\alpha$.1, \S\ref{sec:methodology}).
 
-\textbf{QuIP\#} \citep{tseng2024quip}: Incoherence processing + LDLQ for weight quantization.
+\textbf{SKVQ} \citep{duanmu2024skvq} combines per-channel sliding
+window with outlier handling. We cite their non-overlapping chunk
+evaluation protocol alongside KVQuant as our R-$\alpha$.1 sources.
 
-\textbf{FlexGen} \citep{sheng2023flexgen}: Memory offloading system. Complementary to quantization.
+\subsection{Rotation-Based Methods}
 
-No prior work combines adaptive rotation, fused attention, hierarchical allocation, and compile-time safety.
+\textbf{TurboQuant} \citep{zandieh2025turboquant} applies random
+orthogonal rotation followed by coordinate-wise Lloyd-Max quantization,
+achieving $2.7\times$-optimal MSE. FajarQuant~v2 replaces the random
+rotation with calibrated PCA + outlier extraction.
+
+\textbf{SpinQuant} \citep{liu2024spinquant} learns a rotation matrix
+end-to-end via Cayley optimization, targeting weight+activation
+quantization. FajarQuant uses calibration-derived PCA instead of learned
+rotation, avoiding the training cost.
+
+\textbf{QuIP\#} \citep{tseng2024quip} uses Hadamard incoherence
+processing for weight quantization with lattice codebooks. FajarQuant~v2
+borrows the Hadamard transform for outlier spreading but applies it to
+KV cache, not weights.
+
+\textbf{FlatQuant} \citep{sun2024flatquant} flattens weight
+distributions via learnable affine transforms before quantization. The
+``flatten before quantize'' principle is shared with FajarQuant's PCA
+rotation.
+
+\textbf{RotateKV} \citep{wang2024rotatekv} applies Hadamard rotation
+specifically to KV cache to reduce outlier magnitudes. FajarQuant~v2
+adds calibrated PCA on top of the Hadamard transform.
+
+\subsection{Adaptive Allocation Methods}
+
+\textbf{KVTC} \citep{zhang2024kvtc} compresses KV cache via
+learned token-level compression. FajarQuant's hierarchical allocation
+achieves a similar goal (reducing budget for old tokens) without learned
+compression, using fixed bit schedules.
+
+\textbf{KVLinC} \citep{wang2025kvlinc} linearizes attention for
+efficient compressed KV cache. Complementary to quantization.
+
+\textbf{AsymKV} \citep{he2024asymkv} uses asymmetric quantization
+for keys vs values. Our results support this direction: the
+``right'' quantization differs between keys and values
+(\S\ref{sec:value-gap-closes}).
+
+\subsection{Weight Quantization (Complementary)}
+
+\textbf{AQLM} \citep{egiazarian2024aqlm}: Additive quantization for
+model weights. \textbf{FlexGen} \citep{sheng2023flexgen}: Memory
+offloading system. Both are complementary to KV cache quantization.
+
+\subsection{Novelty of This Work}
+
+No prior work provides a systematic cross-architecture perplexity
+comparison of KV cache quantization methods across MQA, wide-GQA, and
+narrow-GQA. Our finding that no single method dominates has not been
+documented previously. FajarQuant~v2's combination of calibrated PCA,
+outlier extraction, fused Hadamard+quantize, and native language-level
+implementation is unique.
 
 % ═══════════════════════════════════════════════════════════
 \section{Performance Evaluation}
