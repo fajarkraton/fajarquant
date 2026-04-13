@@ -266,6 +266,79 @@ Fajar Lang's dual-context annotation system provides safety guarantees unavailab
 \end{lstlisting}
 
 % ═══════════════════════════════════════════════════════════
+\section{FajarQuant v2: Outlier-Aware Calibrated PCA}
+\label{sec:fqv2}
+
+FajarQuant v1's naive per-tensor symmetric quantization after PCA
+rotation worked well on MSE benchmarks but failed under canonical
+perplexity evaluation (\S\ref{sec:v1v2}). V2 addresses the two root
+causes with a redesigned pipeline.
+
+\subsection{Algorithm}
+
+Given input KV cache tensor $X \in \mathbb{R}^{N \times d}$:
+
+\begin{enumerate}[nosep]
+\item \textbf{Hadamard pre-rotation.} Apply the Walsh-Hadamard
+      Transform $H_d$ to spread outlier magnitudes across channels:
+      $X' = X \cdot H_d / \sqrt{d}$. This is $O(Nd\log d)$ via the
+      fast butterfly algorithm and reduces the dynamic range of each
+      channel.
+\item \textbf{Outlier extraction.} Identify the top-$k$ channels by
+      absolute magnitude (default $k = \lfloor 0.15 \cdot d \rfloor$,
+      i.e., 15\%). These channels are preserved in higher precision
+      (FP16) rather than quantized, because they carry disproportionate
+      information. The remaining $(1{-}0.15) \cdot d$ channels are
+      quantized.
+\item \textbf{Per-coordinate symmetric quantization.} Each non-outlier
+      channel $i$ is quantized independently with scale
+      $s_i = \max|X'_{:,i}| / (2^{b-1} - 1)$.
+\item \textbf{Reconstruction.} Dequantize non-outlier channels, merge
+      with preserved outliers, apply inverse Hadamard:
+      $\hat{X} = \hat{X}' \cdot H_d / \sqrt{d}$.
+\end{enumerate}
+
+\subsection{Fused Hadamard+Quantize Kernel}
+
+Steps 1--3 are fused into a single pass using AVX2 SIMD intrinsics
+(256-bit YMM registers, 4 f64 butterflies per cycle). The fused
+kernel avoids allocating the intermediate rotated tensor, achieving
+\textbf{1.6$\times$ speedup} over the separate-pass implementation
+at $d{=}128$ (benchmark: \texttt{benches/hadamard\_simd.rs}).
+
+\subsection{Ablation: v1 vs v2 Components}
+
+Table~\ref{tab:v1v2_ablation} isolates the impact of each v2 change
+on Gemma~4~E2B 2-bit perplexity (R-$\alpha$.1 protocol).
+
+\begin{table}[t]
+\centering
+\small
+\caption{v1 $\to$ v2 ablation on Gemma 2-bit (R-$\alpha$.1, $n{=}30$)}
+\label{tab:v1v2_ablation}
+\begin{tabular}{lcc}
+\toprule
+Configuration & PPL (2-bit) & $\Delta$ vs v1 \\
+\midrule
+FQ v1 (PCA only) & 125.19 & --- \\
+$+$ Hadamard pre-rotation & 161.31$^*$ & $-28.8\%$ \\
+$+$ 15\% outlier extraction & \textbf{46.20} & $+63.1\%$ \\
+\midrule
+TQ outlier (baseline) & 39.73 & --- \\
+KIVI & 470.50 & --- \\
+\bottomrule
+\multicolumn{3}{l}{\footnotesize $^*$v2a variant: Hadamard without outlier handling hurts.} \\
+\end{tabular}
+\end{table}
+
+\textbf{Key insight:} Hadamard rotation alone (v2a) is worse than v1
+because it spreads outliers without preserving them. The outlier
+extraction is the critical component---without it, the rotation
+amplifies quantization error on the high-kurtosis channels that
+transformers rely on for attention. The combination of Hadamard +
+outlier extraction (v2) achieves a 63\% improvement over v1.
+
+% ═══════════════════════════════════════════════════════════
 \section{Cross-Architecture Perplexity Evaluation}
 \label{sec:perplexity}
 
