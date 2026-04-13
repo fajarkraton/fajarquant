@@ -37,9 +37,16 @@ DEFAULT_THRESHOLDS = {
 def select_strategy(
     stats: dict,
     bits: int,
+    n_kv_heads: int = 1,
     thresholds: dict | None = None,
 ) -> str:
     """Select the optimal quantization path for a single head.
+
+    Args:
+        stats: per-head statistics from profile_kv_heads.py
+        bits: target bit width
+        n_kv_heads: total KV heads in the model (architecture-aware)
+        thresholds: override default thresholds
 
     Returns one of: 'A', 'B', 'C', 'D', 'E'.
     """
@@ -49,18 +56,40 @@ def select_strategy(
     kurt = stats.get("kurtosis", 0.0)
     skew = stats.get("skewness", 0.0)
 
-    # Priority order: KIVI > PCA > Hadamard+outlier > Asymmetric > Residual
+    # Architecture-aware gate: MQA (1 head) should NEVER use KIVI
+    # because per-channel quantization catastrophically fails without
+    # head redundancy (Gemma 2-bit: KIVI PPL 470 vs TQ 40).
+    is_mqa = n_kv_heads <= 1
+    is_narrow_gqa = 2 <= n_kv_heads <= 4
+    is_wide_gqa = n_kv_heads >= 8
+
+    # Wide-GQA (≥8 heads): prefer KIVI — it dominates empirically
+    if is_wide_gqa and cv > t["T_cv"] * 0.5:
+        return "A"  # KIVI works great with many heads
+
+    # MQA: never KIVI, prefer rotation-based methods
+    if is_mqa:
+        if kurt > t["T_kurt"] * 0.5:
+            return "C"  # Hadamard + outlier (best for MQA 2-bit)
+        if svd > t["T_svd"] * 0.5:
+            return "B"  # PCA rotation
+        if bits == 2:
+            return "C"  # Default for MQA 2-bit: Hadamard + outlier
+        return "C"  # MQA default: Hadamard + outlier
+
+    # Narrow-GQA (2-4 heads): use statistical thresholds
     if cv > t["T_cv"]:
-        return "A"  # KIVI-like: channels have very different variances
+        return "A"  # KIVI-like
     if svd > t["T_svd"]:
-        return "B"  # PCA: strong low-rank structure
+        return "B"  # PCA rotation
     if kurt > t["T_kurt"]:
-        return "C"  # Hadamard + outlier: heavy-tailed distribution
+        return "C"  # Hadamard + outlier
     if skew > t["T_skew"]:
-        return "E"  # Asymmetric: non-zero-centered distribution
+        return "E"  # Asymmetric
     if bits == 2 and kurt > 3.0:
-        return "D"  # Residual: 2-bit with moderate kurtosis
-    return "A"  # Default: KIVI (safest, works on regular distributions)
+        return "D"  # Residual
+
+    return "A"  # Default: KIVI (safest for multi-head architectures)
 
 
 def assign_strategies(
@@ -72,6 +101,7 @@ def assign_strategies(
 
     Returns a dict with per-head assignments and summary statistics.
     """
+    n_kv_heads = profile.get("_n_heads", 1)
     assignments = []
     path_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
 
@@ -81,7 +111,7 @@ def assign_strategies(
             head_assignment = {}
             for kv_type in ["k", "v"]:
                 stats = head.get(kv_type, {})
-                path = select_strategy(stats, bits, thresholds)
+                path = select_strategy(stats, bits, n_kv_heads, thresholds)
                 head_assignment[kv_type] = path
                 path_counts[path] += 1
             layer_assignments.append(head_assignment)

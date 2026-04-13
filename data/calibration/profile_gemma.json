@@ -1,0 +1,340 @@
+{
+  "_model": "google/gemma-4-E2B",
+  "_n_layers": 15,
+  "_n_heads": 1,
+  "_head_dim": 256,
+  "_n_chunks": 16,
+  "_seq_len": 2048,
+  "layers": [
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 1.0259,
+            "svd_ratio": 1.0224,
+            "outlier_frac": 0.1562,
+            "channel_var_cv": 2.7971,
+            "skewness": 0.0947,
+            "mean_abs": 0.07942
+          },
+          "v": {
+            "kurtosis": 1.2238,
+            "svd_ratio": 1.855,
+            "outlier_frac": 0.0938,
+            "channel_var_cv": 2.4289,
+            "skewness": 0.2193,
+            "mean_abs": 0.584528
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.0165,
+            "svd_ratio": 1.1959,
+            "outlier_frac": 0.0547,
+            "channel_var_cv": 1.0738,
+            "skewness": 0.0789,
+            "mean_abs": 0.087578
+          },
+          "v": {
+            "kurtosis": 0.3096,
+            "svd_ratio": 2.3802,
+            "outlier_frac": 0.0273,
+            "channel_var_cv": 3.2105,
+            "skewness": 0.1426,
+            "mean_abs": 0.691073
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.0941,
+            "svd_ratio": 1.5981,
+            "outlier_frac": 0.1328,
+            "channel_var_cv": 1.7334,
+            "skewness": 0.0754,
+            "mean_abs": 0.085162
+          },
+          "v": {
+            "kurtosis": 0.3689,
+            "svd_ratio": 2.0325,
+            "outlier_frac": 0.0352,
+            "channel_var_cv": 3.4472,
+            "skewness": 0.1216,
+            "mean_abs": 0.674416
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": -0.0638,
+            "svd_ratio": 1.0151,
+            "outlier_frac": 0.0625,
+            "channel_var_cv": 1.5699,
+            "skewness": 0.0647,
+            "mean_abs": 0.087695
+          },
+          "v": {
+            "kurtosis": 0.2593,
+            "svd_ratio": 1.5432,
+            "outlier_frac": 0.0391,
+            "channel_var_cv": 1.8046,
+            "skewness": 0.1223,
+            "mean_abs": 0.698182
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": -0.1298,
+            "svd_ratio": 1.1234,
+            "outlier_frac": 0.0391,
+            "channel_var_cv": 0.5883,
+            "skewness": 0.0803,
+            "mean_abs": 0.050921
+          },
+          "v": {
+            "kurtosis": 0.2277,
+            "svd_ratio": 1.3248,
+            "outlier_frac": 0.0234,
+            "channel_var_cv": 1.5234,
+            "skewness": 0.0843,
+            "mean_abs": 0.702976
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": -0.022,
+            "svd_ratio": 1.1511,
+            "outlier_frac": 0.0586,
+            "channel_var_cv": 1.1226,
+            "skewness": 0.0737,
+            "mean_abs": 0.093298
+          },
+          "v": {
+            "kurtosis": 0.2148,
+            "svd_ratio": 1.5785,
+            "outlier_frac": 0.0195,
+            "channel_var_cv": 1.9807,
+            "skewness": 0.1048,
+            "mean_abs": 0.694179
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.1144,
+            "svd_ratio": 1.1116,
+            "outlier_frac": 0.1562,
+            "channel_var_cv": 2.5582,
+            "skewness": 0.0721,
+            "mean_abs": 0.084094
+          },
+          "v": {
+            "kurtosis": 0.3866,
+            "svd_ratio": 1.2731,
+            "outlier_frac": 0.0625,
+            "channel_var_cv": 1.0782,
+            "skewness": 0.1395,
+            "mean_abs": 0.630781
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.1408,
+            "svd_ratio": 1.132,
+            "outlier_frac": 0.1484,
+            "channel_var_cv": 1.3956,
+            "skewness": 0.0859,
+            "mean_abs": 0.086149
+          },
+          "v": {
+            "kurtosis": 0.2294,
+            "svd_ratio": 1.1696,
+            "outlier_frac": 0.0391,
+            "channel_var_cv": 1.4705,
+            "skewness": 0.1126,
+            "mean_abs": 0.705056
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.1343,
+            "svd_ratio": 1.0933,
+            "outlier_frac": 0.1367,
+            "channel_var_cv": 1.355,
+            "skewness": 0.0954,
+            "mean_abs": 0.093682
+          },
+          "v": {
+            "kurtosis": 0.2123,
+            "svd_ratio": 1.509,
+            "outlier_frac": 0.0625,
+            "channel_var_cv": 1.2547,
+            "skewness": 0.0943,
+            "mean_abs": 0.714089
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": -0.0481,
+            "svd_ratio": 1.116,
+            "outlier_frac": 0.0664,
+            "channel_var_cv": 0.7151,
+            "skewness": 0.0779,
+            "mean_abs": 0.046236
+          },
+          "v": {
+            "kurtosis": 0.1806,
+            "svd_ratio": 1.2415,
+            "outlier_frac": 0.082,
+            "channel_var_cv": 1.8319,
+            "skewness": 0.0889,
+            "mean_abs": 0.682981
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.1344,
+            "svd_ratio": 1.0296,
+            "outlier_frac": 0.1875,
+            "channel_var_cv": 1.648,
+            "skewness": 0.0765,
+            "mean_abs": 0.084503
+          },
+          "v": {
+            "kurtosis": 0.1665,
+            "svd_ratio": 1.2007,
+            "outlier_frac": 0.1016,
+            "channel_var_cv": 1.3591,
+            "skewness": 0.1009,
+            "mean_abs": 0.687445
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.0386,
+            "svd_ratio": 1.0448,
+            "outlier_frac": 0.168,
+            "channel_var_cv": 1.3198,
+            "skewness": 0.0635,
+            "mean_abs": 0.085874
+          },
+          "v": {
+            "kurtosis": 0.1619,
+            "svd_ratio": 1.0476,
+            "outlier_frac": 0.0898,
+            "channel_var_cv": 1.9573,
+            "skewness": 0.0938,
+            "mean_abs": 0.689592
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.1018,
+            "svd_ratio": 1.0217,
+            "outlier_frac": 0.1211,
+            "channel_var_cv": 1.8195,
+            "skewness": 0.0836,
+            "mean_abs": 0.085113
+          },
+          "v": {
+            "kurtosis": 0.2215,
+            "svd_ratio": 1.1253,
+            "outlier_frac": 0.0742,
+            "channel_var_cv": 1.6497,
+            "skewness": 0.0931,
+            "mean_abs": 0.658769
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": 0.3005,
+            "svd_ratio": 1.156,
+            "outlier_frac": 0.1328,
+            "channel_var_cv": 1.4737,
+            "skewness": 0.0786,
+            "mean_abs": 0.083997
+          },
+          "v": {
+            "kurtosis": 0.4186,
+            "svd_ratio": 1.2793,
+            "outlier_frac": 0.0469,
+            "channel_var_cv": 1.2573,
+            "skewness": 0.1476,
+            "mean_abs": 0.698321
+          }
+        }
+      ]
+    },
+    {
+      "heads": [
+        {
+          "k": {
+            "kurtosis": -0.0804,
+            "svd_ratio": 1.0187,
+            "outlier_frac": 0.0078,
+            "channel_var_cv": 0.4584,
+            "skewness": 0.0731,
+            "mean_abs": 0.047454
+          },
+          "v": {
+            "kurtosis": 0.3032,
+            "svd_ratio": 1.457,
+            "outlier_frac": 0.0352,
+            "channel_var_cv": 1.3909,
+            "skewness": 0.1075,
+            "mean_abs": 0.735811
+          }
+        }
+      ]
+    }
+  ]
+}
