@@ -1,6 +1,6 @@
 {
   "_model": "google/gemma-4-E2B",
-  "_bits": 2,
+  "_bits": 4,
   "_n_kv_heads": 1,
   "_method": "real_mse_grid_search",
   "_n_train_chunks": 4,
@@ -12,21 +12,21 @@
     "T_skew": 0.3,
     "T_kurt_residual": 1.0
   },
-  "default_mse": 0.5766873949420793,
+  "default_mse": 0.02434635466512797,
   "optimal_thresholds": {
     "T_cv": 3.0,
     "T_svd": 1.2,
-    "T_kurt": 0.5,
+    "T_kurt": 1.0,
     "T_skew": 0.1,
-    "T_kurt_residual": 0.5
+    "T_kurt_residual": 1.0
   },
-  "train_mse": 0.2317225460021291,
-  "test_mse": 0.2283571275571982,
-  "overfit_ratio": 0.9855,
+  "train_mse": 0.009483789314617751,
+  "test_mse": 0.00935735885456476,
+  "overfit_ratio": 0.9867,
   "optimal_path_counts": {
-    "A": 16,
+    "A": 17,
     "B": 13,
-    "C": 1,
+    "C": 0,
     "D": 0,
     "E": 0
   },
@@ -38,5 +38,5 @@
     "E": 0
   },
   "grid_size": 625,
-  "elapsed_seconds": 90.1
+  "elapsed_seconds": 30.0
 }
