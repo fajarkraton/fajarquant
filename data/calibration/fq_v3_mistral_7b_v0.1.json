@@ -1,0 +1,39 @@
+{
+  "_model": "mistralai/Mistral-7B-v0.1",
+  "_model_short": "mistral_7b_v0.1",
+  "_n_heads": 8,
+  "_head_dim": 128,
+  "_n_layers": 32,
+  "_v2_calibration": "../data/calibration/fq_v2_mistral_7b_v0.1.npz",
+  "_profile_path": "../data/calibration/profile_mistral_7b_v0.1.json",
+  "bits_available": [
+    2,
+    3,
+    4
+  ],
+  "thresholds": {
+    "2": {
+      "T_cv": 1.0,
+      "T_svd": 3.0,
+      "T_kurt": 3.0,
+      "T_skew": 0.5
+    },
+    "3": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    },
+    "4": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    }
+  },
+  "strategy_files": {
+    "2": "strategy_mistral_7b_v0.1_2bit.json",
+    "3": "strategy_mistral_7b_v0.1_3bit.json",
+    "4": "strategy_mistral_7b_v0.1_4bit.json"
+  }
+}

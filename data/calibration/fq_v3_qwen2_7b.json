@@ -1,0 +1,39 @@
+{
+  "_model": "Qwen/Qwen2-7B",
+  "_model_short": "qwen2_7b",
+  "_n_heads": 4,
+  "_head_dim": 128,
+  "_n_layers": 28,
+  "_v2_calibration": "../data/calibration/fq_v2_qwen2_7b.npz",
+  "_profile_path": "../data/calibration/profile_qwen2_7b.json",
+  "bits_available": [
+    2,
+    3,
+    4
+  ],
+  "thresholds": {
+    "2": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    },
+    "3": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    },
+    "4": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    }
+  },
+  "strategy_files": {
+    "2": "strategy_qwen2_7b_2bit.json",
+    "3": "strategy_qwen2_7b_3bit.json",
+    "4": "strategy_qwen2_7b_4bit.json"
+  }
+}
