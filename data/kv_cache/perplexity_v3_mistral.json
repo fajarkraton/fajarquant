@@ -1,0 +1,69 @@
+{
+  "fp16": {
+    "ppl": 5.668895244598389,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_v3_2bit": {
+    "ppl": 78.69210815429688,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_v3_3bit": {
+    "ppl": 6.379059314727783,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_v3_4bit": {
+    "ppl": 5.764591217041016,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_2bit": {
+    "ppl": 23.956157684326172,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_3bit": {
+    "ppl": 5.993754863739014,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "kivi_4bit": {
+    "ppl": 5.725300312042236,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_outlier_2bit": {
+    "ppl": 167.89434814453125,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_outlier_3bit": {
+    "ppl": 9.479937553405762,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_outlier_4bit": {
+    "ppl": 5.8762383460998535,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery (v3)",
+    "model": "mistralai/Mistral-7B-v0.1",
+    "strategy": "data/calibration/strategy_mistral_7b_v0.1_{bits}bit.json",
+    "calibration": "data/calibration/fq_v2_mistral_7b_v0.1.npz",
+    "seq_len": 2048,
+    "max_samples": 30
+  }
+}

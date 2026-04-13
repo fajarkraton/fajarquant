@@ -1,0 +1,42 @@
+{
+  "_model": "mistralai/Mistral-7B-v0.1",
+  "_bits": 2,
+  "_n_kv_heads": 8,
+  "_method": "real_mse_grid_search",
+  "_n_train_chunks": 4,
+  "_n_test_chunks": 1,
+  "default_thresholds": {
+    "T_cv": 1.5,
+    "T_svd": 2.0,
+    "T_kurt": 2.0,
+    "T_skew": 0.3,
+    "T_kurt_residual": 1.0
+  },
+  "default_mse": 0.3490563541983036,
+  "optimal_thresholds": {
+    "T_cv": 1.5,
+    "T_svd": 1.2,
+    "T_kurt": 3.0,
+    "T_skew": 0.5,
+    "T_kurt_residual": 0.5
+  },
+  "train_mse": 0.30560063065161813,
+  "test_mse": 0.30287686473171505,
+  "overfit_ratio": 0.9911,
+  "optimal_path_counts": {
+    "A": 196,
+    "B": 234,
+    "C": 0,
+    "D": 82,
+    "E": 0
+  },
+  "default_path_counts": {
+    "A": 471,
+    "B": 2,
+    "C": 4,
+    "D": 32,
+    "E": 3
+  },
+  "grid_size": 625,
+  "elapsed_seconds": 1023.8
+}
