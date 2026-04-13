@@ -270,12 +270,24 @@ def patch_model_for_quantization_v3(model: nn.Module, bits: int, config: dict):
 
 
 def unpatch_model(model: nn.Module):
-    """Restore original forwards."""
+    """Restore original forwards and reset v3 global state.
+
+    D7 fix: reset _V3_STRATEGY/_V3_BITS/_V3_CALIBRATION (was missing).
+    D7 fix: delete per-module entries instead of .clear() to avoid
+    destroying v1's backup in the shared _ORIGINAL_FORWARDS dict.
+    """
+    global _V3_STRATEGY, _V3_BITS, _V3_CALIBRATION
+    restored = []
     for module in model.modules():
         mid = id(module)
         if mid in _ORIGINAL_FORWARDS:
             module.forward = _ORIGINAL_FORWARDS[mid]
-    _ORIGINAL_FORWARDS.clear()
+            restored.append(mid)
+    for mid in restored:
+        del _ORIGINAL_FORWARDS[mid]
+    _V3_STRATEGY = None
+    _V3_BITS = 0
+    _V3_CALIBRATION = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -283,61 +295,114 @@ def unpatch_model(model: nn.Module):
 # ═══════════════════════════════════════════════════════════════════════
 
 def _make_v3_forward_mistral(layer_idx: int):
-    """Create a closure for Mistral v3 forward at a specific layer."""
+    """Create a closure for Mistral v3 forward.
+
+    D7 fix: verbatim copy of v1 mistral_quantized_forward (quant_attention.py:305)
+    with _quantize_kv → _quantize_kv_v3. Preserves sliding_window, dropout,
+    scaling, safe attention dispatch, and self.layer_idx for cache update.
+
+    D8 fix: uses self.layer_idx (model's own) for cache.update(), and closure
+    layer_idx for strategy lookup. These should be the same for Mistral (no
+    shared-KV layers), but using self.layer_idx is more robust.
+    """
     def forward(self, hidden_states, position_embeddings, attention_mask=None,
                 past_key_values=None, **kwargs):
         from transformers.models.mistral.modeling_mistral import (
-            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb,
+            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb, eager_attention_forward,
         )
-        bsz, q_len, _ = hidden_states.size()
-        qs = self.q_proj(hidden_states)
-        ks = self.k_proj(hidden_states)
-        vs = self.v_proj(hidden_states)
-        qs = qs.view(bsz, q_len, self.config.num_attention_heads, self.head_dim).transpose(1, 2)
-        ks = ks.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
-        vs = vs.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
         cos, sin = position_embeddings
-        qs, ks = apply_rotary_pos_emb(qs, ks, cos, sin)
-        # v3: per-head quantization
-        ks = _quantize_kv_v3(ks, _V3_BITS, True, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
-        vs = _quantize_kv_v3(vs, _V3_BITS, False, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # ★★★ v3 per-head quantization ★★★
+        key_states = _quantize_kv_v3(key_states, _V3_BITS, True, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+        value_states = _quantize_kv_v3(value_states, _V3_BITS, False, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+
         if past_key_values is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": kwargs.get("cache_position")}
-            ks, vs = past_key_values.update(ks, vs, layer_idx, cache_kwargs)
-        attn_fn = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-        ao, aw = attn_fn(self, qs, ks, vs, attention_mask, **kwargs)
-        ao = ao.reshape(bsz, q_len, -1).contiguous()
-        ao = self.o_proj(ao)
-        return ao, aw
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx
+            )
+
+        attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(
+            self.config._attn_implementation, eager_attention_forward
+        )
+
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+            sliding_window=getattr(self.config, "sliding_window", None),
+            **kwargs,
+        )
+
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
+        return attn_output, attn_weights
     return forward
 
 
 def _make_v3_forward_qwen2(layer_idx: int):
-    """Create a closure for Qwen2 v3 forward."""
+    """Create a closure for Qwen2 v3 forward.
+
+    D7 fix: verbatim copy of v1 qwen2_quantized_forward (quant_attention.py:365)
+    with _quantize_kv → _quantize_kv_v3. Preserves sliding_window (instance
+    attribute), dropout, scaling, safe attention dispatch.
+    """
     def forward(self, hidden_states, position_embeddings, attention_mask=None,
                 past_key_values=None, **kwargs):
         from transformers.models.qwen2.modeling_qwen2 import (
-            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb,
+            ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb, eager_attention_forward,
         )
-        bsz, q_len, _ = hidden_states.size()
-        qs = self.q_proj(hidden_states)
-        ks = self.k_proj(hidden_states)
-        vs = self.v_proj(hidden_states)
-        qs = qs.view(bsz, q_len, self.config.num_attention_heads, self.head_dim).transpose(1, 2)
-        ks = ks.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
-        vs = vs.view(bsz, q_len, self.config.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
         cos, sin = position_embeddings
-        qs, ks = apply_rotary_pos_emb(qs, ks, cos, sin)
-        ks = _quantize_kv_v3(ks, _V3_BITS, True, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
-        vs = _quantize_kv_v3(vs, _V3_BITS, False, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # ★★★ v3 per-head quantization ★★★
+        key_states = _quantize_kv_v3(key_states, _V3_BITS, True, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+        value_states = _quantize_kv_v3(value_states, _V3_BITS, False, layer_idx, _V3_STRATEGY, _V3_CALIBRATION)
+
         if past_key_values is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": kwargs.get("cache_position")}
-            ks, vs = past_key_values.update(ks, vs, layer_idx, cache_kwargs)
-        attn_fn = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-        ao, aw = attn_fn(self, qs, ks, vs, attention_mask, **kwargs)
-        ao = ao.reshape(bsz, q_len, -1).contiguous()
-        ao = self.o_proj(ao)
-        return ao, aw
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx
+            )
+
+        attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(
+            self.config._attn_implementation, eager_attention_forward
+        )
+
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+            sliding_window=self.sliding_window,
+            **kwargs,
+        )
+
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
+        return attn_output, attn_weights
     return forward
 
 
