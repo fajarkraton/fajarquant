@@ -1,0 +1,27 @@
+{
+  "_model": "google/gemma-4-E2B",
+  "_bits": 2,
+  "_n_kv_heads": 1,
+  "default_thresholds": {
+    "T_cv": 2.0,
+    "T_svd": 5.0,
+    "T_kurt": 6.0,
+    "T_skew": 1.5
+  },
+  "default_score": 100.0,
+  "optimal_thresholds": {
+    "T_cv": 2.0,
+    "T_svd": 5.0,
+    "T_kurt": 6.0,
+    "T_skew": 1.5
+  },
+  "optimal_score": 100.0,
+  "optimal_path_counts": {
+    "A": 0,
+    "B": 0,
+    "C": 30,
+    "D": 0,
+    "E": 0
+  },
+  "grid_size": 625
+}

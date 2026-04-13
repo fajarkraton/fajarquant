@@ -1,0 +1,214 @@
+{
+  "_model": "google/gemma-4-E2B",
+  "_bits": 3,
+  "_thresholds": {
+    "T_cv": 2.0,
+    "T_svd": 5.0,
+    "T_kurt": 6.0,
+    "T_skew": 1.5
+  },
+  "assignments": [
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "C"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ],
+    [
+      {
+        "k": "C",
+        "v": "D"
+      }
+    ]
+  ],
+  "path_counts": {
+    "A": 0,
+    "B": 0,
+    "C": 24,
+    "D": 6,
+    "E": 0
+  },
+  "path_fractions": {
+    "A": 0.0,
+    "B": 0.0,
+    "C": 1.0,
+    "D": 0.0,
+    "E": 0.0
+  },
+  "n_unique_paths": 2,
+  "_verification": {
+    "swaps": 6,
+    "total_heads": 30,
+    "swap_rate": 0.2,
+    "swap_log": [
+      {
+        "layer": 14,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.01773,
+        "mse_after": 0.001287
+      },
+      {
+        "layer": 8,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.01636,
+        "mse_after": 0.001203
+      },
+      {
+        "layer": 3,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.015761,
+        "mse_after": 0.001088
+      },
+      {
+        "layer": 4,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.015728,
+        "mse_after": 0.001194
+      },
+      {
+        "layer": 13,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.015679,
+        "mse_after": 0.001168
+      },
+      {
+        "layer": 7,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.015601,
+        "mse_after": 0.001215
+      },
+      {
+        "layer": 5,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.015185,
+        "mse_after": 0.001185
+      },
+      {
+        "layer": 1,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.014943,
+        "mse_after": 0.001092
+      },
+      {
+        "layer": 9,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.014676,
+        "mse_after": 0.001032
+      },
+      {
+        "layer": 2,
+        "head": 0,
+        "kv": "v",
+        "from": "C",
+        "to": "D",
+        "mse_before": 0.014757,
+        "mse_after": 0.00112
+      }
+    ]
+  }
+}

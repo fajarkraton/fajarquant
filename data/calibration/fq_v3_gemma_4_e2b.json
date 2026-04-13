@@ -1,0 +1,39 @@
+{
+  "_model": "google/gemma-4-E2B",
+  "_model_short": "gemma_4_e2b",
+  "_n_heads": 1,
+  "_head_dim": 256,
+  "_n_layers": 15,
+  "_v2_calibration": "../data/calibration/fq_v2_gemma_4_e2b.npz",
+  "_profile_path": "../data/calibration/profile_gemma_4_e2b.json",
+  "bits_available": [
+    2,
+    3,
+    4
+  ],
+  "thresholds": {
+    "2": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    },
+    "3": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    },
+    "4": {
+      "T_cv": 2.0,
+      "T_svd": 5.0,
+      "T_kurt": 6.0,
+      "T_skew": 1.5
+    }
+  },
+  "strategy_files": {
+    "2": "strategy_gemma_4_e2b_2bit.json",
+    "3": "strategy_gemma_4_e2b_3bit.json",
+    "4": "strategy_gemma_4_e2b_4bit.json"
+  }
+}
