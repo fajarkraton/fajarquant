@@ -221,37 +221,24 @@ def patch_model_for_quantization_v3(model: nn.Module, bits: int, config: dict):
     _V3_BITS = bits
     _V3_CALIBRATION = config.get("calibration")
 
-    # Detect architecture and patch
-    model_type = getattr(model.config, "model_type", "")
-    layer_idx = 0
+    # Detect architecture and patch — match by exact class name (like v1)
+    _V3_FORWARD_MAKERS = {
+        "MistralAttention": _make_v3_forward_mistral,
+        "Qwen2Attention": _make_v3_forward_qwen2,
+        "Gemma4TextAttention": _make_v3_forward_gemma4,
+    }
 
+    layer_idx = 0
     for module in model.modules():
         cls_name = type(module).__name__
-        if "Attention" not in cls_name:
+        if cls_name not in _V3_FORWARD_MAKERS:
             continue
-        if hasattr(module, "q_proj"):  # Standard attention module
-            _ORIGINAL_FORWARDS[id(module)] = module.forward
-            li = layer_idx
-
-            if "Mistral" in cls_name:
-                module.forward = types.MethodType(
-                    _make_v3_forward_mistral(li), module
-                )
-            elif "Qwen2" in cls_name:
-                module.forward = types.MethodType(
-                    _make_v3_forward_qwen2(li), module
-                )
-            elif "Gemma4" in cls_name or "Gemma" in cls_name:
-                module.forward = types.MethodType(
-                    _make_v3_forward_gemma4(li), module
-                )
-            else:
-                # Generic fallback: try Mistral-style
-                module.forward = types.MethodType(
-                    _make_v3_forward_mistral(li), module
-                )
-
-            layer_idx += 1
+        mid = id(module)
+        if mid not in _ORIGINAL_FORWARDS:
+            _ORIGINAL_FORWARDS[mid] = module.forward
+        maker = _V3_FORWARD_MAKERS[cls_name]
+        module.forward = types.MethodType(maker(layer_idx), module)
+        layer_idx += 1
 
 
 def unpatch_model(model: nn.Module):
@@ -329,14 +316,18 @@ def _make_v3_forward_qwen2(layer_idx: int):
 def _make_v3_forward_gemma4(layer_idx: int):
     """Create a closure for Gemma4 v3 forward.
 
-    Gemma4 quirks: q_norm/k_norm/v_norm, shared KV layers,
-    unsqueeze_dim=2, v_proj may be None.
+    Reuses the VERBATIM v1 gemma4_quantized_forward from quant_attention.py,
+    only swapping `_quantize_kv(...)` calls to `_quantize_kv_v3(...)`.
+    This avoids subtle Gemma4-specific bugs in re-implementation.
     """
+    from quant_attention import gemma4_quantized_forward as _v1_gemma4_fwd
+
     def forward(self, hidden_states, position_embeddings, attention_mask=None,
                 past_key_values=None, **kwargs):
         from transformers.models.gemma4.modeling_gemma4 import (
             ALL_ATTENTION_FUNCTIONS, apply_rotary_pos_emb, eager_attention_forward,
         )
+
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
         cos, sin = position_embeddings
@@ -357,13 +348,15 @@ def _make_v3_forward_gemma4(layer_idx: int):
                 if self.v_proj is not None
                 else key_states
             )
+
             key_states = self.k_norm(key_states)
             key_states = apply_rotary_pos_emb(key_states, cos, sin, unsqueeze_dim=2)
             key_states = key_states.transpose(1, 2)
+
             value_states = self.v_norm(value_states)
             value_states = value_states.transpose(1, 2)
 
-            # v3: per-head quantization
+            # v3: per-head quantization (ONLY difference from v1)
             key_states = _quantize_kv_v3(key_states, _V3_BITS, True, layer_idx,
                                          _V3_STRATEGY, _V3_CALIBRATION)
             value_states = _quantize_kv_v3(value_states, _V3_BITS, False, layer_idx,
@@ -379,16 +372,21 @@ def _make_v3_forward_gemma4(layer_idx: int):
                     past_key_values.shared_layers = {}
                 past_key_values.shared_layers[self.layer_idx] = key_states, value_states
 
-        attention_interface = eager_attention_forward
+        attention_interface: callable = eager_attention_forward
         if self.config._attn_implementation != "eager":
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
-        ao, aw = attention_interface(
-            self, query_states, key_states, value_states, attention_mask,
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
             dropout=self.attention_dropout if self.training else 0.0,
+            scaling=self.scaling,
             **kwargs,
         )
-        ao = ao.reshape(*input_shape, -1).contiguous()
-        ao = self.o_proj(ao)
-        return ao, aw
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
+        return attn_output, attn_weights
     return forward
