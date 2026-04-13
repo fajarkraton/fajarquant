@@ -211,7 +211,7 @@ def main():
         args.model, token=args.token, trust_remote_code=True
     )
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, token=args.token, dtype=torch.float16,
+        args.model, token=args.token, torch_dtype=torch.float16,
         device_map="auto", trust_remote_code=True,
     )
     model.eval()
