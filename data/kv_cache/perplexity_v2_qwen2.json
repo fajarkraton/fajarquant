@@ -1,0 +1,104 @@
+{
+  "fp16": {
+    "ppl": 7.549110445798909,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_2bit": {
+    "ppl": 262.88876302724947,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_2bit": {
+    "ppl": 46.69670795791696,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_outlier_2bit": {
+    "ppl": 165.60265456090562,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_v2_2bit": {
+    "ppl": 50.09997543798769,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_v2a_2bit": {
+    "ppl": 379.1475409039646,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_3bit": {
+    "ppl": 8.925339060235896,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "kivi_3bit": {
+    "ppl": 8.010362664130785,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_outlier_3bit": {
+    "ppl": 8.261535671436945,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_v2_3bit": {
+    "ppl": 8.206027242633251,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_v2a_3bit": {
+    "ppl": 8.582412319702627,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_4bit": {
+    "ppl": 7.744093837530741,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_4bit": {
+    "ppl": 7.620747411713894,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_outlier_4bit": {
+    "ppl": 7.673046454097265,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "fajarquant_v2_4bit": {
+    "ppl": 7.665553245265233,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "fajarquant_v2a_4bit": {
+    "ppl": 7.718913909051788,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery (v2)",
+    "model": "Qwen/Qwen2-7B",
+    "calibration": "data/calibration/fq_v2_qwen2_7b.npz",
+    "seq_len": 2048,
+    "max_samples": 30
+  }
+}

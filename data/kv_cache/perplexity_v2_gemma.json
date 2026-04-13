@@ -1,0 +1,104 @@
+{
+  "fp16": {
+    "ppl": 28.13497644619845,
+    "tokens": 61410,
+    "samples": 30
+  },
+  "fajarquant_2bit": {
+    "ppl": 125.18996139168888,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "kivi_2bit": {
+    "ppl": 470.49532763294957,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "turboquant_outlier_2bit": {
+    "ppl": 39.733775562555785,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_v2_2bit": {
+    "ppl": 46.203544016300285,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_v2a_2bit": {
+    "ppl": 161.31217702864953,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 2
+  },
+  "fajarquant_3bit": {
+    "ppl": 24.263957549131383,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "kivi_3bit": {
+    "ppl": 21.9024449884004,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "turboquant_outlier_3bit": {
+    "ppl": 26.961625856009913,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_v2_3bit": {
+    "ppl": 24.545317129847717,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_v2a_3bit": {
+    "ppl": 23.61454625234185,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 3
+  },
+  "fajarquant_4bit": {
+    "ppl": 26.749964277629907,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "kivi_4bit": {
+    "ppl": 35.173734513066464,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "turboquant_outlier_4bit": {
+    "ppl": 27.33028534150322,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "fajarquant_v2_4bit": {
+    "ppl": 26.97743603490963,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "fajarquant_v2a_4bit": {
+    "ppl": 26.510592600016988,
+    "tokens": 61410,
+    "samples": 30,
+    "bits": 4
+  },
+  "_protocol": {
+    "name": "R-\u03b1.1 model surgery (v2)",
+    "model": "google/gemma-4-E2B",
+    "calibration": "data/calibration/fq_v2_gemma_4_e2b.npz",
+    "seq_len": 2048,
+    "max_samples": 30
+  }
+}
