@@ -36,7 +36,7 @@ completes in under a second.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 from . import int_ops
 from .vecmat_v8 import vecmat_v8
@@ -45,6 +45,7 @@ from .rmsnorm import (
     GAMMA_MODE_LLAMA, GAMMA_MODE_GEMMA,
 )
 from .argmax_v8 import argmax_v8, argmax_v8_full_logits
+from .trace import NOOP_TRACER, NoopTracer, TraceWriter
 
 
 # Kernel model_type enum values (from kernel/compute/model_loader.fj)
@@ -168,6 +169,10 @@ def simplified_attention_single_pos(
     x: List[int],
     layer: LayerWeights,
     cfg: TransformerConfig,
+    *,
+    tracer: Any = NOOP_TRACER,
+    token_idx: int = 0,
+    layer_idx: int = 0,
 ) -> List[int]:
     """Attention for a length-1 sequence — collapses to `W_O · W_V · x`.
 
@@ -187,6 +192,10 @@ def simplified_attention_single_pos(
         x, layer.v_packed, layer.v_scales, layer.v_zeros,
         cfg.d_model, kv_d,
     )
+    tracer.record(
+        "v_proj", v_out, token_idx=token_idx, layer=layer_idx,
+        shape=[kv_d], dtype="i64",
+    )
     # Touch Q and K to ensure weights are shape-consistent (helps catch
     # construction bugs in tests even though the values are unused here)
     q_dim = cfg.n_heads * cfg.d_head
@@ -194,9 +203,17 @@ def simplified_attention_single_pos(
         x, layer.q_packed, layer.q_scales, layer.q_zeros,
         cfg.d_model, q_dim,
     )
+    tracer.record(
+        "q_proj", _q, token_idx=token_idx, layer=layer_idx,
+        shape=[q_dim], dtype="i64",
+    )
     _k = vecmat_v8(
         x, layer.k_packed, layer.k_scales, layer.k_zeros,
         cfg.d_model, kv_d,
+    )
+    tracer.record(
+        "k_proj", _k, token_idx=token_idx, layer=layer_idx,
+        shape=[kv_d], dtype="i64",
     )
 
     # O projection: W_O · V → (d_model)
@@ -207,6 +224,10 @@ def simplified_attention_single_pos(
         v_out, layer.o_packed, layer.o_scales, layer.o_zeros,
         attn_in_dim, cfg.d_model,
     )
+    tracer.record(
+        "attn_out", o_out, token_idx=token_idx, layer=layer_idx,
+        shape=[cfg.d_model], dtype="i64",
+    )
     return o_out
 
 
@@ -215,6 +236,10 @@ def gated_ffn(
     layer: LayerWeights,
     cfg: TransformerConfig,
     activation: Callable[[int], int] = activation_identity,
+    *,
+    tracer: Any = NOOP_TRACER,
+    token_idx: int = 0,
+    layer_idx: int = 0,
 ) -> List[int]:
     """Gated FFN: `down(act(gate·x) * (up·x))`.
 
@@ -227,9 +252,17 @@ def gated_ffn(
         x, layer.gate_packed, layer.gate_scales, layer.gate_zeros,
         cfg.d_model, cfg.ffn_dim,
     )
+    tracer.record(
+        "gate_proj", gate_out, token_idx=token_idx, layer=layer_idx,
+        shape=[cfg.ffn_dim], dtype="i64",
+    )
     up_out = vecmat_v8(
         x, layer.up_packed, layer.up_scales, layer.up_zeros,
         cfg.d_model, cfg.ffn_dim,
+    )
+    tracer.record(
+        "up_proj", up_out, token_idx=token_idx, layer=layer_idx,
+        shape=[cfg.ffn_dim], dtype="i64",
     )
     # Element-wise: activation(gate) * up / 1000   (keeps fp×1000 scale)
     hidden = [
@@ -239,10 +272,19 @@ def gated_ffn(
         )
         for g, u in zip(gate_out, up_out)
     ]
-    return vecmat_v8(
+    tracer.record(
+        "ffn_hidden", hidden, token_idx=token_idx, layer=layer_idx,
+        shape=[cfg.ffn_dim], dtype="i64",
+    )
+    down_out = vecmat_v8(
         hidden, layer.down_packed, layer.down_scales, layer.down_zeros,
         cfg.ffn_dim, cfg.d_model,
     )
+    tracer.record(
+        "down_proj", down_out, token_idx=token_idx, layer=layer_idx,
+        shape=[cfg.d_model], dtype="i64",
+    )
+    return down_out
 
 
 def layer_forward(
@@ -250,6 +292,10 @@ def layer_forward(
     layer: LayerWeights,
     cfg: TransformerConfig,
     activation: Callable[[int], int] = activation_identity,
+    *,
+    tracer: Any = NOOP_TRACER,
+    token_idx: int = 0,
+    layer_idx: int = 0,
 ) -> List[int]:
     """One transformer block. Matches Gemma 3 4-norm flow when
     `cfg.is_gemma3`, otherwise falls back to Llama-style 2-norm flow."""
@@ -260,9 +306,16 @@ def layer_forward(
     x_normed = rmsnorm(
         x, gamma=layer.pre_attn_gamma, gamma_mode=cfg.gamma_mode,
     )
+    tracer.record(
+        "pre_attn_rmsnorm", x_normed, token_idx=token_idx, layer=layer_idx,
+        shape=[dim], dtype="i64",
+    )
 
     # === Attention block ===
-    attn_out = simplified_attention_single_pos(x_normed, layer, cfg)
+    attn_out = simplified_attention_single_pos(
+        x_normed, layer, cfg,
+        tracer=tracer, token_idx=token_idx, layer_idx=layer_idx,
+    )
 
     # === Gemma 3: post-attention RMSNorm before residual ===
     if cfg.is_gemma3 and layer.post_attn_gamma is not None:
@@ -270,18 +323,33 @@ def layer_forward(
             attn_out, gamma=layer.post_attn_gamma,
             gamma_mode=cfg.gamma_mode,
         )
+        tracer.record(
+            "post_attn_rmsnorm", attn_out, token_idx=token_idx,
+            layer=layer_idx, shape=[dim], dtype="i64",
+        )
 
     # === Residual ===
     x = [int_ops.add_i64(a, b) for a, b in zip(res, attn_out)]
+    tracer.record(
+        "attn_residual", x, token_idx=token_idx, layer=layer_idx,
+        shape=[dim], dtype="i64",
+    )
 
     # === Pre-FFN RMSNorm ===
     res = list(x)
     x_normed = rmsnorm(
         x, gamma=layer.pre_ffn_gamma, gamma_mode=cfg.gamma_mode,
     )
+    tracer.record(
+        "pre_ffn_rmsnorm", x_normed, token_idx=token_idx, layer=layer_idx,
+        shape=[dim], dtype="i64",
+    )
 
     # === FFN ===
-    ffn_out = gated_ffn(x_normed, layer, cfg, activation=activation)
+    ffn_out = gated_ffn(
+        x_normed, layer, cfg, activation=activation,
+        tracer=tracer, token_idx=token_idx, layer_idx=layer_idx,
+    )
 
     # === Gemma 3: post-FFN RMSNorm before residual ===
     if cfg.is_gemma3 and layer.post_ffn_gamma is not None:
@@ -289,9 +357,17 @@ def layer_forward(
             ffn_out, gamma=layer.post_ffn_gamma,
             gamma_mode=cfg.gamma_mode,
         )
+        tracer.record(
+            "post_ffn_rmsnorm", ffn_out, token_idx=token_idx,
+            layer=layer_idx, shape=[dim], dtype="i64",
+        )
 
     # === Residual ===
     x = [int_ops.add_i64(a, b) for a, b in zip(res, ffn_out)]
+    tracer.record(
+        "ffn_residual", x, token_idx=token_idx, layer=layer_idx,
+        shape=[dim], dtype="i64",
+    )
 
     assert len(x) == dim
     return x
@@ -318,6 +394,7 @@ def forward(
     cfg: TransformerConfig,
     activation: Callable[[int], int] = activation_identity,
     capture_all: bool = False,
+    tracer: Optional[Any] = None,
 ) -> ForwardResult:
     """Run a full prefill + single-position argmax.
 
@@ -326,27 +403,45 @@ def forward(
     attention is used). The returned argmax is for the LAST prompt
     token's hidden state — matching how argmax is used in
     `tfm_generate_stream` at prefill completion.
+
+    Pass an enabled `TraceWriter` as `tracer` to capture per-op JSONL
+    to the writer's output stream (P2.2). When omitted, a no-op
+    tracer elides the record path at zero cost.
     """
     if not tokens:
         raise ValueError("tokens must be non-empty")
 
+    tr = tracer if tracer is not None else NOOP_TRACER
+
     per_token = []
     last_hidden = None
 
-    for tok in tokens:
+    for tok_idx, tok in enumerate(tokens):
         # === Embed lookup ===
         x = embed_lookup(
             tok, embed_packed, embed_scales, embed_zeros,
             cfg.vocab_size, cfg.d_model,
         )
+        tr.record(
+            "embed_lookup", x, token_idx=tok_idx, layer=-1,
+            shape=[cfg.d_model], dtype="i64",
+            extra={"token_id": tok},
+        )
 
         # === 26× (or cfg.n_layers) layers ===
-        for layer in layers:
-            x = layer_forward(x, layer, cfg, activation=activation)
+        for layer_idx, layer in enumerate(layers):
+            x = layer_forward(
+                x, layer, cfg, activation=activation,
+                tracer=tr, token_idx=tok_idx, layer_idx=layer_idx,
+            )
 
         # === Final RMSNorm ===
         x = rmsnorm(
             x, gamma=final_norm_gamma, gamma_mode=cfg.gamma_mode,
+        )
+        tr.record(
+            "final_rmsnorm", x, token_idx=tok_idx, layer=-1,
+            shape=[cfg.d_model], dtype="i64",
         )
         last_hidden = x
         if capture_all:
@@ -358,6 +453,11 @@ def forward(
     best_token, best_score = argmax_v8(
         last_hidden, embed_packed, embed_scales, embed_zeros,
         cfg.vocab_size, cfg.d_model,
+    )
+    tr.record(
+        "argmax", [best_token], token_idx=len(tokens) - 1, layer=-1,
+        shape=[1], dtype="i64",
+        extra={"best_score": best_score, "vocab_size": cfg.vocab_size},
     )
 
     return ForwardResult(
@@ -377,27 +477,47 @@ def forward_with_logits(
     final_norm_gamma: Sequence[int],
     cfg: TransformerConfig,
     activation: Callable[[int], int] = activation_identity,
+    tracer: Optional[Any] = None,
 ):
     """Like forward(), but also returns the full logit vector from the
     LM head. Used by P3 spread analysis."""
     if not tokens:
         raise ValueError("tokens must be non-empty")
 
+    tr = tracer if tracer is not None else NOOP_TRACER
+
     last_hidden = None
-    for tok in tokens:
+    for tok_idx, tok in enumerate(tokens):
         x = embed_lookup(
             tok, embed_packed, embed_scales, embed_zeros,
             cfg.vocab_size, cfg.d_model,
         )
-        for layer in layers:
-            x = layer_forward(x, layer, cfg, activation=activation)
+        tr.record(
+            "embed_lookup", x, token_idx=tok_idx, layer=-1,
+            shape=[cfg.d_model], dtype="i64",
+            extra={"token_id": tok},
+        )
+        for layer_idx, layer in enumerate(layers):
+            x = layer_forward(
+                x, layer, cfg, activation=activation,
+                tracer=tr, token_idx=tok_idx, layer_idx=layer_idx,
+            )
         x = rmsnorm(
             x, gamma=final_norm_gamma, gamma_mode=cfg.gamma_mode,
+        )
+        tr.record(
+            "final_rmsnorm", x, token_idx=tok_idx, layer=-1,
+            shape=[cfg.d_model], dtype="i64",
         )
         last_hidden = x
 
     best_token, best_score, logits = argmax_v8_full_logits(
         last_hidden, embed_packed, embed_scales, embed_zeros,
         cfg.vocab_size, cfg.d_model,
+    )
+    tr.record(
+        "argmax", [best_token], token_idx=len(tokens) - 1, layer=-1,
+        shape=[1], dtype="i64",
+        extra={"best_score": best_score, "vocab_size": cfg.vocab_size},
     )
     return best_token, best_score, logits, last_hidden

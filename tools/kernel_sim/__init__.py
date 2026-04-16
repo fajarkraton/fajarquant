@@ -45,6 +45,11 @@ from .transformer import (
     embed_lookup, simplified_attention_single_pos, gated_ffn,
     layer_forward, forward, forward_with_logits,
 )
+from .trace import (
+    SCHEMA_VERSION, OP_NAMES, LAYER_SCOPED_OPS,
+    FNV_OFFSET_64, FNV_PRIME_64, fnv1a_u64_bytes,
+    TraceWriter, NoopTracer, NOOP_TRACER,
+)
 
 __all__ = [
     "INT8_MIN", "INT8_MAX",
@@ -71,4 +76,7 @@ __all__ = [
     "activation_identity", "activation_relu",
     "embed_lookup", "simplified_attention_single_pos", "gated_ffn",
     "layer_forward", "forward", "forward_with_logits",
+    "SCHEMA_VERSION", "OP_NAMES", "LAYER_SCOPED_OPS",
+    "FNV_OFFSET_64", "FNV_PRIME_64", "fnv1a_u64_bytes",
+    "TraceWriter", "NoopTracer", "NOOP_TRACER",
 ]

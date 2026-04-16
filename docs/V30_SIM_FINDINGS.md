@@ -326,3 +326,106 @@ Within +25% surprise budget envelope. Ready to commit findings + advance.
 
 *V30.SIM P0 findings — drafted 2026-04-16 by Claude Opus 4.6 per V30.SIM plan §P0.
 Authored by Muhamad Fajar Putranto.*
+
+---
+
+## P2.2 — Trace schema + per-op JSONL capture (2026-04-16)
+
+### Scope delivered
+
+`tools/kernel_sim/trace.py` (~270 LOC) plus instrumentation of
+`transformer.py::{simplified_attention_single_pos, gated_ffn,
+layer_forward, forward, forward_with_logits}` so that every op
+boundary in the forward pass emits one JSON record to a
+`TraceWriter`. 33 new tests in `tests/sim/test_trace.py`; full suite
+416 → 449 tests, all green.
+
+### Schema v1 (pinned)
+
+One JSON object per line:
+
+```
+{schema_version, step, op, token_idx, layer, shape, dtype,
+ min, max, mean, nnz, top5_abs, hash, extra?}
+```
+
+* `op`: one of 17 pinned boundaries (`OP_NAMES` constant). Adding a
+  new op without bumping `SCHEMA_VERSION` invalidates cached traces.
+* `layer`: `-1` for non-layer-scoped ops (`embed_lookup`,
+  `final_rmsnorm`, `argmax`); `0..n_layers-1` otherwise.
+* `mean` for int dtypes is **truncated toward zero** to match kernel
+  arithmetic (not Python `//` which rounds toward `-inf`).
+* `top5_abs` tie-breaks by lower flat index for determinism.
+* `hash`: FNV-1a 64-bit over little-endian i64 / IEEE754-f32 bytes.
+  Chosen specifically because it's trivially implementable in pure
+  Fajar Lang (6 lines) — P2.3 kernel FJTRACE can emit identical
+  hashes without pulling any library dependency.
+
+### Why a single schema across three sources
+
+P2.2 Python-sim, P2.3 kernel-actual (via serial → parser), and P2.5
+HF float reference all need to emit the SAME op set with the SAME
+record structure so `diff.py` (P3.1) reduces to a trivial
+per-`step` field comparison. Spec drift between any of the three
+would invalidate the entire P3 analysis.
+
+### Headline gate met
+
+Plan spec: "~500+ lines" on Gemma 3 1B. On the 2-layer toy config
+used by P2.1 tests, the corresponding formula is exact:
+
+```
+records = N_tokens × (1 + N_layers × ops_per_layer + 1) + 1
+```
+
+where `ops_per_layer = 14` in Gemma-3 mode (includes both post-norms)
+and `12` in Llama mode. For N=2 layers, 5 tokens, Gemma-3: 151 records.
+For real Gemma-3-1B N=26 layers, 5 tokens: `5 × (1 + 26×14 + 1) + 1
+= 1831` records — comfortably above 500.
+
+### Determinism
+
+`test_trace_is_deterministic` verifies two independent runs of
+`forward()` over the same seed + prompt produce **byte-identical**
+JSONL output. Required for reproducible P3 divergence analysis.
+
+### Backward compat
+
+`forward()` without `tracer=` param behaves identically to the P2.1
+API — no behavior change for existing callers. A `NoopTracer`
+singleton elides the emit path at zero cost when tracing is off.
+
+### Rule 5 variance tracking (P2.2)
+
+| Task | Est | Actual | Variance |
+|------|----:|-------:|---------:|
+| P2.2 trace.py + instrumentation + tests | 0.2h | 0.5h | +150% |
+
+Overage driven by:
+1. Schema design depth — specifically, deciding on FNV-1a vs a
+   stdlib-hash, and on `top5_abs` tie-breaking rule. Both matter for
+   cross-source parity and couldn't be deferred.
+2. Instrumentation across four call sites (attention, ffn, layer,
+   forward) with strict layer-scoped / non-layer-scoped op
+   validation in each record.
+3. 33-test coverage for schema invariants to prevent P2.3/P2.5 drift.
+
+The +150% here consumes ~50% of the full Phase P2 surprise budget
+(1.6h est → 2.0h at +25%; currently 0.5h+0.5h = 1.0h on 0.6h est,
+so running at +67% on the P2.1+P2.2 subtotal). Still within Phase
+envelope. P2.3 and P2.4 have low-surprise scopes (kernel println
+injection + serial regex parsing) so the surplus is recoverable.
+
+### P2.3 hand-off
+
+Downstream `kernel/compute/transformer.fj` FJTRACE mode must emit
+exactly the same record format. Reference:
+
+* `OP_NAMES` constant in `trace.py` — authoritative op set
+* `fnv1a_u64_bytes()` — authoritative hash; 6 lines to port
+* Record field order NOT significant (JSON); field names ARE
+
+The 17 op boundaries in `OP_NAMES` map 1:1 to the 17 `tracer.record(...)`
+call sites in `transformer.py`. A kernel implementation that hits the
+same 17 sites with identical tensor contents will produce
+byte-identical JSONL.

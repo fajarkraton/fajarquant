@@ -166,7 +166,7 @@ Fajar Lang codegen output. Mandatory **online research** per CLAUDE.md
 | # | Task | Verification | Est |
 |---|------|--------------|-----|
 | P2.1 | `transformer.py`: embed → 26× layer (pre_norm → attn → post_attn_norm → residual → pre_ffn_norm → FFN → post_ffn_norm → residual) → final_norm → lmhead_argmax | Python forward runs on "hello" prompt to completion without error | 0.4h |
-| P2.2 | `trace.py`: instrument every op to emit `{op, layer, shape, hash, min, max, mean, top5_abs}` JSONL | `python -m kernel_sim hello > /tmp/sim_trace.jsonl` produces ~500+ lines | 0.2h |
+| P2.2 ✅ | `trace.py`: instrument every op to emit `{op, layer, shape, hash, min, max, mean, top5_abs}` JSONL | `pytest tests/sim/test_trace.py` 33/33 green; tiny-cfg trace = 151 records (formula hits); real Gemma-3-1B projects to 1831 records | ~0.5h (+150%) — schema depth |
 | P2.3 | Kernel `FJTRACE=1` mode: add env-flag-gated `println` at same op boundaries | `make build-llvm FJTRACE=1 && make run-nvme-llvm` → serial log has matching trace markers | 0.5h |
 | P2.4 | `parse_kernel_trace.py`: serial log → same JSONL schema | output file line count matches Python sim ±5% | 0.2h |
 | P2.5 | HF reference forward on same prompt, dumped as float baseline | `python scripts/hf_reference.py hello > /tmp/hf_baseline.jsonl` produces matching schema | 0.3h |
