@@ -799,15 +799,114 @@ covered by same-dtype path in diff.py (hash + numeric fallback).
 P3.3–P3.6 analysis + hypothesis branching + top-10 logits dump
 (0.9h). P3.7 DECISION doc commit (0.05h) — Rule 6 mandatory.
 
-### P3.2 hand-off
+### P3.2 capture infrastructure shipped (2026-04-17)
 
-Next is P3.2: run the SAME kernel (`make build-fjtrace && make
-run-nvme-llvm`) and Python sim on identical Gemma-3 weights,
-compare via `diff.py --a /tmp/kernel.jsonl --b /tmp/sim.jsonl`.
-Expected: near-zero divergence (both are i64, hash should match
-for most ops; any divergence = Python sim bug since the kernel
-is the oracle for its own arithmetic). 0.2h est; requires a real
-QEMU + model run before P3.3+ can proceed.
+Since the original plan referenced a `run-nvme-llvm` target that
+doesn't exist in the current Makefile, P3.2 capture was wired as a
+new dedicated target **`test-fjtrace-capture`** in fajaros-x86
+Makefile. End-to-end invocation:
+
+```bash
+cd ~/Documents/fajaros-x86
+make test-fjtrace-capture               # uses disk_v8.img by default
+# Overrides:
+make test-fjtrace-capture \\
+     FJTRACE_DISK=/path/to/model.img \\
+     FJTRACE_PROMPT="ask hello"        \\
+     FJTRACE_TIMEOUT=180               \\
+     FJTRACE_BOOT_WAIT=10              \\
+     FJTRACE_RUN_WAIT=150
+```
+
+Target does 3 steps end-to-end:
+
+1. **Build FJTRACE kernel** via `make build-fjtrace` (sed-flips
+   `FJTRACE_ENABLED=1`, builds with LLVM, restores flag on exit).
+2. **Boot QEMU with NVMe disk + stdio serial**, auto-feeds
+   `ask hello\r` after 10 s (lets boot reach `nova>`), waits
+   150 s for inference + argmax on all prompt tokens to complete.
+3. **Parse captured serial log** via `parse_kernel_trace.py`,
+   reports record count + op histogram, fails with exit 2 if
+   fewer than 17 records (meaning boot didn't reach inference).
+
+Outputs:
+
+* `build/fjtrace-capture.log`   — raw serial log (boot + kernel + JSONL)
+* `build/fjtrace-capture.jsonl` — clean JSONL ready for `diff.py`
+* `build/fjtrace-capture.stats` — parser stats (records, histogram)
+
+### Expected record count
+
+For a 5-token prompt on Gemma-3-1B (n_layers=26), the record count
+formula `N × (1 + L × 14 + 1) + 1` predicts **1 831 records**. Real
+prompt tokenization adds 1-3 more tokens due to BOS / tokenizer
+padding, so 1 900-2 000 is the expected range.
+
+### Why target is not run by this session
+
+Running the full capture requires:
+
+1. ~3 minutes of QEMU wall time (Gemma-3 inference is slow in
+   INT-heavy kernel without GPU passthrough)
+2. The `disk_v8.img` model file on local disk (1 GB, already
+   present in `~/Documents/fajaros-x86/`)
+3. User attention to verify `nova>` prompt reached before inference
+   triggers — false-start detection isn't automated
+
+This session ships the **infrastructure**. User invokes the capture
+when ready; parsed JSONL then feeds `diff.py` against sim + HF.
+
+### P3.3-P3.7 workflow (after capture)
+
+```bash
+# After make test-fjtrace-capture completes:
+
+# 1. Produce sim reference using the SAME weights:
+python -c "
+from fajarquant.scripts.load_v8_weights import load
+weights = load('disk_v8.img')
+from kernel_sim import forward, TraceWriter
+with TraceWriter(path='/tmp/sim.jsonl', enabled=True) as tw:
+    forward(tokens=[1,2,3,4,5], **weights, cfg=cfg, tracer=tw)
+"
+
+# 2. Produce HF reference:
+python scripts/hf_reference.py --model google/gemma-3-1b-it \\
+    --prompt "hello" -o /tmp/hf.jsonl
+
+# 3. Three-way diff:
+python scripts/diff.py \\
+    --a build/fjtrace-capture.jsonl  --a-label kernel  \\
+    --b /tmp/sim.jsonl                --b-label sim    \\
+    --c /tmp/hf.jsonl                 --c-label hf     \\
+    -o /tmp/p3_divergence.json
+
+# 4. Inspect first_divergence, branch into S1/S2/S3/S4:
+jq '.pairs[].first_divergence.op' /tmp/p3_divergence.json
+
+# 5. Commit DECISION file (§6.8 Rule 6 gate — MANDATORY before P4):
+vi docs/V30_SIM_DECISION.md
+git add docs/V30_SIM_DECISION.md && git commit -m "docs(v30-sim-p3.7): DECISION — root cause identified"
+```
+
+### Known limitation: disk_v8.img weights vs sim weights
+
+For sim ↔ kernel parity to be meaningful, both must use IDENTICAL
+weights. A `load_v8_weights` helper that reads `disk_v8.img` and
+constructs the `kernel_sim.LayerWeights`/embed tuples is needed —
+currently a TODO. Without it, sim uses random weights and produces
+unrelated hashes. Proposed as P3.2.P1 if divergence analysis
+proves it's needed.
+
+### Rule 5 variance tracking (P3.2 infrastructure)
+
+| Task | Est | Actual | Variance |
+|------|----:|-------:|---------:|
+| P3.2 capture target + docs hand-off | 0h (merge into P3.1) | 0.2h | new |
+
+This subphase didn't exist in the original plan (plan assumed
+`run-nvme-llvm` already existed). Adding it prevents a class of
+"missing Makefile target" friction for P3.3-P3.7.
 
 ---
 
