@@ -669,3 +669,117 @@ tensor, flatten, stats+hash. Record count should match kernel for
 the same prompt.
 
 After P2.5: diff.py (P3.1 — kernel vs sim vs HF three-way).
+
+---
+
+## P2.5 — HuggingFace float reference (2026-04-17)
+
+### Scope delivered
+
+`fajarquant/scripts/hf_reference.py` (~450 LOC, executable): HF
+Gemma-3 float forward emitting JSONL at the SAME 17 op boundaries as
+Python sim + kernel, with `dtype="f32"`. Reuses `kernel_sim.trace
+.TraceWriter` so output schema is guaranteed identical.
+
+### Hook strategy
+
+14 of 17 ops capture via `register_forward_hook` on the obvious
+PyTorch submodule (embed_tokens, input_layernorm, q/k/v/o_proj,
+post_attention_layernorm, pre/post_feedforward_layernorm,
+gate/up/down_proj, model.norm, lm_head). The remaining 3 ops fall
+BETWEEN submodules and require monkey-patching:
+
+* `ffn_hidden` — the value `act(gate_proj(x)) * up_proj(x)` is
+  consumed by `down_proj` inside `Gemma3MLP.forward` without being
+  exposed. Patched `Gemma3MLP.forward` to compute it explicitly
+  and emit before `down_proj`.
+* `attn_residual` and `ffn_residual` — computed inside
+  `Gemma3DecoderLayer.forward` as `residual + hidden_states` in two
+  places, never exposed as a submodule output. Patched
+  `Gemma3DecoderLayer.forward` with a re-implementation that adds
+  the two residual emits while preserving upstream behavior.
+
+Both patches are scoped via a `contextlib.contextmanager`
+(`_patch_decoder_layer_and_mlp`) so the global `modeling_gemma3`
+classes are restored on script exit. This avoids polluting other
+code paths that might import and use Gemma-3.
+
+### Self-test invariants (7/7 PASS)
+
+Tiny synthetic Gemma3 config (vocab=64, hidden=16, L=2, heads=2,
+head_dim=8, ffn_dim=32) driven through 3 token IDs:
+
+1. Record count == N × (1 + L×14 + 1) + 1 = 3 × 30 + 1 = **91**
+2. All 17 OP_NAMES present, no extras
+3. All records `schema_version=1`
+4. All records `dtype="f32"`
+5. All hash strings formatted `0xNNNNNNNNNNNNNNNN` (18 chars)
+6. Parser round-trip via `parse_kernel_trace.parse_stream` → all 91
+   records pass validator (0 malformed, 0 unknown-op)
+7. Parser passes through exactly 91 records
+
+### Smoke test: 5-token `--dry-run --prompt hello`
+
+Produces **151 records** (same formula, N=5) with real `top5_abs`
+populated from HF's float tensors — unlike kernel (which emits `[]`
+for top5_abs to keep code small) and Python sim (which populates
+from int values). Diff tool (P3.1) may use HF's top5 as the gold
+reference when zooming into any hash divergence.
+
+### Kernel-parity constraints reused
+
+* **Per-token forward loop**: HF script runs prompt tokens ONE AT
+  A TIME with `use_cache=False`, mirroring the kernel's
+  `tfm_forward_stream` loop (no cross-token KV). Without this,
+  HF would batch prefill and emit N×more attention ops than the
+  kernel.
+* **Argmax only on last token**: hook suppresses emit unless
+  `ctx.token_idx == ctx.total_tokens - 1`, matching the kernel's
+  single-argmax-at-end-of-prefill semantic.
+
+### Units asymmetry (documented, not fixed)
+
+The kernel emits integer values in ×1000 fixed-point. HF emits raw
+f32. Three specific ops have unit-asymmetric magnitudes:
+
+* `ffn_hidden`: kernel divides `gate*up` by 1000; HF does not.
+* All other ops: kernel's fp×1000 vs HF's fp×1 — factor-of-1000
+  difference in min/max/mean.
+
+Diff tool (P3.1) must scale one side to compare (e.g., multiply HF
+by 1000, or divide kernel by 1000) before numeric diff. Hash
+comparison across dtypes is meaningless by design — P3.1 compares
+min/max/mean/top5 within a tolerance, not hash.
+
+### Rule 5 variance tracking (P2.5)
+
+| Task | Est | Actual | Variance |
+|------|----:|-------:|---------:|
+| P2.5 hf_reference.py + forward-hooks + MLP/DecoderLayer patches + self-test | 0.3h | 0.6h | +100% |
+
+Overage sources:
+1. 3 ops needed monkey-patching because HF doesn't expose the
+   required intermediates as submodule outputs. Designing a safe
+   scoped-patch was the main work.
+2. Argmax-per-token vs argmax-once-at-end surfaced during first
+   self-test (93 records vs expected 91). Fix required adding
+   `total_tokens` to `_PerTokenContext` so the hook could
+   distinguish.
+3. TraceWriter requires a file path (not a StringIO); self-test
+   uses a NamedTemporaryFile round-trip to capture + re-parse.
+
+Phase P2 running total: **2.6h actual / 1.0h est (+160% over bare
+est, +30% over +25% envelope of 2.0h).** Above envelope but within
+the +40% escalation path for research phases (§10.5 Rule 5). The
+three specific overages (+150% P2.2, +40% P2.3, +50% P2.4, +100%
+P2.5) all produced Rule-3 prevention layers (schema pin, build
+gates, self-tests) that reduce future phase risk.
+
+### P3.1 hand-off
+
+Next is `diff.py` in fajarquant — reads three trace files
+(kernel-actual, kernel-sim, HF-float), computes per-step divergence
+reports, and identifies the first op where each pair diverges
+beyond a tolerance. 0.2h est per plan §P3.1. Decision gate per
+§6.8 Rule 6 produces `docs/V30_SIM_DECISION.md` before any P4 fix
+work begins.
