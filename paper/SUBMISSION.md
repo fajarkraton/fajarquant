@@ -59,14 +59,42 @@ ORCID and DOI deferral is acceptable for the C3.2 internal decision file but **m
 
 ## Pre-Submission Checklist (gates the v26-c3 phase)
 
-- [x] **C3.2** Venue strategy committed (this file)
-- [ ] **C3.1** Honest split paragraph: Rust runtime FajarQuant vs FajarOS kernel FajarQuant
-- [ ] **C3.3** Format for MLSys 2027 template (column width, font, citation style)
-- [ ] **C3.4** Supplementary materials (full reproduction commands, dataset checksums, model provenance)
-- [ ] **C3.5** Broader impact statement (interpretability cost of aggressive quantization)
-- [ ] **C3.6** ORCID registered + Zenodo DOI minted + both wired into `paper/fajarquant.tex`
-- [ ] **C3.7** Proofread (3 passes: technical, grammar, clarity)
-- [ ] External deadlines reconfirmed before any submission attempt
+> **Status reconciliation 2026-04-16:** Checklist was stale — C3.1, C3.3,
+> C3.4, C3.5, C3.7 items were shipped on 2026-04-14 but checkboxes were
+> not updated at the time. Re-synced against git log. Only C3.6 and
+> external deadline reconfirmation remain.
+
+- [x] **C3.2** Venue strategy committed (this file) *(2026-04-11)*
+- [x] **C3.1** Honest split paragraph: Rust runtime FajarQuant vs FajarOS kernel FajarQuant *(commit `8afbef1`, 2026-04-14)*
+- [x] **C3.3** Format for MLSys 2027 template (column width, font, citation style) *(commit `893f8c8`, 2026-04-14 — `paper/fajarquant_mlsys.tex`, 10 pages)*
+- [x] **C3.4** Supplementary materials (full reproduction commands, dataset checksums, model provenance) *(commit `3b4ef54`, 2026-04-14)*
+- [x] **C3.5** Broader impact statement (interpretability cost of aggressive quantization) *(commit `8dc7c3c`, 2026-04-14)*
+- [ ] **C3.6** ORCID registered + Zenodo DOI minted + both wired into `paper/fajarquant.tex` *(user action required — see "C3.6 Remaining Steps" below)*
+- [x] **C3.7** Proofread (3 passes: technical, grammar, clarity) *(pass 2/3 `f49cb96`, pass 3/3 `c34b8bc`, 2026-04-14)*
+- [ ] External deadlines reconfirmed before any submission attempt *(MLSys 2027 CFP + NeurIPS 2026 workshop — internal gate 2026-04-25, 9 days away)*
+
+### C3.6 Remaining Steps (blocks C3 phase closure)
+
+| # | Action | Owner | Effort | Notes |
+|---|--------|-------|--------|-------|
+| 1 | Register ORCID at https://orcid.org | User | 5 min | Free, requires email + institutional affiliation |
+| 2 | Connect GitHub → Zenodo via https://zenodo.org/account/settings/github/ | User | 5 min | Enables auto-DOI mint on next GitHub release tag |
+| 3 | Create tag `v0.3.1-fajarquant-v3.1-zenodo` or re-trigger Zenodo on `v0.3.0-fajarquant-v3.1` | User | 5 min | Zenodo auto-captures tag → code DOI |
+| 4 | Manual upload of `data/kv_cache/` to Zenodo as separate record | User | 10 min | Data DOI (separate from code DOI) |
+| 5 | Wire ORCID + both DOIs into `paper/fajarquant.tex` author block + reproducibility statement | Claude | 10 min | After user provides IDs |
+| 6 | Recompile paper PDFs (arXiv + MLSys versions) with identifiers embedded | Claude | 2 min | `cd paper && make` |
+| 7 | Update this file's checklist to `[x]` for C3.6 | Claude | 1 min | Final step |
+
+**Expected total:** ~40 min (25 min user action + 15 min Claude follow-up).
+
+### External Deadline Reconfirmation (the final `[ ]` item)
+
+Before any venue submission attempt, verify:
+- **MLSys 2027 CFP deadline** — typically Oct/Nov 2026, official site TBC
+- **NeurIPS 2026 ML Systems Workshop deadline** — typically Aug/Sept, official site TBC
+- **arXiv** — no deadline; preprint whenever paper is ready
+
+Update this file in place when confirmed; mark checklist `[x]` only after cross-checking against two authoritative sources (venue website + CallForPapers.cc or WikiCFP).
 
 ## Mechanical Gate
 
