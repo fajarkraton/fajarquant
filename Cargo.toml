@@ -12,7 +12,10 @@ readme = "README.md"
 keywords = ["quantization", "llm", "kv-cache", "compression", "ml"]
 categories = ["algorithms", "compression", "science", "no-std"]
 rust-version = "1.87"
-exclude = ["data/", "paper/", "scripts/", "docs/", "audit/", "bench/", "examples/"]
+exclude = [
+    "data/", "paper/", "scripts/", "docs/", "audit/", "bench/", "examples/",
+    "**/*.py", "**/__pycache__/",
+]
 
 [dependencies]
 ndarray = "0.16"
