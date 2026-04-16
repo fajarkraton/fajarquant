@@ -33,6 +33,9 @@ from .rmsnorm import (
     GAMMA_MODE_NONE, GAMMA_MODE_LLAMA, GAMMA_MODE_GEMMA,
     km_isqrt, rmsnorm,
 )
+from .argmax_v8 import (
+    ARGMAX_SENTINEL, argmax_v8, argmax_v8_full_logits,
+)
 
 __all__ = [
     "INT8_MIN", "INT8_MAX",
@@ -51,4 +54,5 @@ __all__ = [
     "K_SCALE",
     "GAMMA_MODE_NONE", "GAMMA_MODE_LLAMA", "GAMMA_MODE_GEMMA",
     "km_isqrt", "rmsnorm",
+    "ARGMAX_SENTINEL", "argmax_v8", "argmax_v8_full_logits",
 ]
