@@ -670,6 +670,145 @@ the same prompt.
 
 After P2.5: diff.py (P3.1 — kernel vs sim vs HF three-way).
 
+## P3.1 — Three-way divergence tool (2026-04-17)
+
+### Scope delivered
+
+`fajarquant/scripts/diff.py` (~420 LOC, executable): per-op
+divergence analysis across up to three FJTRACE JSONL files. Reads
+Python-sim (i64), kernel-actual (i64), and HF float-reference (f32)
+trace files; aligns by `(token_idx, layer, op)`; reports the FIRST
+op where any pair diverges beyond a magnitude tolerance.
+
+### Alignment contract
+
+Records align by `(token_idx, layer, op)`. That tuple is unique in a
+well-formed trace. Records in one trace but not the other surface as
+`only_in_a` / `only_in_b`. The `first_divergence` field is found by
+iterating matched keys in `step` order of trace A.
+
+### Metrics
+
+* **Same-dtype**: hash equality check first (0-ULP parity). On
+  mismatch, compute rel-error on `min`, `max`, `mean`.
+* **Cross-dtype (i64 vs f32)**: scale i64 side by `/1000`
+  (`INT_SCALE` constant, matching kernel/sim fp×1000 convention),
+  then compute rel-error vs f32 side. Hash is marked
+  `hash_comparable=False` (different byte surface; equality
+  meaningless by design).
+
+Default tolerance 0.05 (5% per plan "first significant (>5%
+magnitude)"). A pair is "diverged" if any of min/max/mean exceeds
+tolerance.
+
+### `top5_abs` asymmetry handling
+
+Kernel emits `[]` (code-size optimization); sim and HF populate.
+Diff skips top5 comparison when either side is empty. If both
+populate (sim vs HF case), the comparison is reserved for P3.5/P3.6
+index-overlap analysis — P3.1 current scope is min/max/mean only.
+
+### Self-test (14/14 PASS)
+
+Hand-crafted synthetic fixtures test:
+1. Alignment (4 matched, 0 orphans)
+2. First-divergence detection at a known step
+3. Field attribution (which of min/max/mean diverged)
+4. Hash-comparable=False for cross-dtype
+5. only_in_A on one-side missing record
+6. Matched count after orphan drop
+7. Clean scaled traces → no divergence reported
+8. Identical same-dtype records → hash_equal=True, no divergence
+9. JSON report round-trip
+
+End-to-end smoke (real traces on tiny synth Gemma-3):
+
+```
+$ python scripts/hf_reference.py --dry-run -o /tmp/hf.jsonl --prompt hi
+$ python -c "…kernel_sim.forward → /tmp/sim.jsonl…"
+$ python scripts/diff.py --a /tmp/sim.jsonl --b /tmp/hf.jsonl -o /tmp/diff.json
+# exit=1 (divergence found, expected — different random weights)
+# first_divergence: embed_lookup (correct — first op in forward)
+# 91 matched / 0 orphans on both sides
+```
+
+### Report schema
+
+```json
+{
+  "tolerance": 0.05,
+  "pairs": [{
+    "pair": "sim_vs_hf",
+    "n_a": 91, "n_b": 91, "n_matched": 91,
+    "only_in_a": [], "only_in_b": [],
+    "n_diverged": 87,
+    "op_divergence_counts": {"q_proj": 2, "k_proj": 2, …},
+    "first_divergence": {
+      "token_idx": 0, "layer": -1, "op": "embed_lookup",
+      "step_a": 0, "step_b": 0,
+      "dtype_a": "i64", "dtype_b": "f32",
+      "hash_a": "0x…", "hash_b": "0x…",
+      "hash_comparable": false, "hash_equal": null,
+      "fields": [
+        {"name": "min", "a": -0.05, "b": -0.13, "rel_error": 1.6, "diverges": true},
+        ...
+      ],
+      "nnz_diff": 0, "diverges": true
+    }
+  }],
+  "summary": {"sim_vs_hf": "embed_lookup"}
+}
+```
+
+### Exit codes
+
+* `0` — no pair diverged (all within tolerance)
+* `1` — at least one pair diverged (CI gating: use this)
+* `2` — CLI error (missing required arg)
+
+### Known limitations
+
+1. **`top5_abs` comparison deferred to P3.5/P3.6.** Requires index
+   overlap logic and a separate tolerance for absolute values.
+2. **No per-layer progression analysis yet.** P3.5 will plot
+   hidden-state magnitude across layers to test S3 hypothesis
+   (cumulative rounding).
+3. **Cross-tolerance per op not supported.** All ops use the same
+   threshold; some ops (embed_lookup) might need wider tolerance
+   than others (rmsnorm). Follow-up if P3.3 analysis shows
+   systematic per-op bias.
+
+### Rule 5 variance tracking (P3.1)
+
+| Task | Est | Actual | Variance |
+|------|----:|-------:|---------:|
+| P3.1 diff.py + 14-assertion self-test | 0.2h | 0.35h | +75% |
+
+Overage from:
+1. Three-way infrastructure upfront (plan §P3.1 is 2-way, §P3.2
+   adds kernel comparison — shipping both in one script saves a
+   P3.2 subphase entirely).
+2. Report schema depth (pair + field + fields[] + counts) —
+   richer than plan's bare "first_divergence: op=Y magnitude=Z%"
+   to support P3.5/P3.6 drill-down without re-parsing traces.
+
+### Phase P3 progress
+
+P3.1 ✅. Remaining: P3.2 (kernel vs sim ULP-level) effectively
+covered by same-dtype path in diff.py (hash + numeric fallback).
+P3.3–P3.6 analysis + hypothesis branching + top-10 logits dump
+(0.9h). P3.7 DECISION doc commit (0.05h) — Rule 6 mandatory.
+
+### P3.2 hand-off
+
+Next is P3.2: run the SAME kernel (`make build-fjtrace && make
+run-nvme-llvm`) and Python sim on identical Gemma-3 weights,
+compare via `diff.py --a /tmp/kernel.jsonl --b /tmp/sim.jsonl`.
+Expected: near-zero divergence (both are i64, hash should match
+for most ops; any divergence = Python sim bug since the kernel
+is the oracle for its own arithmetic). 0.2h est; requires a real
+QEMU + model run before P3.3+ can proceed.
+
 ---
 
 ## P2.5 — HuggingFace float reference (2026-04-17)

@@ -187,7 +187,7 @@ Fajar Lang codegen output. Mandatory **online research** per CLAUDE.md
 
 | # | Task | Verification | Est |
 |---|------|--------------|-----|
-| P3.1 | `diff.py`: compute Python-int vs HF-float divergence per op, report first significant (>5% magnitude) | output: `first_divergence: layer=X op=Y magnitude=Z%` | 0.2h |
+| P3.1 ✅ | `diff.py`: compute Python-int vs HF-float divergence per op, report first significant (>5% magnitude) | `--self-test` 14/14 PASS; real sim vs HF synth-run: 91 records both sides, 0 orphans, first_divergence correctly identified with op+layer+token_idx; exit code 1 when diverged (CI-friendly) | ~0.35h (+75%) — 3-way pair infrastructure + 14-assertion self-test |
 | P3.2 | Same diff for Kernel vs Python-int (sanity: should be ~0 ULP everywhere; any delta = Python-sim bug, not kernel bug) | `max_divergence < 2 ULP` across all ops | 0.2h |
 | P3.3 | If P3.2 passes, attribute P3.1 divergence to int precision vs float (i.e., quantization cost is honest) | DECISION doc records "quantization is honest, check argmax logit distribution" | 0.1h |
 | P3.4 | Dump top-10 logit indices + values from lmhead per token | DECISION doc contains 10 rows × 64 tokens (640 rows) | 0.2h |
