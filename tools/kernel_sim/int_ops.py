@@ -42,14 +42,16 @@ def _wrap_i64(x: int) -> int:
 
 # ── Widening reads (zero-extend, kernel convention) ───────────────────
 
-def widen_u8(byte: int) -> int:
-    """u8 → i64 zero-extend. byte may be any int; only low 8 bits used."""
-    return byte & _UINT8_MASK
+def widen_u8(byte) -> int:
+    """u8 → i64 zero-extend. Accepts any int-like (incl. numpy scalars);
+    only low 8 bits used."""
+    return int(byte) & _UINT8_MASK
 
 
-def widen_u32(word: int) -> int:
-    """u32 → i64 zero-extend. word may be any int; only low 32 bits used."""
-    return word & _UINT32_MASK
+def widen_u32(word) -> int:
+    """u32 → i64 zero-extend. Accepts any int-like (incl. numpy scalars);
+    only low 32 bits used."""
+    return int(word) & _UINT32_MASK
 
 
 # ── Arithmetic (defined wrap at i64) ──────────────────────────────────

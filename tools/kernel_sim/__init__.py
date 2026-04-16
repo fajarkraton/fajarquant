@@ -27,6 +27,7 @@ from .int_ops import (
 from .vecmat_v8 import (
     V8_GROUP_SIZE, V8_GROUP_SHIFT, V8_SCALE_FP,
     vecmat_v8, pack_nibbles, unpack_nibbles,
+    dequant_groupwise_v8_x1M,
 )
 from .rmsnorm import (
     K_SCALE,
@@ -51,6 +52,7 @@ __all__ = [
     "read_nibble",
     "V8_GROUP_SIZE", "V8_GROUP_SHIFT", "V8_SCALE_FP",
     "vecmat_v8", "pack_nibbles", "unpack_nibbles",
+    "dequant_groupwise_v8_x1M",
     "K_SCALE",
     "GAMMA_MODE_NONE", "GAMMA_MODE_LLAMA", "GAMMA_MODE_GEMMA",
     "km_isqrt", "rmsnorm",

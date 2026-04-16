@@ -139,3 +139,34 @@ def unpack_nibbles(packed, count):
     for i in range(count):
         out.append(int_ops.read_nibble(packed, i))
     return out
+
+
+def dequant_groupwise_v8_x1M(packed, scales, zeros, total: int,
+                              group_size: int = V8_GROUP_SIZE):
+    """Reconstruct `(q - zero) * scale` per element — i.e., the weight
+    value in ×1_000_000 fixed-point representation. Returns list[int].
+
+    This is the integer stage of kernel dequant BEFORE the per-matmul
+    `/V8_SCALE_FP` trunc-div (which the kernel defers until after the
+    multiply-accumulate to preserve precision). Use this helper for
+    round-trip validation where you want to compare against float
+    reference (just divide by 1e6 at the end).
+    """
+    n_groups = (total + group_size - 1) // group_size
+    if len(scales) < n_groups:
+        raise ValueError(
+            f"scales too short: got {len(scales)}, need {n_groups}"
+        )
+    if len(zeros) < n_groups:
+        raise ValueError(
+            f"zeros too short: got {len(zeros)}, need {n_groups}"
+        )
+
+    out = [0] * total
+    for i in range(total):
+        q = int_ops.read_nibble(packed, i)
+        g = int_ops.ashr_i64(i, V8_GROUP_SHIFT)
+        scale = int_ops.widen_u32(scales[g])
+        zero = int_ops.widen_u8(zeros[g])
+        out[i] = int_ops.mul_i64(int_ops.sub_i64(q, zero), scale)
+    return out
