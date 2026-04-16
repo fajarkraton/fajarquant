@@ -24,6 +24,10 @@ from .int_ops import (
     volatile_read_u8, volatile_read_u32, volatile_read_u64,
     read_nibble,
 )
+from .vecmat_v8 import (
+    V8_GROUP_SIZE, V8_GROUP_SHIFT, V8_SCALE_FP,
+    vecmat_v8, pack_nibbles, unpack_nibbles,
+)
 
 __all__ = [
     "INT8_MIN", "INT8_MAX",
@@ -37,4 +41,6 @@ __all__ = [
     "clamp_i64", "abs_i64",
     "volatile_read_u8", "volatile_read_u32", "volatile_read_u64",
     "read_nibble",
+    "V8_GROUP_SIZE", "V8_GROUP_SHIFT", "V8_SCALE_FP",
+    "vecmat_v8", "pack_nibbles", "unpack_nibbles",
 ]
