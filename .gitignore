@@ -11,6 +11,8 @@ paper/*.log
 paper/*.out
 paper/*.toc
 paper/*.synctex.gz
+paper/arxiv_v*/
+paper/fajarquant_arxiv_*.tar.gz
 
 # Python (reproducibility scripts)
 __pycache__/
