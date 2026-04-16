@@ -903,10 +903,76 @@ proves it's needed.
 | Task | Est | Actual | Variance |
 |------|----:|-------:|---------:|
 | P3.2 capture target + docs hand-off | 0h (merge into P3.1) | 0.2h | new |
+| P3.2 live invocation + 2 bug fixes  | 0h              | 0.35h | new |
 
-This subphase didn't exist in the original plan (plan assumed
-`run-nvme-llvm` already existed). Adding it prevents a class of
-"missing Makefile target" friction for P3.3-P3.7.
+Live invocation surfaced two bugs (both fixed in fajaros-x86 commit
+`771dd64`):
+
+1. **Double-trap bug** — original target split build-fjtrace +
+   iso-llvm into two recipe lines, each with its own trap-restore.
+   The first restore re-touched `fjtrace.fj`, invalidating
+   `combined.fj` mtime and triggering a fresh FJTRACE=0 rebuild
+   inside `iso-llvm`. Detected by ELF size mismatch (FJTRACE=0 ELF
+   size 1,416,751 vs expected 1,419,903 for FJTRACE=1). Fix:
+   single trap scope over both builds.
+2. **Missing model-load sequence** — `ask hello` returned `[ERR]
+   No model loaded`. Gemma-3 v8 requires `model-load nvme 0` →
+   `embed-load` (~155 MB) → `ram-load` (~359 MB) before inference.
+   Fix: expanded recipe to feed the 4-command sequence per
+   `docs/V28_5_RETEST.md` §Methodology, bumped memory to 2G,
+   timeout to 300s.
+
+### First successful capture (2026-04-17)
+
+```
+[OK] 25,322 JSONL records in build/fjtrace-capture.jsonl
+```
+
+Per-op histogram (from parser stats):
+
+| op               | count | notes                                |
+|------------------|------:|--------------------------------------|
+| embed_lookup     |    68 | 5 prefill + 63 decode (1 short of 64 — emit-boundary quirk) |
+| pre_attn_rmsnorm |  1794 | 69 forwards × 26 layers ✅            |
+| q_proj           |  1794 | shape [1024] = n_heads 4 × d_head 256 ✅ |
+| k_proj           |  1794 |                                      |
+| v_proj           |  1794 |                                      |
+| attn_out         |  1794 |                                      |
+| post_attn_rmsnorm|  1794 |                                      |
+| attn_residual    |  1794 |                                      |
+| pre_ffn_rmsnorm  |  1794 |                                      |
+| gate_proj        |  1794 |                                      |
+| up_proj          |  1794 |                                      |
+| ffn_hidden       |  1794 |                                      |
+| down_proj        |  1794 |                                      |
+| post_ffn_rmsnorm |  1794 |                                      |
+| ffn_residual     |  1794 |                                      |
+| final_rmsnorm    |    69 | 69 token forwards                    |
+| argmax           |    69 | 69 argmax decisions                  |
+| **total**        |**25322**|                                    |
+
+Record 25,322 (the final argmax) emits:
+
+```json
+{"op":"argmax","token_idx":68,"layer":-1,"shape":[1],"dtype":"i64",
+ "min":2900,"max":2900,"mean":2900,"nnz":1,"top5_abs":[],
+ "hash":"0xb5d77895004759d8",
+ "extra":{"best_score":0,"vocab_size":262144}}
+```
+
+**best_score=0 with vocab_size=262144** confirms the V30.SIM
+pad-collapse signal is present in the captured trace. Kernel argmax
+found a winning token (2900) with effective score 0 — floor of the
+fp×1000 representation. P3.3+ divergence analysis can proceed
+against this file.
+
+### Known quirk: embed_lookup count off-by-1
+
+Expected N_tokens=69 embed_lookup emits (1 per forward); captured
+68. Position 0 might not fire the emit due to some prefill-first
+optimization or uninitialized state. Low priority — doesn't affect
+divergence analysis because alignment by `(token_idx, layer, op)`
+naturally handles missing records as `only_in_a`.
 
 ---
 
