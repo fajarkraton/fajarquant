@@ -567,3 +567,105 @@ serial interleaving disrupted ordering (shouldn't happen because
 Soft sanity check after P2.4: `wc -l parsed.jsonl` should equal
 `~1 + n_tokens × (1 + n_layers × 14 + 1) + 1` given FJTRACE was run
 on a Gemma-3 n_layers=26 model.
+
+---
+
+## P2.4 — Serial-log parser (2026-04-17)
+
+### Scope delivered
+
+In `fajaros-x86`:
+
+* `scripts/parse_kernel_trace.py` (~270 LOC, executable): extracts
+  FJTRACE JSONL records from a QEMU serial log. Strategy: any line
+  whose stripped form starts with `{"schema_version":` is a candidate
+  → `json.loads` → schema-v1 validate → emit or warn.
+* `tests/fixtures/fjtrace_sample.log` (synthetic, 27 lines): 10 lines
+  of simulated boot noise + 17 valid records (one per OP_NAME) + 3
+  deliberately malformed candidates (bad JSON syntax, wrong schema
+  version, unknown op). Lets the parser be validated without a real
+  QEMU run.
+* `--self-test` flag: runs 7 assertions against the fixture — 17
+  valid records, full op-set coverage, 2 malformed caught, 1
+  unknown-op caught, monotonic steps, round-trip parse stability.
+* `--strict`: exit code 2 when any record fails validation (for CI).
+* `--renumber`: rewrite `step` to arrival order (use when
+  concatenating traces or the kernel rebooted mid-log).
+
+### Schema validator
+
+Required fields pinned: `schema_version, step, op, token_idx, layer,
+shape, dtype, min, max, mean, nnz, top5_abs, hash`. Each checked by
+`_validate_record()`. `schema_version` must equal 1 (pinned constant
+— bumping will flag every old record as malformed, which is the
+desired behavior). `op` must be in the embedded `OP_NAMES` frozenset
+(duplicate of `fajarquant/tools/kernel_sim/trace.py` — self-test
+enforces drift detection).
+
+### Why the OP_NAMES set is duplicated
+
+The parser must work standalone on a serial log without requiring
+`fajarquant/` to be cloned next to `fajaros-x86/`. Three copies of
+the 17-op list now exist:
+
+1. `fajarquant/tools/kernel_sim/trace.py::OP_NAMES` (Python emitter)
+2. `fajaros-x86/kernel/compute/fjtrace.fj` (17 call sites)
+3. `fajaros-x86/scripts/parse_kernel_trace.py::OP_NAMES` (parser)
+
+Drift is possible but detected: the parser `--self-test` fixture
+contains one record per op name, so adding/renaming an op without
+updating the fixture breaks the test. Since the fixture is generated
+via the same OP list, any drift surfaces on next run.
+
+### Known limitations (documented, not deferred)
+
+1. **FNV-1a hash parity not verified end-to-end.** Constants match
+   byte-for-byte (`FJTRACE_FNV_OFFSET=0xcbf29ce484222325`,
+   `FJTRACE_FNV_PRIME=0x100000001b3` in both Python and kernel),
+   and both use little-endian i64 serialization. Full parity will
+   be confirmed during P4 kernel-vs-sim diff — no runtime proof
+   possible before a real kernel trace is captured (that's P2.4's
+   natural input, not its scope).
+2. **`top5_abs` is `[]` in kernel records, populated in Python
+   sim.** Parser accepts both. Diff tooling (P3.1) must exclude
+   `top5_abs` from kernel-vs-sim comparison; HF-vs-sim comparison
+   uses real values on both sides.
+3. **No real QEMU trace captured yet.** Plan gate "output file
+   line count matches Python sim ±5%" will be checked once
+   `make build-fjtrace && make run-nvme-llvm` actually runs (needs
+   model + NVMe disk). Self-test covers parser correctness; end-to-end
+   record-count comparison is P4 sanity (not P2.4 gate).
+
+### Rule 5 variance tracking (P2.4)
+
+| Task | Est | Actual | Variance |
+|------|----:|-------:|---------:|
+| P2.4 parser + self-test + fixture | 0.2h | 0.3h | +50% |
+
+Overage from:
+1. Self-test upgrade — original plan was "write parser, smoke it";
+   actual delivery includes a 7-assertion self-test + synthetic
+   fixture so the parser is verifiable without a real QEMU run.
+   Prevention layer (Rule 3) that saves future debugging time.
+2. Schema-version edge case — initial CANDIDATE_PREFIX filtered
+   `"schema_version":1,` specifically, which silently dropped
+   schema-v2 lines instead of flagging them. Relaxed to
+   `"schema_version":` so validator can report the mismatch.
+
+Phase P2 running total: **2.0h actual / 1.0h est (on the +25%
+envelope boundary of 2.0h).** Remaining P2.5 (HF reference) = 0.3h;
+trajectory finishes ~2.3h (+15% above envelope, acceptable for a
+research phase with cross-repo work).
+
+### P2.5 hand-off
+
+Next step is `scripts/hf_reference.py` in fajarquant (or a `tests/`
+dir) — HuggingFace `modeling_gemma3.py` float forward on the same
+prompt, emitting JSONL with the same 17 op boundaries and same
+schema but `dtype: "f32"`. Since HF doesn't natively expose per-op
+tensors, the implementation is forward-hook-based: register PyTorch
+forward hooks on every matching submodule, capture the output
+tensor, flatten, stats+hash. Record count should match kernel for
+the same prompt.
+
+After P2.5: diff.py (P3.1 — kernel vs sim vs HF three-way).
