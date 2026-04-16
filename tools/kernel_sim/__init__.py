@@ -37,6 +37,14 @@ from .rmsnorm import (
 from .argmax_v8 import (
     ARGMAX_SENTINEL, argmax_v8, argmax_v8_full_logits,
 )
+from .transformer import (
+    MODEL_TYPE_LLAMA, MODEL_TYPE_SMOLLM,
+    MODEL_TYPE_GEMMA3_1B, MODEL_TYPE_GEMMA3_270M,
+    TransformerConfig, LayerWeights, ForwardResult,
+    activation_identity, activation_relu,
+    embed_lookup, simplified_attention_single_pos, gated_ffn,
+    layer_forward, forward, forward_with_logits,
+)
 
 __all__ = [
     "INT8_MIN", "INT8_MAX",
@@ -57,4 +65,10 @@ __all__ = [
     "GAMMA_MODE_NONE", "GAMMA_MODE_LLAMA", "GAMMA_MODE_GEMMA",
     "km_isqrt", "rmsnorm",
     "ARGMAX_SENTINEL", "argmax_v8", "argmax_v8_full_logits",
+    "MODEL_TYPE_LLAMA", "MODEL_TYPE_SMOLLM",
+    "MODEL_TYPE_GEMMA3_1B", "MODEL_TYPE_GEMMA3_270M",
+    "TransformerConfig", "LayerWeights", "ForwardResult",
+    "activation_identity", "activation_relu",
+    "embed_lookup", "simplified_attention_single_pos", "gated_ffn",
+    "layer_forward", "forward", "forward_with_logits",
 ]
