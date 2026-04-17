@@ -41,6 +41,7 @@ from typing import Any, Callable, List, Optional, Sequence
 from . import int_ops
 from .vecmat_v8 import vecmat_v8
 from .rmsnorm import (
+    km_isqrt,
     rmsnorm,
     GAMMA_MODE_LLAMA, GAMMA_MODE_GEMMA,
 )
@@ -174,31 +175,26 @@ def simplified_attention_single_pos(
     token_idx: int = 0,
     layer_idx: int = 0,
 ) -> List[int]:
-    """Attention for a length-1 sequence — collapses to `W_O · W_V · x`.
+    """Attention for a length-1 sequence with correct GQA handling.
 
-    For real prefill over N tokens this would be full scaled dot-product
-    attention with RoPE, KV cache, and softmax. P2.1 simplifies by
-    noting that softmax over a length-1 sequence is trivially [1.0],
-    so the attention output equals V. Composition W_O ∘ V gives a
-    well-formed structural transformer without implementing attention
-    machinery.
+    For a single position, softmax over a length-1 sequence is trivially
+    [1.0], so each head h's attention output = V[kv_head(h)] where
+    kv_head = h // heads_per_kv. With GQA (n_kv_heads < n_heads), the
+    KV head's V output is repeated for each of its query heads before
+    concatenation and O projection.
 
-    Q is computed but unused (present for weight-touch parity); future
-    P2.3 revision will reintroduce real multi-pos attention.
+    Concrete Gemma-3-1B example:
+      n_heads=4, n_kv_heads=1, d_head=256
+      V output: 256-dim (1 KV head)
+      GQA expansion: [V, V, V, V] → 1024-dim (4 query heads)
+      O projection: W_O(1024, 1152) · expanded → 1152-dim
+
+    Q and K are computed for weight-touch parity and trace emission.
     """
-    # Compute V = W_V · x   shape: (d_model)  (treating n_kv*d_head = d_model for P2.1)
     kv_d = cfg.n_kv_heads * cfg.d_head
-    v_out = vecmat_v8(
-        x, layer.v_packed, layer.v_scales, layer.v_zeros,
-        cfg.d_model, kv_d,
-    )
-    tracer.record(
-        "v_proj", v_out, token_idx=token_idx, layer=layer_idx,
-        shape=[kv_d], dtype="i64",
-    )
-    # Touch Q and K to ensure weights are shape-consistent (helps catch
-    # construction bugs in tests even though the values are unused here)
     q_dim = cfg.n_heads * cfg.d_head
+
+    # Q projection (computed for trace parity; unused in single-pos)
     _q = vecmat_v8(
         x, layer.q_packed, layer.q_scales, layer.q_zeros,
         cfg.d_model, q_dim,
@@ -207,6 +203,8 @@ def simplified_attention_single_pos(
         "q_proj", _q, token_idx=token_idx, layer=layer_idx,
         shape=[q_dim], dtype="i64",
     )
+
+    # K projection (computed for trace parity; unused in single-pos)
     _k = vecmat_v8(
         x, layer.k_packed, layer.k_scales, layer.k_zeros,
         cfg.d_model, kv_d,
@@ -216,13 +214,34 @@ def simplified_attention_single_pos(
         shape=[kv_d], dtype="i64",
     )
 
-    # O projection: W_O · V → (d_model)
-    # In real Gemma: W_O has shape (n_heads*d_head, d_model). For P2.1
-    # with kv_d == d_model this is (d_model, d_model).
-    attn_in_dim = q_dim if q_dim == kv_d else kv_d
+    # V projection
+    v_out = vecmat_v8(
+        x, layer.v_packed, layer.v_scales, layer.v_zeros,
+        cfg.d_model, kv_d,
+    )
+    tracer.record(
+        "v_proj", v_out, token_idx=token_idx, layer=layer_idx,
+        shape=[kv_d], dtype="i64",
+    )
+
+    # GQA expansion: repeat each KV head's V for its query head group.
+    # For single-pos, softmax([score]) = [1.0], so attn output per head
+    # h = V[kv_head(h)] where kv_head = h // heads_per_kv.
+    heads_per_kv = cfg.n_heads // cfg.n_kv_heads
+    if heads_per_kv > 1:
+        expanded: List[int] = []
+        for kv_h in range(cfg.n_kv_heads):
+            head_v = v_out[kv_h * cfg.d_head : (kv_h + 1) * cfg.d_head]
+            for _ in range(heads_per_kv):
+                expanded.extend(head_v)
+        attn_concat = expanded
+    else:
+        attn_concat = v_out
+
+    # O projection: W_O(q_dim, d_model) · attn_concat → (d_model)
     o_out = vecmat_v8(
-        v_out, layer.o_packed, layer.o_scales, layer.o_zeros,
-        attn_in_dim, cfg.d_model,
+        attn_concat, layer.o_packed, layer.o_scales, layer.o_zeros,
+        q_dim, cfg.d_model,
     )
     tracer.record(
         "attn_out", o_out, token_idx=token_idx, layer=layer_idx,
@@ -416,6 +435,18 @@ def forward(
     per_token = []
     last_hidden = None
 
+    # Gemma 3 embed scaling: hidden_states *= sqrt(d_model).
+    # Kernel computes scale_x1000 = km_isqrt(d_model * 1_000_000), then
+    # each embed element is multiplied by scale_x1000 / 1000. Without
+    # this, hidden-state magnitudes are ~34× too small and everything
+    # downstream degenerates toward pad. Non-Gemma models skip this.
+    if cfg.is_gemma3:
+        _embed_scale = km_isqrt(
+            int_ops.mul_i64(cfg.d_model, 1_000_000)
+        )
+    else:
+        _embed_scale = 0
+
     for tok_idx, tok in enumerate(tokens):
         # === Embed lookup ===
         x = embed_lookup(
@@ -427,6 +458,15 @@ def forward(
             shape=[cfg.d_model], dtype="i64",
             extra={"token_id": tok},
         )
+
+        # === Gemma 3 embed scaling ===
+        if _embed_scale > 0:
+            x = [
+                int_ops.trunc_div_i64(
+                    int_ops.mul_i64(v, _embed_scale), 1000
+                )
+                for v in x
+            ]
 
         # === 26× (or cfg.n_layers) layers ===
         for layer_idx, layer in enumerate(layers):
@@ -486,6 +526,14 @@ def forward_with_logits(
 
     tr = tracer if tracer is not None else NOOP_TRACER
 
+    # Gemma 3 embed scaling (same as forward())
+    if cfg.is_gemma3:
+        _embed_scale_wl = km_isqrt(
+            int_ops.mul_i64(cfg.d_model, 1_000_000)
+        )
+    else:
+        _embed_scale_wl = 0
+
     last_hidden = None
     for tok_idx, tok in enumerate(tokens):
         x = embed_lookup(
@@ -497,6 +545,13 @@ def forward_with_logits(
             shape=[cfg.d_model], dtype="i64",
             extra={"token_id": tok},
         )
+        if _embed_scale_wl > 0:
+            x = [
+                int_ops.trunc_div_i64(
+                    int_ops.mul_i64(v, _embed_scale_wl), 1000
+                )
+                for v in x
+            ]
         for layer_idx, layer in enumerate(layers):
             x = layer_forward(
                 x, layer, cfg, activation=activation,
