@@ -41,7 +41,8 @@ from .transformer import (
     MODEL_TYPE_LLAMA, MODEL_TYPE_SMOLLM,
     MODEL_TYPE_GEMMA3_1B, MODEL_TYPE_GEMMA3_270M,
     TransformerConfig, LayerWeights, ForwardResult,
-    activation_identity, activation_relu,
+    activation_identity, activation_relu, activation_gelu_tanh,
+    km_tanh_approx,
     embed_lookup, simplified_attention_single_pos, gated_ffn,
     layer_forward, forward, forward_with_logits,
 )

@@ -121,7 +121,7 @@ class LayerWeights:
     post_ffn_gamma: Optional[Sequence[int]]
 
 
-# ── Activation functions (pluggable; kernel uses km_tanh_approx) ──────
+# ── Activation functions (pluggable; kernel uses GELU-tanh) ──────────
 
 def activation_identity(x: int) -> int:
     return x
@@ -129,6 +129,55 @@ def activation_identity(x: int) -> int:
 
 def activation_relu(x: int) -> int:
     return x if x > 0 else 0
+
+
+def km_tanh_approx(x: int) -> int:
+    """Piecewise linear tanh approximation matching kernel km_tanh_approx.
+    Input/output in fp×1000. Six segments + two saturation regions."""
+    if x > 2500:
+        return 1000
+    elif x > 1500:
+        return int_ops.add_i64(900, int_ops.trunc_div_i64(
+            int_ops.sub_i64(x, 1500), 10))
+    elif x > 500:
+        return int_ops.add_i64(500, int_ops.trunc_div_i64(
+            int_ops.mul_i64(int_ops.sub_i64(x, 500), 400), 1000))
+    elif x > -500:
+        return x
+    elif x > -1500:
+        return int_ops.add_i64(-500, int_ops.trunc_div_i64(
+            int_ops.mul_i64(int_ops.add_i64(x, 500), 400), 1000))
+    elif x > -2500:
+        return int_ops.add_i64(-900, int_ops.trunc_div_i64(
+            int_ops.add_i64(x, 1500), 10))
+    else:
+        return -1000
+
+
+def activation_gelu_tanh(x: int) -> int:
+    """GELU with tanh approximation matching kernel km_gelu_tanh.
+
+    Formula: GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715*x³)))
+
+    Fixed-point (fp×1000):
+        x2 = x*x / 1000
+        x3 = x2*x / 1000
+        inner = 798 * (x + 45*x3/1000) / 1000
+        t = tanh_approx(inner)
+        result = x * (1000 + t) / 2000
+    """
+    x2 = int_ops.trunc_div_i64(int_ops.mul_i64(x, x), 1000)
+    x3 = int_ops.trunc_div_i64(int_ops.mul_i64(x2, x), 1000)
+    coeff_x3 = int_ops.trunc_div_i64(int_ops.mul_i64(45, x3), 1000)
+    inner = int_ops.trunc_div_i64(
+        int_ops.mul_i64(798, int_ops.add_i64(x, coeff_x3)),
+        1000,
+    )
+    t = km_tanh_approx(inner)
+    return int_ops.trunc_div_i64(
+        int_ops.mul_i64(x, int_ops.add_i64(1000, t)),
+        2000,
+    )
 
 
 # ── Forward-pass stages ───────────────────────────────────────────────

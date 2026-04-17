@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(_ROOT, "tools"))
 sys.path.insert(0, _HERE)
 
 from kernel_sim import (  # noqa: E402
-    TraceWriter, forward, activation_identity,
+    TraceWriter, forward, activation_identity, activation_gelu_tanh,
     TransformerConfig, LayerWeights,
     MODEL_TYPE_GEMMA3_1B,
 )
@@ -55,6 +55,9 @@ def run_trace(
               f"({len(tokens)} token(s))...", flush=True)
 
     t1 = time.monotonic()
+    # Use GELU-tanh for Gemma models (matching kernel km_gelu_tanh)
+    act_fn = activation_gelu_tanh if m.cfg.is_gemma3 else activation_identity
+
     with TraceWriter(path=output_path, enabled=True) as tw:
         result = forward(
             tokens=tokens,
@@ -64,7 +67,7 @@ def run_trace(
             layers=m.layers,
             final_norm_gamma=m.final_norm_gamma,
             cfg=m.cfg,
-            activation=activation_identity,
+            activation=act_fn,
             tracer=tw,
         )
     t_fwd = time.monotonic() - t1
