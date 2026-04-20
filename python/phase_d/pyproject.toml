@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intllm"
+version = "0.1.0-alpha"
+description = "Fully integer-native language model — FajarQuant Phase D"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Muhamad Fajar Putranto", email = "fajar@taxprime.net" },
+]
+keywords = ["llm", "quantization", "ternary", "integer-native", "fajaros"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "torch>=2.6.0",
+    # Upstream ridgerchu/matmulfreellm @ f24cfe5 uses the legacy
+    # `past_key_values[layer_idx]` cache-subscript API which transformers 5.x
+    # removed. Pin <5.0 until upstream ports to DynamicCache.
+    "transformers>=4.44,<5.0",
+    "einops>=0.7",
+    "numpy>=1.24",
+    "datasets>=2.20",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+train = [
+    "triton>=3.1",
+    "flash-linear-attention>=0.1",
+    "wandb>=0.17",
+]
+eval = [
+    "lm-eval>=0.4",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/fajarkraton/fajarquant"
+Repository = "https://github.com/fajarkraton/fajarquant"
+"Phase D Paper" = "https://github.com/fajarkraton/fajarquant/tree/main/paper"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["intllm*"]
+exclude = ["_upstream*", "tests*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --tb=short"
