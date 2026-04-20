@@ -190,16 +190,21 @@ at W watts on consumer CPU."* (X, Y, Z, W filled in C.P6.)
 
 ---
 
-## 5. Configuration matrix (preview, formalized in C.P1.4)
+## 5. Configuration matrix (preview — authoritative numbers in `FJQ_PHASE_D_CONFIG.md`)
 
-| Config | d_model | L | Heads | MLP ratio | Params | Training tokens | RTX 4090 time |
-|---|---|---|---|---|---|---|---|
-| **Mini** | 256 | 6 | — | 8/3 | ~8M | 500M | 6h |
-| **Base** (C.P4.1 primary) | 384 | 12 | — | 8/3 | ~25M | 1B | 1d |
-| **Medium** | 512 | 12 | — | 8/3 | ~50M | 2B | 2d |
-| **Stretch** | 1024 | 24 | — | 8/3 | ~370M | 15B | 5-7d |
+| Config | d_model | L | Params (V=32K) | Training tokens | RTX 4090 wall-clock |
+|---|---|---|---|---|---|
+| **Mini** | 256 | 6 | **~21.5M** | 500M | ~1h |
+| **Base** (C.P4.1 primary) | 384 | 12 | **~46.4M** | 1B | ~4h |
+| **Medium** | 512 | 12 | **~71.3M** | 2B | ~11h |
+| **Stretch** | 1024 | 24 | **~369.1M** | 15B | ~17d |
 
-Starting from **Base (25M @ 1B tokens)**. Mini is a fast-iteration
+> Preliminary param estimates here were 8M/25M/50M/370M; those were
+> pre-formula. Authoritative numbers above use the exact accounting
+> `12Ld² + 2Vd` (V=32K Mistral v3) shipped in C.P1.4. Stretch matches
+> Zhu et al. 370M row exactly.
+
+Starting from **Base (~46M @ 1B tokens)**. Mini is a fast-iteration
 config for QAT sweeps + calibration ablations (all complete within a
 working day). Medium is the first configuration to compare against
 FP16 Transformer++ directly. Stretch (370M) matches the smallest
