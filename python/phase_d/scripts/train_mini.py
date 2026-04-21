@@ -41,6 +41,7 @@ import torch  # noqa: E402
 
 from configs.mini import MiniArchConfig, MiniTrainConfig  # noqa: E402
 from intllm.data import slimpajama_stream  # noqa: E402
+from intllm.eval import run_held_out_loss  # noqa: E402
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
 from intllm.tokenizer import get_tokenizer  # noqa: E402
 from intllm.train import TrainConfig, train_loop  # noqa: E402
@@ -60,17 +61,22 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--proof-of-life", action="store_true",
                    help="Cap at 200 steps, skip val eval, save no checkpoints")
+    p.add_argument("--n-steps", type=int, default=None,
+                   help="Override training steps (e.g. 10000 for a ~45min intermediate run)")
+    p.add_argument("--val-steps", type=int, default=50,
+                   help="Number of batches to compute val_loss over (default 50)")
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args()
 
     arch = MiniArchConfig()
     train_hp = MiniTrainConfig()
+    from dataclasses import replace
     if args.proof_of_life:
         # POL: 200 steps, no checkpoint, no val
-        train_hp_overrides = {"n_steps": 200, "log_every": 25}
-        from dataclasses import replace
-        train_hp = replace(train_hp, **train_hp_overrides)
+        train_hp = replace(train_hp, n_steps=200, log_every=25)
+    elif args.n_steps is not None:
+        train_hp = replace(train_hp, n_steps=args.n_steps)
 
     print(f"[1/4] config: arch={asdict(arch)}")
     print(f"      train: {asdict(train_hp)}")
@@ -122,6 +128,28 @@ def main() -> int:
     print(f"  initial PPL   : {init_ppl:,.1f}")
     print(f"  final PPL     : {final_ppl:,.1f}")
 
+    # Held-out val_loss measurement (skip on POL — too few steps to be meaningful)
+    val_loss = float("nan")
+    if not args.proof_of_life:
+        print(f"\n  measuring val_loss over {args.val_steps} batches (held-out seed) ...")
+        val_stream = slimpajama_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            device=args.device,
+            seed=999,  # different seed than train (=0)
+        )
+        val_t0 = time.time()
+        val_loss = run_held_out_loss(model, batches=val_stream, n_steps=args.val_steps,
+                                      device=args.device)
+        print(f"  val_loss      : {val_loss:.4f}  (PPL {math.exp(val_loss):,.1f})")
+        print(f"  val elapsed   : {time.time() - val_t0:.1f} s")
+        # FJQ_PHASE_D_CONFIG.md §5.1 Mini gate
+        gate = 4.0
+        gate_pass = val_loss < gate
+        print(f"  Mini gate     : val_loss < {gate} -> "
+              f"{'PASS ✓' if gate_pass else 'FAIL ✗'}")
+
     if not args.proof_of_life:
         args.ckpt_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = args.ckpt_dir / "mini_final.pt"
@@ -139,8 +167,13 @@ def main() -> int:
         print(f"  checkpoint    : {ckpt_path}")
 
     # Save loss trace alongside script (small)
-    trace_path = HERE / ("train_mini_pol_trace.json" if args.proof_of_life
-                          else "train_mini_full_trace.json")
+    if args.proof_of_life:
+        trace_name = "train_mini_pol_trace.json"
+    elif args.n_steps is not None:
+        trace_name = f"train_mini_{args.n_steps}_trace.json"
+    else:
+        trace_name = "train_mini_full_trace.json"
+    trace_path = HERE / trace_name
     with trace_path.open("w") as f:
         json.dump({
             "arch": asdict(arch),
@@ -149,6 +182,7 @@ def main() -> int:
             "losses": result.losses,
             "initial_loss": result.initial_loss,
             "final_loss": result.final_loss,
+            "val_loss": val_loss,
         }, f, indent=2)
     print(f"  trace         : {trace_path}")
 
@@ -157,9 +191,16 @@ def main() -> int:
         drop = result.initial_loss - result.final_loss
         gate_pass = drop >= 1.0
         print(f"\n  POL gate (Δ ≥ 1.0 nat): {'PASS ✓' if gate_pass else 'FAIL ✗'} (Δ={drop:.2f})")
-        return 0 if gate_pass else 1
-    # Full run gate is val-loss based; not yet implemented (C.P4.1)
-    return 0
+        rc = 0 if gate_pass else 1
+    else:
+        # Mini gate per FJQ_PHASE_D_CONFIG.md §5.1
+        rc = 0 if val_loss < 4.0 else 1
+
+    # Explicit teardown to silence sentencepiece's atexit
+    # `PyGILState_Release` warning observed in V31.C.P4.0 logs.
+    del model
+    del tok
+    return rc
 
 
 if __name__ == "__main__":
