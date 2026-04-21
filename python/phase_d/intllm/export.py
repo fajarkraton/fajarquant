@@ -103,29 +103,68 @@ def _enumerate_bitlinears(model: nn.Module) -> list[tuple[str, nn.Module]]:
     return [(name, mod) for name, mod in model.named_modules() if _is_bitlinear(mod)]
 
 
-def _build_header(*, n_layers: int, d_model: int, vocab: int, n_heads: int = 1) -> bytes:
+def _build_header(
+    *,
+    n_layers: int,
+    d_model: int,
+    vocab: int,
+    n_heads: int = 1,
+    total_size: int,
+    embed_off: int,
+    layer0_off: int,
+    lmhead_off: int,
+) -> bytes:
     """Build the 176-byte header for a v9 file.
 
     Mirrors the v7/v8 layout but with v9 semantics:
       version = 9, model_type = 11, quant_format = 2,
       rope_global = 0, sliding_window = 0, sliding_pattern = 0
+
+    Field offsets per fajaros-x86/kernel/compute/model_loader.fj §FJM
+    Binary Format Constants. Every scalar is a u32 little-endian unless
+    noted otherwise. V31.C.P1.5 uncovered an old 1-byte-write bug in
+    the offset-4 version + offset-8 model_type fields (the kernel reads
+    them as u32 so the high bytes matter); also the n_layers / d_model /
+    n_heads / vocab fields were at the wrong offsets. Verified against
+    tests/test-models/intllm-tiny.fjm which loads successfully in
+    kernel's mdl_parse_header end-to-end (V31.C.P1.5 gate green).
     """
     h = bytearray(HEADER_SIZE)
+    # offset 0: magic "FJM1" as u32 little-endian
     h[0:4] = FJM_MAGIC
-    h[4] = FJM_VERSION
-    h[5] = MODEL_TYPE_INTLLM
-    # Standard fields used by all readers (offsets per fajaros-x86 model_loader.fj)
-    struct.pack_into("<I", h, 8, n_layers)
-    struct.pack_into("<I", h, 12, d_model)
-    struct.pack_into("<I", h, 16, vocab)
+    # v1 fields — each field is a FULL u32 little-endian
+    struct.pack_into("<I", h, 4, FJM_VERSION)
+    struct.pack_into("<I", h, 8, MODEL_TYPE_INTLLM)
+    struct.pack_into("<I", h, 12, n_layers)
+    struct.pack_into("<I", h, 16, d_model)
     struct.pack_into("<I", h, 20, n_heads)
+    struct.pack_into("<I", h, 24, d_model // n_heads)     # d_head
+    struct.pack_into("<I", h, 28, vocab)
+    struct.pack_into("<I", h, 32, 2)                       # quant_bits = 2 (ternary)
+    struct.pack_into("<I", h, 36, total_size)
+    struct.pack_into("<I", h, 40, embed_off)
+    struct.pack_into("<I", h, 44, layer0_off)
+    struct.pack_into("<I", h, 48, lmhead_off)
+    # v2 fields — Phase D doesn't use most of these but kernel validators
+    # do sanity-check them against sane ranges.
+    struct.pack_into("<I", h, 52, n_heads)                 # n_kv_heads
+    struct.pack_into("<I", h, 56, 0)                       # ffn_type (unused in Phase D)
+    struct.pack_into("<I", h, 60, 1)                       # norm_type = RMSNorm
+    struct.pack_into("<I", h, 64, (8 * d_model) // 3)      # ffn_dim (informational)
+    struct.pack_into("<I", h, 68, 0)                       # rope_theta = 0 (NoPE)
+    struct.pack_into("<I", h, 72, 0)                       # eos_token (caller may override)
+    # v3 codebook slots at 76..139 — zero (Phase D uses ternary, not KMeans).
+    # v3+ fields that kernel reads regardless of mode:
+    struct.pack_into("<I", h, 140, 0)                      # final_norm_off = 0 (no learnable γ)
+    struct.pack_into("<I", h, 144, 0)                      # embed_bits = 0 (FP16)
+    struct.pack_into("<I", h, 148, 2)                      # lmhead_bits = 2 (ternary)
     # v7/v8 fields at 152-175
-    struct.pack_into("<Q", h, 152, 0)   # rope_global = 0 (NoPE)
-    struct.pack_into("<I", h, 160, 0)   # sliding_window = 0
-    struct.pack_into("<I", h, 164, 0)   # sliding_pattern = 0
-    struct.pack_into("<I", h, 168, n_heads)  # n_kv_heads_v7 (== n_heads for HGRN)
+    struct.pack_into("<Q", h, 152, 0)                      # rope_global = 0 (NoPE)
+    struct.pack_into("<I", h, 160, 0)                      # sliding_window = 0
+    struct.pack_into("<I", h, 164, 0)                      # sliding_pattern = 0
+    struct.pack_into("<I", h, 168, n_heads)                # n_kv_heads_v7 (== n_heads for HGRN)
     struct.pack_into("<H", h, 172, QUANT_FORMAT_TERNARY)
-    struct.pack_into("<H", h, 174, 0)   # group_size = 0 (per-matrix β, not group-wise)
+    struct.pack_into("<H", h, 174, 0)                      # group_size = 0 (per-matrix β, not group-wise)
     return bytes(h)
 
 
@@ -222,10 +261,9 @@ def export_fjm_v9(model: nn.Module, out_path: str | Path) -> dict:
     if lm_head is None:
         raise ValueError("model has no lm_head BitLinear")
 
-    # Build sections
-    header = _build_header(n_layers=n_layers, d_model=d_model, vocab=vocab,
-                           n_heads=getattr(cfg, "num_heads", 1))
-
+    # Build variable-length sections FIRST so we can compute byte offsets
+    # to back-fill into the fixed-size header (v3+ header carries
+    # embed_off/layer0_off/lmhead_off + total_size).
     all_betas: list[float] = []
     layer_blocks: list[bytes] = []
     for i in range(n_layers):
@@ -245,9 +283,28 @@ def export_fjm_v9(model: nn.Module, out_path: str | Path) -> dict:
     embed_module = model.get_input_embeddings()
     embed_bytes = embed_module.weight.detach().to(torch.float16).cpu().numpy().tobytes()
 
+    # File layout: [header 176 B][beta_table][gamma_table][layer_blocks][embed][lm_head]
+    beta_off = HEADER_SIZE
+    gamma_off = beta_off + len(beta_table)
+    layer0_off = gamma_off + len(gamma_table)
+    total_layer_bytes = sum(len(b) for b in layer_blocks)
+    embed_off = layer0_off + total_layer_bytes
+    lmhead_off = embed_off + len(embed_bytes)
+    total_size = lmhead_off + len(lm_packed)
+
+    header = _build_header(
+        n_layers=n_layers, d_model=d_model, vocab=vocab,
+        n_heads=getattr(cfg, "num_heads", 1),
+        total_size=total_size,
+        embed_off=embed_off,
+        layer0_off=layer0_off,
+        lmhead_off=lmhead_off,
+    )
+
     # Compose final file
     parts = [header, beta_table, gamma_table, *layer_blocks, embed_bytes, lm_packed]
     blob = b"".join(parts)
+    assert len(blob) == total_size, f"size mismatch: blob={len(blob)} vs header-claimed={total_size}"
     out_path.write_bytes(blob)
 
     # Manifest for sidecar JSON
@@ -282,16 +339,25 @@ def parse_fjm_v9_header(path: str | Path) -> dict:
 
     Companion to `export_fjm_v9` — used by tests + by the reader-rejection
     safety check in §6.8 R3 (verify v8 readers reject v9 cleanly).
+
+    Layout mirrors kernel/compute/model_loader.fj offset table — every field
+    is a u32 little-endian except quant_format / group_size (u16). V31.C.P1.5
+    fixed a stale layout here (was reading version/model_type as single bytes
+    + n_layers/d_model/vocab at wrong offsets).
     """
     data = Path(path).read_bytes()
     if data[:4] != FJM_MAGIC:
         raise ValueError(f"bad magic: {data[:4]!r}")
-    version = data[4]
-    model_type = data[5]
-    n_layers, = struct.unpack_from("<I", data, 8)
-    d_model,  = struct.unpack_from("<I", data, 12)
-    vocab,    = struct.unpack_from("<I", data, 16)
-    n_heads,  = struct.unpack_from("<I", data, 20)
+    version,      = struct.unpack_from("<I", data, 4)
+    model_type,   = struct.unpack_from("<I", data, 8)
+    n_layers,     = struct.unpack_from("<I", data, 12)
+    d_model,      = struct.unpack_from("<I", data, 16)
+    n_heads,      = struct.unpack_from("<I", data, 20)
+    vocab,        = struct.unpack_from("<I", data, 28)
+    total_size,   = struct.unpack_from("<I", data, 36)
+    embed_off,    = struct.unpack_from("<I", data, 40)
+    layer0_off,   = struct.unpack_from("<I", data, 44)
+    lmhead_off,   = struct.unpack_from("<I", data, 48)
     quant_format, = struct.unpack_from("<H", data, 172)
     return {
         "version": version,
@@ -301,6 +367,10 @@ def parse_fjm_v9_header(path: str | Path) -> dict:
         "vocab_size": vocab,
         "n_heads": n_heads,
         "quant_format": quant_format,
+        "total_size": total_size,
+        "embed_off": embed_off,
+        "layer0_off": layer0_off,
+        "lmhead_off": lmhead_off,
     }
 
 
