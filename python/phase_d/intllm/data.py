@@ -1,16 +1,17 @@
 """IntLLM dataset loaders.
 
-C.P2.3 ships only synthetic-token loaders — enough to verify the
-training stack converges. Real corpus loaders (SlimPajama streaming)
-land in C.P3.
-
-Two synthetic modes:
+Three modes:
   - `synthetic_token_batches` — fresh random tokens per batch (entropy
     floor = ln(V); no learnable structure; useful for "no-NaN" smoke
     tests but **cannot** verify loss-decrease).
   - `overfit_token_batches`   — one fixed batch, repeated N times. Model
-    memorizes; loss drops toward 0. **Use this** to verify the training
-    stack converges end-to-end.
+    memorizes; loss drops toward 0. Convergence sanity check.
+  - `slimpajama_stream`       — real text via HF datasets streaming,
+    tokenised on the fly with the Mistral v3 tokenizer (C.P3.3).
+
+The C.P3.3 streaming loader is the production training path — no
+on-disk pre-staging needed for Mini/Base (≤2B tokens). For Stretch
+(15B), pre-tokenize and shard offline (deferred to C.P4).
 """
 
 from __future__ import annotations
@@ -18,6 +19,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import torch
+from transformers import PreTrainedTokenizerBase
+
+# DKYoon/SlimPajama-6B is the default Mini/Base/Medium source —
+# small enough to stream easily, large enough to cover ≤2B-token runs.
+# Stretch (15B) pivots to gmongaras/SlimPajama-627B_Reupload.
+DEFAULT_SLIMPAJAMA_REPO = "DKYoon/SlimPajama-6B"
 
 
 def synthetic_token_batches(
@@ -77,3 +84,48 @@ def overfit_token_batches(
         # Same tensor reference each step — autograd handles fine since
         # the optimiser doesn't touch input tensors.
         yield fixed_batch
+
+
+def slimpajama_stream(
+    *,
+    tokenizer: PreTrainedTokenizerBase,
+    seq_len: int,
+    batch_size: int,
+    repo: str = DEFAULT_SLIMPAJAMA_REPO,
+    split: str = "train",
+    text_column: str = "text",
+    device: str | torch.device = "cpu",
+    seed: int = 0,
+) -> Iterator[torch.Tensor]:
+    """Stream SlimPajama via HF datasets, tokenize on-the-fly, yield
+    `(batch_size, seq_len)` int64 batches.
+
+    No pre-tokenization, no on-disk caching beyond HF's normal hub
+    cache. Suitable for Mini/Base/Medium configs that need ≤ a few
+    billion tokens. Stretch (15B) should pre-tokenize + shard once and
+    re-read from disk to avoid retokenising every epoch.
+
+    Documents shorter than `seq_len` are concatenated with EOS
+    separators until the buffer fills `batch_size · seq_len`. This
+    "packing" pattern matches the standard MosaicML/StreamingDataset
+    convention and keeps GPU utilisation high without needing
+    sentence-level alignment heuristics.
+    """
+    from datasets import load_dataset  # type: ignore[import-not-found]
+
+    ds = load_dataset(repo, split=split, streaming=True).shuffle(seed=seed, buffer_size=10_000)
+    eos_id = tokenizer.eos_token_id
+    target_per_batch = batch_size * seq_len
+    buf: list[int] = []
+    for example in ds:
+        text = example.get(text_column)
+        if not text:
+            continue
+        ids = tokenizer.encode(text, add_special_tokens=False)
+        buf.extend(ids)
+        buf.append(eos_id)
+        while len(buf) >= target_per_batch:
+            chunk = buf[:target_per_batch]
+            buf = buf[target_per_batch:]
+            t = torch.tensor(chunk, dtype=torch.long).reshape(batch_size, seq_len)
+            yield t.to(device)
