@@ -41,6 +41,13 @@ load error rather than fall through to v8 logic.
 
 ## 2. Per-matrix β scalars (new section, written before layer blocks)
 
+> **Spec correction (2026-04-21):** initial draft assumed 7 BitLinears
+> per layer (4 MLGRU + 3 GLU per the MatMul-Free paper). Actual
+> upstream `ridgerchu/matmulfreellm @ f24cfe5` ships HGRN-Bit with
+> **6 BitLinears per layer** — `mlp.gate_proj` is a memory-optimised
+> combined gate+up matrix (output dim = 2·intermediate). The byte
+> layout below is unchanged; only the indexing convention was wrong.
+
 v9 introduces a fixed-position table of FP32 absmean scalars β_i, one
 per BitLinear in the model. Computed once at QAT freeze, baked into
 the export, never re-derived at inference time (per §6.9 R4
@@ -51,9 +58,10 @@ layer block:
 
 ```
 0x00B0  table_size : u32   = 4 × n_betas    (bytes)
-0x00B4  n_betas    : u32   = (4 × L) + (3 × L) + 1   = 7L + 1
-                              ↑ MLGRU: 4 BitLinears (f,c,g,o) per layer
-                              ↑ GLU:   3 BitLinears (g,u,d) per layer
+0x00B4  n_betas    : u32   = (4 × L) + (2 × L) + 1   = 6L + 1
+                              ↑ attn: 4 BitLinears (i,f,g,o)_proj per layer
+                              ↑ mlp:  2 BitLinears (gate_proj is combined
+                                      gate+up at out=2·int; down_proj separate)
                               ↑ +1 for the LM head (also a BitLinear)
 0x00B8  β[0]       : f32
 0x00BC  β[1]       : f32
@@ -61,22 +69,22 @@ layer block:
 0x00B8 + 4·n_betas
 ```
 
-Indexing convention (deterministic, matches PyTorch state_dict order):
+Indexing convention (deterministic, matches PyTorch state_dict order
+in upstream HGRN-Bit at commit `f24cfe5`):
 
 ```
 For layer ℓ in 0..L:
-  index 7ℓ + 0  : MLGRU.f_proj.β
-  index 7ℓ + 1  : MLGRU.c_proj.β
-  index 7ℓ + 2  : MLGRU.g_proj.β
-  index 7ℓ + 3  : MLGRU.o_proj.β
-  index 7ℓ + 4  : GLU.g_proj.β
-  index 7ℓ + 5  : GLU.u_proj.β
-  index 7ℓ + 6  : GLU.d_proj.β
-index 7L + 0    : LM_head.β
+  index 6ℓ + 0  : attn.i_proj.β    (MLGRU input)
+  index 6ℓ + 1  : attn.f_proj.β    (MLGRU forget)
+  index 6ℓ + 2  : attn.g_proj.β    (MLGRU gate)
+  index 6ℓ + 3  : attn.o_proj.β    (MLGRU output)
+  index 6ℓ + 4  : mlp.gate_proj.β  (GLU combined gate+up, out=2·int)
+  index 6ℓ + 5  : mlp.down_proj.β  (GLU down)
+index 6L + 0    : lm_head.β
 ```
 
-Total table size at Stretch (L=24): 4 × (7·24 + 1) = 676 bytes. At
-Mini: 4 × 43 = 172 bytes.
+Total table size at Stretch (L=24): 4 × (6·24 + 1) = 580 bytes. At
+Mini (L=6): 4 × 37 = 148 bytes.
 
 ## 3. Per-channel γ_x calibration (new section, optional)
 
