@@ -17,7 +17,7 @@ import torch
 
 from intllm.data import overfit_token_batches, synthetic_token_batches
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
-from intllm.train import TrainConfig, smoothed_min, train_loop
+from intllm.train import TrainConfig, _lr_lambda, smoothed_min, train_loop
 
 
 pytestmark = pytest.mark.skipif(
@@ -107,3 +107,38 @@ def test_training_loop_stays_finite_on_random_batches() -> None:
     assert all(abs(x - expected) < 1.0 for x in result.losses[-10:]), (
         f"random-token loss drifted; last 10 = {result.losses[-10:]}"
     )
+
+
+# -----------------------------------------------------------------
+# LR scheduler (C.P4.1 H1 fix)
+# -----------------------------------------------------------------
+
+def test_lr_lambda_no_schedule_when_both_zero() -> None:
+    """warmup=0, total=0 → constant 1.0 (regression-safe default)."""
+    for s in (0, 100, 10_000):
+        assert _lr_lambda(s, warmup=0, total=0, min_ratio=0.1) == 1.0
+
+
+def test_lr_lambda_linear_warmup() -> None:
+    """warmup_steps=1000 → linear ramp 0 → 1 over [0, 1000)."""
+    assert _lr_lambda(0, warmup=1000, total=2000, min_ratio=0.1) == 0.0
+    assert _lr_lambda(500, warmup=1000, total=2000, min_ratio=0.1) == 0.5
+    # at warmup boundary, ramp completes; cosine starts at 1.0
+    assert abs(_lr_lambda(1000, warmup=1000, total=2000, min_ratio=0.1) - 1.0) < 1e-6
+
+
+def test_lr_lambda_cosine_decay_to_min_ratio() -> None:
+    """At total_steps, lr should equal min_ratio (clamped)."""
+    val = _lr_lambda(2000, warmup=1000, total=2000, min_ratio=0.1)
+    assert abs(val - 0.1) < 1e-6
+    # Past total — clamp
+    val = _lr_lambda(5000, warmup=1000, total=2000, min_ratio=0.1)
+    assert abs(val - 0.1) < 1e-6
+
+
+def test_lr_lambda_midpoint_decay() -> None:
+    """Halfway through cosine decay → average of 1.0 and min_ratio."""
+    # warmup=0, total=1000, midpoint 500
+    val = _lr_lambda(500, warmup=0, total=1000, min_ratio=0.1)
+    expected = 0.1 + (1.0 - 0.1) * 0.5  # cos(π/2)=0 → 0.5*(1+0)=0.5 cosine
+    assert abs(val - expected) < 1e-6

@@ -1,20 +1,23 @@
-"""Minimal training loop for IntLLM proof-of-life (C.P2.3).
+"""Training loop for IntLLM with linear-warmup + cosine-decay LR schedule.
 
-This module is intentionally tiny — it exists to verify that
-`intllm.model` (which re-exports upstream HGRNBit*) actually trains
-end-to-end. The full C.P4 training pipeline (lr schedule, gradient
-clipping, mixed precision, wandb logging, gradient checkpointing) is
-built on top of this loop, not in this file.
+C.P2.3 shipped a constant-lr loop (proof-of-life). C.P4.1 Mini gate
+FAIL identified the missing schedule as the H1 root cause (~+0.4 nat).
+This revision adds a `LambdaLR` scheduler honouring `warmup_steps`,
+`total_steps`, and `min_lr_ratio` from `TrainConfig`. Backward-
+compatible: callers that don't set the new fields get a no-op
+schedule (constant lr).
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR
 
 
 @dataclass
@@ -23,6 +26,32 @@ class TrainConfig:
     weight_decay: float = 0.1
     grad_clip_norm: float = 1.0
     log_every: int = 50
+    # LR schedule (C.P4.1 H1 fix). Defaults preserve old constant-lr behaviour.
+    warmup_steps: int = 0          # 0 → no warmup (constant lr from step 0)
+    total_steps: int = 0           # 0 → no decay (constant lr after warmup)
+    min_lr_ratio: float = 0.1      # cosine decays to this fraction of peak lr
+
+
+def _lr_lambda(step: int, *, warmup: int, total: int, min_ratio: float) -> float:
+    """Linear warmup → cosine decay to `min_ratio` of peak lr.
+
+    `step` is 0-indexed. Returns the multiplier to apply to base lr.
+    Behaviour:
+      - warmup=0, total=0 → constant 1.0 (no schedule)
+      - warmup>0           → linear ramp 0 → 1 over [0, warmup)
+      - total>warmup       → cosine decay 1 → min_ratio over [warmup, total)
+      - step >= total      → clamps to min_ratio
+    """
+    if warmup == 0 and total == 0:
+        return 1.0
+    if warmup > 0 and step < warmup:
+        return float(step) / float(warmup)
+    if total <= warmup:
+        return 1.0
+    progress = (step - warmup) / (total - warmup)
+    progress = min(1.0, max(0.0, progress))
+    cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+    return min_ratio + (1.0 - min_ratio) * cosine
 
 
 @dataclass
@@ -57,17 +86,30 @@ def train_loop(
     *,
     config: TrainConfig | None = None,
 ) -> TrainResult:
-    """Run a minimal AdamW training loop over the given batches.
+    """Run an AdamW training loop with linear-warmup + cosine-decay LR.
 
     Each batch is a `(B, T)` int64 tensor of token IDs; loss is the
     standard shift-by-one causal LM cross-entropy. Returns the loss
     trace + initial/final values for assertion-friendly inspection.
 
-    Does NOT do mixed precision, gradient checkpointing, lr schedule,
-    or QAT — those layer in via C.P2.4 and C.P4 (separately).
+    LR schedule activates when `config.warmup_steps > 0` or
+    `config.total_steps > 0`. With both at 0, behaves identically to
+    the C.P2.3 constant-lr loop (regression-safe).
+
+    Does NOT do mixed precision, gradient checkpointing, or QAT —
+    those layer in via C.P2.4 + C.P4 separately.
     """
     cfg = config or TrainConfig()
     optimizer = AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    scheduler = LambdaLR(
+        optimizer,
+        lr_lambda=lambda s: _lr_lambda(
+            s,
+            warmup=cfg.warmup_steps,
+            total=cfg.total_steps,
+            min_ratio=cfg.min_lr_ratio,
+        ),
+    )
     model.train()
 
     result = TrainResult()
@@ -79,6 +121,7 @@ def train_loop(
         if cfg.grad_clip_norm and cfg.grad_clip_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
         optimizer.step()
+        scheduler.step()
 
         loss_val = loss.detach().item()
         result.losses.append(loss_val)
@@ -88,7 +131,8 @@ def train_loop(
         result.steps = step + 1
 
         if cfg.log_every and (step + 1) % cfg.log_every == 0:
-            print(f"  step {step + 1:4d} loss={loss_val:.4f}")
+            current_lr = scheduler.get_last_lr()[0]
+            print(f"  step {step + 1:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
 
     model.eval()
     return result

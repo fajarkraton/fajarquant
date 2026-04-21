@@ -107,6 +107,11 @@ def main() -> int:
             yield b
 
     t0 = time.time()
+    # POL skips the LR schedule (200 steps too few for warmup/decay to matter).
+    if args.proof_of_life:
+        warmup, total = 0, 0
+    else:
+        warmup, total = train_hp.warmup_steps, train_hp.n_steps
     result = train_loop(
         model,
         capped_batches(),
@@ -115,6 +120,9 @@ def main() -> int:
             weight_decay=train_hp.weight_decay,
             grad_clip_norm=train_hp.grad_clip_norm,
             log_every=train_hp.log_every,
+            warmup_steps=warmup,
+            total_steps=total,
+            min_lr_ratio=0.1,
         ),
     )
     elapsed = time.time() - t0
