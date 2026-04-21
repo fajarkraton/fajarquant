@@ -110,6 +110,37 @@ def run_zeroshot_six(
     )
 
 
+def run_held_out_loss(
+    model: "torch.nn.Module",
+    *,
+    batches,
+    n_steps: int = 100,
+    device: str = "cuda",
+) -> float:
+    """Compute mean cross-entropy loss over `n_steps` batches without
+    updating model weights.
+
+    Used as the cheap/fast inner-training-loop validation: sample a fixed
+    number of held-out batches, compute loss, return the average. Caller
+    is responsible for ensuring `batches` draws from a held-out shard
+    (different seed than train stream).
+
+    Returns the mean nat-loss (for perplexity, exponentiate).
+    """
+    import torch  # local import; avoids hard dep at module import time
+
+    model.eval()
+    losses: list[float] = []
+    with torch.no_grad():
+        for i, ids in enumerate(batches):
+            if i >= n_steps:
+                break
+            out = model(input_ids=ids.to(device), labels=ids.to(device))
+            losses.append(float(out.loss.detach()))
+    model.train()
+    return sum(losses) / max(1, len(losses))
+
+
 def run_wikitext103_ppl(
     model_name: str,
     *,
