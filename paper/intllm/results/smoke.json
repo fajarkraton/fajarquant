@@ -1,0 +1,4 @@
+{
+  "_description": "Smoke-test result for scripts/verify_intllm_tables.py. Proves the script can find its artifact directory. Do not delete.",
+  "pi_ish": 3.14
+}

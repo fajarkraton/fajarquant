@@ -1,0 +1,27 @@
+# Phase D IntLLM — pinned lm-evaluation-harness reference.
+#
+# Every Phase D benchmark (make bench-canonical, make bench-knowledge,
+# make bench-baselines) MUST install lm-eval from exactly this ref.
+# CI fails if drift is detected between installed version and this file.
+#
+# Rationale (§6.9 R1): lm-eval-harness has known 0.3→0.4 ARC-E normalization
+# drift (see FJQ_PHASE_D_P2_1_GATE.md for evidence on ridger/MMfreeLM-370M).
+# Pinning eliminates this class of silent benchmark disagreement between
+# IntLLM numbers and replicated baselines.
+#
+# Install command (copy to docs/REPRODUCIBILITY.md):
+#   pip install "lm-evaluation-harness @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@$(cat eval/HARNESS_SHA | grep '^ref:' | cut -d' ' -f2)"
+#
+# How to update (whenever we adopt a newer lm-eval version):
+#   1. Edit `ref:` below to the new tag or full SHA.
+#   2. Re-run `make bench-baselines` to confirm every pinned baseline (BitNet,
+#      MatMul-Free, SmolLM2, Pythia) still matches its previous delta
+#      against paper-reported numbers within ±1.0 absolute.
+#   3. Commit with `fix(v31-c-p3.1): bump HARNESS_SHA to <new-ref>`.
+#   4. Update paper §4.1 reproducibility footnote + rerun
+#      scripts/verify_intllm_tables.py --strict.
+
+repo: EleutherAI/lm-evaluation-harness
+ref:  v0.4.11
+note: tag pinned (not SHA); a future commit will replace `ref:` with the
+      full 40-char SHA once a real benchmark run resolves it in CI.
