@@ -1,0 +1,33 @@
+{
+  "model": "ridger/MMfreeLM-370M",
+  "tasks": [
+    "arc_easy",
+    "arc_challenge",
+    "hellaswag",
+    "openbookqa",
+    "piqa",
+    "winogrande"
+  ],
+  "paper_table_1": {
+    "arc_easy": 42.6,
+    "arc_challenge": 23.8,
+    "hellaswag": 32.8,
+    "openbookqa": 28.4,
+    "piqa": 63.0,
+    "winogrande": 49.2
+  },
+  "paper_avg": 40.3,
+  "our_results": {
+    "arc_easy": 38.84680134680135,
+    "arc_challenge": 22.26962457337884,
+    "hellaswag": 32.45369448317068,
+    "openbookqa": 28.4,
+    "piqa": 62.67682263329706,
+    "winogrande": 49.72375690607735
+  },
+  "our_avg": 39.061783323787544,
+  "avg_delta": -1.2382166762124527,
+  "tolerance": 1.0,
+  "gate_pass": false,
+  "elapsed_seconds": 340.1820363998413
+}
