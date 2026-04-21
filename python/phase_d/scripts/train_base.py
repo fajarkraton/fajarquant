@@ -164,7 +164,7 @@ def main() -> int:
 
     if not args.proof_of_life:
         args.ckpt_dir.mkdir(parents=True, exist_ok=True)
-        ckpt_path = args.ckpt_dir / "mini_final.pt"
+        ckpt_path = args.ckpt_dir / "base_final.pt"
         torch.save({
             "arch": asdict(arch),
             "train": asdict(train_hp),
