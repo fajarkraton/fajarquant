@@ -104,6 +104,14 @@ def kernel_e2e_tokens_per_sec(model: str) -> float:
     return float(data["tokens_per_second"])
 
 
+def fp16_parity_summary(model: str, key: str) -> float:
+    """Aggregate fp16-vs-ternary per-layer rel-error stats. `key` is one
+    of: rel_error_l2_mean / rel_error_l2_max / rel_error_l2_p50 /
+    rel_error_l2_p95 / rel_error_l2_min (see intllm.fp16_parity.summary_stats)."""
+    data = load_json(f"fp16_parity_{model}.json")
+    return float(data["summary"][key])
+
+
 # ─────────────────────────────────────────────────────────────────
 # Claim registry — one entry per numeric cell that appears in the
 # paper. Populated incrementally as Phase 4.2 fills the tables.
@@ -170,6 +178,20 @@ CLAIMS: list[Claim] = [
     Claim("Gate: Medium val_loss",
           0.0, lambda: training_val_loss("intllm-medium"),
           float("inf"), "gate Medium<4.0 (pending Phase 2.2 run)"),
+    # ── Table 3 fp16-vs-ternary parity (Phase 3.5 IntLLM differentiator) ──
+    # First measured 2026-04-22 on Mini v2. BitNet 2B4T did not ship a
+    # parity gate; high absolute rel-error is expected for 1.58-bit
+    # weights, but the *distribution* + the gate scaffold IS the
+    # contribution. Threshold-setting deferred to follow-up commit.
+    Claim("Table 3: Mini fp16 parity rel_l2 mean",
+          2.3104, lambda: fp16_parity_summary("intllm-mini", "rel_error_l2_mean"),
+          0.01, "Table 3 / Mini / rel_l2_mean (37 hooks)"),
+    Claim("Table 3: Mini fp16 parity rel_l2 p50",
+          0.8162, lambda: fp16_parity_summary("intllm-mini", "rel_error_l2_p50"),
+          0.01, "Table 3 / Mini / rel_l2_p50 (median, scale-free)"),
+    Claim("Table 3: Mini fp16 parity rel_l2 max",
+          19.3093, lambda: fp16_parity_summary("intllm-mini", "rel_error_l2_max"),
+          0.01, "Table 3 / Mini / rel_l2_max (worst layer)"),
 ]
 
 
