@@ -21,12 +21,10 @@ Two modes:
                PASSes — tolerance gets tightened by Phase 4.2 when the
                cell is populated with a real number.)
 
-  (default)    Real lm_eval run on --checkpoint. Requires an LM wrapper
-               around HGRNBitForCausalLM exposing lm_eval's LM interface
-               (loglikelihood + generate_until). The wrapper lands in a
-               follow-up commit (Phase 3.2.1) once Base c.1 finishes;
-               for now the real path raises NotImplementedError with a
-               clear pointer to the TODO.
+  (default)    Real lm_eval run on --checkpoint. Uses intllm.lm_eval_wrapper
+               to load the checkpoint into an HFLM adapter (Phase 3.2.1),
+               then runs lm_eval.simple_evaluate on the selected tasks.
+               Emits JSON with status='real' and populated metric values.
 
 Scaffold mode is the deliverable for THIS commit — it guarantees
 `make bench-canonical` has a green, runnable target today, so downstream
@@ -108,23 +106,43 @@ def scaffold_results(tasks: dict[str, list[str]]) -> dict[str, dict[str, float]]
     return out
 
 
-def run_real(checkpoint: Path, tasks: list[str]) -> dict[str, dict[str, float]]:
+def run_real(
+    checkpoint: Path,
+    tasks: list[str],
+    device: str = "cuda",
+    batch_size: int = 4,
+    max_length: int | None = None,
+    limit: int | float | None = None,
+) -> dict[str, dict[str, float]]:
     """Run lm-evaluation-harness against a trained IntLLM checkpoint.
 
-    NOT YET IMPLEMENTED. Wrapping HGRNBitForCausalLM as an lm_eval.LM requires
-    implementing loglikelihood() + generate_until() with the model's
-    non-standard linear-attention forward. Lands in Phase 3.2.1 follow-up.
+    Phase 3.2.1: HGRNBitForCausalLM is HF-compatible (inherits from
+    `transformers.PreTrainedModel` + `GenerationMixin`) so we pass it
+    directly to lm_eval's HFLM adapter rather than writing a custom LM
+    subclass. See `intllm.lm_eval_wrapper.build_hflm` for details.
 
-    The stub below documents the expected call shape so the LM-wrapper
-    author can drop in without restructuring this runner.
+    Returns results in the canonical bench_canonical schema.
     """
-    raise NotImplementedError(
-        "Real lm_eval run not yet implemented — LM wrapper for "
-        "HGRNBitForCausalLM lands in Phase 3.2.1 follow-up. "
-        "Track: FJQ_PHASE_D_PRODUCTION_PLAN.md §3.2. "
-        "For now, re-run with --scaffold to emit schema-valid placeholder "
-        "JSON so verify_intllm_tables.py plumbing stays green."
+    # Deferred imports — heavy (torch, lm_eval, transformers). Keeps
+    # --scaffold path fast + avoids forcing a GPU env on CI.
+    from intllm.lm_eval_wrapper import build_hflm, extract_results
+    from lm_eval import simple_evaluate
+
+    lm = build_hflm(
+        checkpoint,
+        device=device,
+        batch_size=batch_size,
+        max_length=max_length,
     )
+    out = simple_evaluate(
+        model=lm,
+        tasks=tasks,
+        num_fewshot=0,
+        limit=limit,
+        log_samples=False,
+        bootstrap_iters=100,  # default 100_000 is overkill for our sample sizes
+    )
+    return extract_results(out)
 
 
 def main() -> int:
@@ -144,6 +162,16 @@ def main() -> int:
                    help="Force scaffold mode (placeholder results, no GPU).")
     p.add_argument("--strict", action="store_true",
                    help="Fail if scaffold mode would be chosen implicitly.")
+    p.add_argument("--device", default="cuda",
+                   help="torch device for real mode (default: cuda)")
+    p.add_argument("--batch-size", type=int, default=4,
+                   help="lm_eval HFLM batch_size for real mode (default: 4)")
+    p.add_argument("--max-length", type=int, default=None,
+                   help="override max_length passed to HFLM (default: "
+                        "arch.max_position_embeddings from checkpoint)")
+    p.add_argument("--limit", type=float, default=None,
+                   help="lm_eval `limit` — cap docs per task (smoke-test). "
+                        "If <1, treated as a fraction; if ≥1, absolute count.")
     args = p.parse_args()
 
     # Resolve task set
@@ -174,12 +202,25 @@ def main() -> int:
         print(f"[scaffold] tag={args.tag} tasks={list(selected)} "
               f"(harness={harness_ref})")
     else:
-        try:
-            results = run_real(args.checkpoint, list(selected))
-        except NotImplementedError as e:
-            print(f"FATAL: {e}", file=sys.stderr)
-            return 2
-        status = "real"
+        print(f"[real] tag={args.tag} tasks={list(selected)} "
+              f"device={args.device} batch_size={args.batch_size} "
+              f"limit={args.limit} (harness={harness_ref})")
+        real = run_real(
+            args.checkpoint,
+            list(selected),
+            device=args.device,
+            batch_size=args.batch_size,
+            max_length=args.max_length,
+            limit=args.limit,
+        )
+        # Merge into a full-schema result so partial-task runs (e.g. smoke
+        # with --tasks piqa) still preserve placeholder entries for the
+        # other tasks — keeps verify_intllm_tables.py able to find every
+        # registered (task, metric) pair.
+        results = scaffold_results(CANONICAL_TASKS)
+        for task, metrics in real.items():
+            results[task] = metrics
+        status = "real" if set(selected) == set(CANONICAL_TASKS) else "real-partial"
 
     elapsed = time.time() - t0
 
@@ -196,6 +237,9 @@ def main() -> int:
         "status": status,
         "checkpoint": str(args.checkpoint) if args.checkpoint else None,
         "tasks": list(selected),
+        "limit": args.limit,
+        "batch_size": args.batch_size if status == "real" else None,
+        "device": args.device if status == "real" else None,
         "elapsed_seconds": round(elapsed, 3),
         "results": results,
     }

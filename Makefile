@@ -108,15 +108,32 @@ bench-canonical-one:
 	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
 		--tag intllm-$(TAG) --scaffold
 
-# Real benchmark run (pending LM wrapper — raises NotImplementedError today)
+# Real benchmark run (Phase 3.2.1 — uses intllm.lm_eval_wrapper.build_hflm)
+#
+# Optional vars:
+#   LIMIT=<n>       cap docs per task (smoke); <1.0 = fraction, ≥1 = absolute
+#   TASKS="<list>"  space-separated subset of canonical tasks
+#   BATCH=<n>       HFLM batch size (default 4)
+#   MAXLEN=<n>      HFLM max_length override (default: checkpoint's)
+#
+# Examples:
+#   make bench-canonical-real TAG=mini
+#   make bench-canonical-real TAG=mini LIMIT=50 TASKS="piqa hellaswag"
+#   make bench-canonical-real TAG=base BATCH=8 MAXLEN=2048
 .PHONY: bench-canonical-real
 bench-canonical-real:
 	@if [ -z "$(TAG)" ]; then \
-		echo "usage: make bench-canonical-real TAG=mini|base|medium"; exit 2; \
+		echo "usage: make bench-canonical-real TAG=mini|base|medium [LIMIT=n] [TASKS=\"...\"]"; \
+		exit 2; \
 	fi
 	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
 		--tag intllm-$(TAG) \
-		--checkpoint checkpoints/$(TAG)/$(TAG)_final.pt --strict
+		--checkpoint checkpoints/$(TAG)/$(TAG)_final.pt \
+		--batch-size $${BATCH:-4} \
+		$(if $(LIMIT),--limit $(LIMIT),) \
+		$(if $(MAXLEN),--max-length $(MAXLEN),) \
+		$(if $(TASKS),--tasks $(TASKS),) \
+		--strict
 
 # ─── Phase 3.3/3.4 ─── knowledge / baseline (scaffold follow-ups) ───
 .PHONY: bench-knowledge bench-baselines

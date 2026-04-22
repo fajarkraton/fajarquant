@@ -16,6 +16,9 @@
     "arc_challenge",
     "openbookqa"
   ],
+  "limit": null,
+  "batch_size": null,
+  "device": null,
   "elapsed_seconds": 0.0,
   "results": {
     "wikitext": {
