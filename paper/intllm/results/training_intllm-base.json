@@ -1,0 +1,42 @@
+{
+  "_description": "IntLLM Base training gate result (c.2 sub-Chinchilla 491M tokens). Will be superseded by c.1 (Chinchilla 982M) when that run lands.",
+  "_source_trace": "python/phase_d/scripts/train_base_full_trace.json",
+  "_committed_in": "feat(v31-c-p4.1.5): Base c.2 gate (eed9c4b)",
+  "_calibration_doc": "docs/FJQ_PHASE_D_GATE_CALIBRATION.md",
+  "_supersession_note": "Base c.1 full Chinchilla run is in flight as of 2026-04-22 (~12.7h ETA). When it completes, regenerate this JSON from the c.1 trace and bump the verify_intllm_tables.py claim accordingly.",
+  "model": "intllm-base",
+  "config_variant": "c.2",
+  "params": 46454016,
+  "arch": {
+    "vocab_size": 32768,
+    "hidden_size": 384,
+    "num_hidden_layers": 12,
+    "max_position_embeddings": 2048,
+    "tokenizer": "mistralai/Mistral-7B-v0.3"
+  },
+  "training": {
+    "dataset": "DKYoon/SlimPajama-6B (streaming)",
+    "n_steps": 60000,
+    "batch_size": 4,
+    "seq_len": 2048,
+    "tokens_seen": 491520000,
+    "tokens_per_param": 10.58,
+    "lr": 0.002,
+    "lr_schedule": "linear warmup 2000 + cosine decay to 10%",
+    "elapsed_seconds": 15660.8,
+    "elapsed_minutes": 261.0,
+    "hardware": "RTX 4090 Laptop"
+  },
+  "initial_loss": 10.4329,
+  "final_loss": 4.0081,
+  "val_loss": 4.1290,
+  "val_ppl": 62.1,
+  "val_steps": 50,
+  "val_seed": 999,
+  "gate": {
+    "calibrated_threshold": 4.2,
+    "calibrated_threshold_ppl": 67,
+    "result": "PASS",
+    "margin_nat": 0.071
+  }
+}

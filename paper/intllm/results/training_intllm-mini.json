@@ -1,0 +1,40 @@
+{
+  "_description": "IntLLM Mini training gate result. Source-of-truth val_loss for paper Table 2 Mini row + verify_intllm_tables.py 'Gate: Mini val_loss' claim.",
+  "_source_trace": "python/phase_d/scripts/train_mini_full_trace.json",
+  "_committed_in": "feat(v31-c-p4.1): Mini v2 gate (46d34f5)",
+  "_calibration_doc": "docs/FJQ_PHASE_D_GATE_CALIBRATION.md",
+  "model": "intllm-mini",
+  "params": 21500000,
+  "arch": {
+    "vocab_size": 32768,
+    "hidden_size": 256,
+    "num_hidden_layers": 6,
+    "max_position_embeddings": 1024,
+    "tokenizer": "mistralai/Mistral-7B-v0.3"
+  },
+  "training": {
+    "dataset": "DKYoon/SlimPajama-6B (streaming)",
+    "n_steps": 60000,
+    "batch_size": 8,
+    "seq_len": 1024,
+    "tokens_seen": 491520000,
+    "tokens_per_param": 22.86,
+    "lr": 0.002,
+    "lr_schedule": "linear warmup 2000 + cosine decay to 10%",
+    "elapsed_seconds": 7023.0,
+    "elapsed_minutes": 117.1,
+    "hardware": "RTX 4090 Laptop"
+  },
+  "initial_loss": 10.4199,
+  "final_loss": 4.1794,
+  "val_loss": 4.3822,
+  "val_ppl": 80.0,
+  "val_steps": 50,
+  "val_seed": 999,
+  "gate": {
+    "calibrated_threshold": 4.5,
+    "calibrated_threshold_ppl": 90,
+    "result": "PASS",
+    "margin_nat": 0.1178
+  }
+}

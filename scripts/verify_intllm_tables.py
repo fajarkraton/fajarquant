@@ -162,14 +162,14 @@ CLAIMS: list[Claim] = [
     # These are the val_loss ceiling gates; when a training run lands,
     # flip the paper_value to the actual and tolerance to 0.01.
     Claim("Gate: Mini val_loss",
-          0.0, lambda: training_val_loss("intllm-mini"),
-          float("inf"), "gate Mini<4.5"),
-    Claim("Gate: Base val_loss",
-          0.0, lambda: training_val_loss("intllm-base"),
-          float("inf"), "gate Base<4.2"),
+          4.3822, lambda: training_val_loss("intllm-mini"),
+          0.01, "gate Mini<4.5 (PASS by 0.118 nat margin)"),
+    Claim("Gate: Base val_loss (c.2 481M tok)",
+          4.1290, lambda: training_val_loss("intllm-base"),
+          0.01, "gate Base<4.2 (c.2 PASS by 0.071 nat); to be superseded by c.1 982M tok"),
     Claim("Gate: Medium val_loss",
           0.0, lambda: training_val_loss("intllm-medium"),
-          float("inf"), "gate Medium<4.0"),
+          float("inf"), "gate Medium<4.0 (pending Phase 2.2 run)"),
 ]
 
 
