@@ -8,6 +8,8 @@ Three modes:
     memorizes; loss drops toward 0. Convergence sanity check.
   - `slimpajama_stream`       — real text via HF datasets streaming,
     tokenised on the fly with the Mistral v3 tokenizer (C.P3.3).
+    Track B step 4 (V31.C.P6.4) added per-chunk read timeout + retry
+    so transient HF CDN flaps no longer hang the training process.
 
 The C.P3.3 streaming loader is the production training path — no
 on-disk pre-staging needed for Mini/Base (≤2B tokens). For Stretch
@@ -16,7 +18,9 @@ on-disk pre-staging needed for Mini/Base (≤2B tokens). For Stretch
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import os
+import time
+from collections.abc import Callable, Iterator
 
 import torch
 from transformers import PreTrainedTokenizerBase
@@ -25,6 +29,78 @@ from transformers import PreTrainedTokenizerBase
 # small enough to stream easily, large enough to cover ≤2B-token runs.
 # Stretch (15B) pivots to gmongaras/SlimPajama-627B_Reupload.
 DEFAULT_SLIMPAJAMA_REPO = "DKYoon/SlimPajama-6B"
+
+# Track B step 4 (V31.C.P6.4 — streaming-hang prevention).
+#
+# Root cause memory: c.1 on 2026-04-22 hung 8.5h because a dead HF CDN
+# socket (post-laptop-suspend) blocked urllib3 indefinitely. The two
+# env vars below cap any single HTTP chunk read at 60s — a dead
+# socket raises a timeout instead of hanging forever, which triggers
+# the `_retry_iter` wrapper below, which reconstructs the stream.
+#
+# `setdefault` so users can still override via shell env if needed.
+os.environ.setdefault("HF_DATASETS_DOWNLOAD_TIMEOUT", "60")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+
+# Tuple of exception types we treat as "transient network blips" —
+# retriable. NOT retriable: data-level errors (KeyError, ValueError)
+# which indicate a logic bug rather than network flakiness. Lazily
+# built to avoid importing urllib3/requests at module load if datasets
+# is not installed.
+def _build_retryable_exceptions() -> tuple[type[BaseException], ...]:
+    exc: list[type[BaseException]] = [ConnectionError, OSError, TimeoutError]
+    try:
+        import requests.exceptions as _req
+        exc.extend([_req.Timeout, _req.ConnectionError, _req.ChunkedEncodingError])
+    except ImportError:  # pragma: no cover - requests always present w/ datasets
+        pass
+    try:
+        import urllib3.exceptions as _u3
+        exc.extend([_u3.ReadTimeoutError, _u3.ProtocolError])
+    except ImportError:  # pragma: no cover
+        pass
+    return tuple(exc)
+
+
+def _retry_iter(
+    factory: Callable[[int], Iterator],
+    *,
+    retryable: tuple[type[BaseException], ...] | None = None,
+    max_attempts: int = 5,
+    on_retry: Callable[[int, BaseException], None] | None = None,
+) -> Iterator:
+    """Yield items from `factory(attempt_number)` with retry-on-transient.
+
+    `factory(attempt)` MUST return a freshly-constructed iterator each
+    call — we cannot resume a dead iterator, we can only replace it.
+    Attempts are 0-indexed for the factory, 1-indexed for max_attempts
+    counting (so max_attempts=5 allows up to 5 factory() calls total).
+
+    Backoff on failure: exponential, capped at 60s. Tests pass a no-op
+    `on_retry` to skip the wall-clock wait.
+
+    Raises the last exception if max_attempts is exhausted.
+    """
+    retry_exc = retryable or _build_retryable_exceptions()
+    attempt = 0
+    while True:
+        try:
+            yield from factory(attempt)
+            return  # iterator exhausted naturally
+        except retry_exc as e:
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            if on_retry is not None:
+                on_retry(attempt, e)
+            else:
+                backoff = min(60, 2 ** attempt)
+                print(
+                    f"[retry_iter] attempt {attempt}/{max_attempts} failed "
+                    f"({type(e).__name__}: {e}); sleeping {backoff}s",
+                    flush=True,
+                )
+                time.sleep(backoff)
 
 
 def synthetic_token_batches(
@@ -113,11 +189,25 @@ def slimpajama_stream(
     """
     from datasets import load_dataset  # type: ignore[import-not-found]
 
-    ds = load_dataset(repo, split=split, streaming=True).shuffle(seed=seed, buffer_size=10_000)
     eos_id = tokenizer.eos_token_id
     target_per_batch = batch_size * seq_len
     buf: list[int] = []
-    for example in ds:
+
+    # Track B step 4: rebuild the iterator on transient network errors
+    # (HF CDN chunked-transfer drops, urllib3 read timeouts, etc.) so a
+    # laptop-suspend / WiFi flap / CDN blip no longer requires operator
+    # intervention. Seed is offset by attempt # so each retry sees a
+    # slightly different shuffle order — avoids hammering the same
+    # problem shard on back-to-back retries.
+    def _factory(attempt: int) -> Iterator:
+        s = seed + attempt
+        return iter(
+            load_dataset(repo, split=split, streaming=True).shuffle(
+                seed=s, buffer_size=10_000,
+            )
+        )
+
+    for example in _retry_iter(_factory):
         text = example.get(text_column)
         if not text:
             continue
