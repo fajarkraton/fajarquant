@@ -15,11 +15,13 @@ import pytest
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
 
 
-# Expected (params, tokens) pairs from FJQ_PHASE_D_CONFIG.md §2/§3.2
+# Expected (params, tokens) pairs — all Chinchilla-optimal (~20 tok/param).
+# Medium spec revised 2026-04-23 after POL measured true 74.5M params:
+# trimmed from 2.0B tokens to 1.49B for Chinchilla consistency with Mini/Base.
 EXPECTATIONS: dict[str, tuple[int, int]] = {
     "mini": (21_500_000, 491_000_000),
     "base": (46_400_000, 982_000_000),
-    "medium": (71_300_000, 1_999_000_000),
+    "medium": (74_500_000, 1_491_000_000),
     "stretch": (369_100_000, 14_991_000_000),
 }
 TOLERANCE_PCT = 10.0

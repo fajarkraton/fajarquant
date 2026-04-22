@@ -1,7 +1,10 @@
 """Medium config — first vs-Transformer++ table-2 data point.
 
-Per FJQ_PHASE_D_CONFIG.md §2: d=512, L=12, V=32K Mistral v3, ~71.3M params.
-Plan budget: 2B training tokens, ~11h RTX 4090 wall-clock.
+Per FJQ_PHASE_D_CONFIG.md §2: d=512, L=12, V=32K Mistral v3.
+Measured params (2026-04-23 POL): 74,523,648 (74.5M).
+Chinchilla-optimal target: 74.5M × 20 tok/param = 1.49B tokens.
+Plan budget: 1.49B training tokens at 91K steps × 0.84s/step measured
+on RTX 4090 Laptop = ~21h wall-clock.
 
 Base gate must PASS before launching Medium. PASS conditions for
 Medium (FJQ_PHASE_D_CONFIG.md §5.3):
@@ -14,6 +17,13 @@ scale only — per §6.9 R6 results-section text comes LAST.
 
 Same seq_len as Base for compute-cost continuity; lr stepped down 2×
 because larger d_model needs slightly slower learning.
+
+Token budget calibration history:
+  - 2026-04 initial: 122K steps = 2.0B tokens (1.34× Chinchilla, over-trained)
+  - 2026-04-23 trimmed: 91K steps = 1.49B tokens (Chinchilla-optimal, ~21h)
+    Rationale: match Mini + Base (both Chinchilla-optimal ~20 tok/param)
+    for clean scaling-plot story. Trimming saves ~7h without meaningful
+    quality loss (Chinchilla point is optimal by Kaplan/Hoffmann curve).
 """
 
 from __future__ import annotations
@@ -39,10 +49,10 @@ class MediumTrainConfig:
 
     seq_len: int = 2048
     batch_size: int = 8           # 8 × 2048 = 16,384 tokens/step
-    n_steps: int = 122_000        # 16,384 × 122K ≈ 2.0B tokens (~Medium target)
+    n_steps: int = 91_000         # 16,384 × 91K ≈ 1.49B tokens = 20 tok/param Chinchilla
     lr: float = 1e-3              # 2× lower than Base — d=512 wants slower lr
     weight_decay: float = 0.1
-    warmup_steps: int = 4_000
+    warmup_steps: int = 3_000     # 3.3% of n_steps (matches Mini + Base ratio)
     grad_clip_norm: float = 1.0
     log_every: int = 200
     val_every: int = 10_000
