@@ -37,6 +37,8 @@ class TrainConfig:
     ckpt_every: int = 0            # 0 → disabled; N → save every N steps
     ckpt_dir: str | None = None    # where to write ckpt_step_{step:06d}.pt
     keep_last_n_ckpts: int = 3     # rotation — keep this many newest, prune older
+    # Track B step 2 (V31.C.P6.2 — resume from checkpoint).
+    resume_from: str | None = None  # path to ckpt; loads model+optimizer+scheduler+step
 
 
 def _lr_lambda(step: int, *, warmup: int, total: int, min_ratio: float) -> float:
@@ -104,6 +106,20 @@ def _save_checkpoint(
     torch.save(payload, tmp_path)
     os.replace(tmp_path, final_path)
     return final_path
+
+
+def find_latest_checkpoint(ckpt_dir: str | Path) -> Path | None:
+    """Return the highest-step ckpt_step_*.pt in `ckpt_dir`, or None.
+
+    Filename zero-padding guarantees lexicographic sort == numeric sort.
+    Used by `--resume-auto` in the training drivers to pick up after
+    an interruption without the user having to name the file manually.
+    """
+    d = Path(ckpt_dir)
+    if not d.exists():
+        return None
+    candidates = sorted(d.glob("ckpt_step_*.pt"))
+    return candidates[-1] if candidates else None
 
 
 def _rotate_checkpoints(ckpt_dir: Path, keep_last_n: int) -> list[Path]:
@@ -174,10 +190,33 @@ def train_loop(
     )
     ckpt_dir_path = Path(cfg.ckpt_dir) if cfg.ckpt_dir else None
     ckpt_enabled = cfg.ckpt_every > 0 and ckpt_dir_path is not None
+
+    # Track B step 2: resume from checkpoint before entering the step
+    # loop. LambdaLR's last_epoch is preserved in state_dict → cosine
+    # decay continues from the right point. Note: batches iterator is
+    # NOT rewound (HF streaming isn't easily skippable) — we just pick
+    # up at the next batch. Minor data overlap is fine for LLM pretrain.
+    starting_step = 0
+    if cfg.resume_from:
+        resume_path = Path(cfg.resume_from)
+        if not resume_path.exists():
+            raise FileNotFoundError(
+                f"resume checkpoint not found: {resume_path}"
+            )
+        device = next(model.parameters()).device
+        ckpt = torch.load(resume_path, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        starting_step = int(ckpt["step"])
+        print(f"  resumed from {resume_path.name} at step {starting_step}")
+
     model.train()
 
     result = TrainResult()
-    for step, ids in enumerate(batches):
+    result.steps = starting_step  # reflects resume point even if 0 batches consumed
+    for step_idx, ids in enumerate(batches):
+        current_step = starting_step + step_idx + 1
         out = model(input_ids=ids, labels=ids)
         loss = _causal_lm_loss(out, ids)
         optimizer.zero_grad(set_to_none=True)
@@ -189,18 +228,18 @@ def train_loop(
 
         loss_val = loss.detach().item()
         result.losses.append(loss_val)
-        if step == 0:
+        if step_idx == 0:
             result.initial_loss = loss_val
         result.final_loss = loss_val
-        result.steps = step + 1
+        result.steps = current_step
 
-        if cfg.log_every and (step + 1) % cfg.log_every == 0:
+        if cfg.log_every and current_step % cfg.log_every == 0:
             current_lr = scheduler.get_last_lr()[0]
-            print(f"  step {step + 1:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
+            print(f"  step {current_step:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
 
-        if ckpt_enabled and (step + 1) % cfg.ckpt_every == 0:
+        if ckpt_enabled and current_step % cfg.ckpt_every == 0:
             path = _save_checkpoint(
-                ckpt_dir_path, step + 1, model, optimizer, scheduler, cfg,
+                ckpt_dir_path, current_step, model, optimizer, scheduler, cfg,
                 result.losses,
             )
             result.checkpoints_written.append(str(path))

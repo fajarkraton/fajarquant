@@ -46,7 +46,7 @@ from intllm.data import slimpajama_stream  # noqa: E402
 from intllm.eval import run_held_out_loss  # noqa: E402
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
 from intllm.tokenizer import get_tokenizer  # noqa: E402
-from intllm.train import TrainConfig, train_loop  # noqa: E402
+from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402
 
 
 def build_model(arch: MiniArchConfig) -> HGRNBitForCausalLM:
@@ -69,6 +69,11 @@ def main() -> int:
                    help="Number of batches to compute val_loss over (default 50)")
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    resume_grp = p.add_mutually_exclusive_group()
+    resume_grp.add_argument("--resume", type=Path, default=None,
+                            help="Resume from a specific ckpt_step_*.pt file")
+    resume_grp.add_argument("--resume-auto", action="store_true",
+                            help="Resume from the highest-step checkpoint in --ckpt-dir")
     args = p.parse_args()
 
     arch = MiniArchConfig()
@@ -116,6 +121,18 @@ def main() -> int:
         warmup, total = train_hp.warmup_steps, train_hp.n_steps
     # Track B step 1 (V31.C.P6.1): interruption-safe intermediate ckpts.
     ckpt_every = 0 if args.proof_of_life else train_hp.ckpt_every
+
+    # Track B step 2 (V31.C.P6.2): resume resolution.
+    resume_path: Path | None = None
+    if args.resume is not None:
+        resume_path = args.resume
+    elif args.resume_auto:
+        resume_path = find_latest_checkpoint(args.ckpt_dir)
+        if resume_path is None:
+            print(f"  --resume-auto: no ckpt_step_*.pt in {args.ckpt_dir}; starting fresh")
+    if resume_path is not None:
+        print(f"  resume requested: {resume_path}")
+
     result = train_loop(
         model,
         capped_batches(),
@@ -130,6 +147,7 @@ def main() -> int:
             ckpt_every=ckpt_every,
             ckpt_dir=str(args.ckpt_dir) if ckpt_every > 0 else None,
             keep_last_n_ckpts=3,
+            resume_from=str(resume_path) if resume_path else None,
         ),
     )
     if result.checkpoints_written:

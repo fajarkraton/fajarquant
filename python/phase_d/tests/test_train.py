@@ -17,7 +17,13 @@ import torch
 
 from intllm.data import overfit_token_batches, synthetic_token_batches
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
-from intllm.train import TrainConfig, _lr_lambda, smoothed_min, train_loop
+from intllm.train import (
+    TrainConfig,
+    _lr_lambda,
+    find_latest_checkpoint,
+    smoothed_min,
+    train_loop,
+)
 
 
 pytestmark = pytest.mark.skipif(
@@ -241,3 +247,142 @@ def test_ckpt_atomic_no_tmp_files_on_disk(tmp_path) -> None:
     ))
     tmp_files = list(tmp_path.glob("*.tmp"))
     assert tmp_files == [], f"leaked tmp files: {tmp_files}"
+
+
+# -----------------------------------------------------------------
+# Track B step 2 (V31.C.P6.2) — --resume from checkpoint
+# -----------------------------------------------------------------
+
+def test_find_latest_checkpoint_returns_highest_step(tmp_path) -> None:
+    """find_latest_checkpoint returns the largest step, not just newest mtime."""
+    # Create files in REVERSE step order so mtime-sort would give wrong answer
+    for step in (15, 5, 10):
+        (tmp_path / f"ckpt_step_{step:06d}.pt").write_bytes(b"dummy")
+    latest = find_latest_checkpoint(tmp_path)
+    assert latest is not None
+    assert latest.name == "ckpt_step_000015.pt"
+
+
+def test_find_latest_checkpoint_none_when_empty(tmp_path) -> None:
+    """Empty dir → None (so --resume-auto can fall back to fresh start)."""
+    assert find_latest_checkpoint(tmp_path) is None
+    # Non-existent dir also returns None (not FileNotFoundError)
+    assert find_latest_checkpoint(tmp_path / "does_not_exist") is None
+
+
+def test_resume_from_checkpoint_continues_step_counter(tmp_path) -> None:
+    """After resume, TrainResult.steps reflects starting + new steps.
+
+    E.g. resume from step 5 ckpt, run 3 more steps → result.steps == 8.
+    """
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches_a = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=5, seed=0, device="cuda",
+    )
+    train_loop(model, batches_a, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5, ckpt_dir=str(tmp_path),
+    ))
+    ckpt = tmp_path / "ckpt_step_000005.pt"
+    assert ckpt.exists()
+
+    # Fresh model, resume from the ckpt, train 3 more steps
+    model2 = _make_tiny_model()
+    batches_b = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=3, seed=1, device="cuda",
+    )
+    result2 = train_loop(model2, batches_b, config=TrainConfig(
+        lr=1e-3, log_every=0, resume_from=str(ckpt),
+    ))
+    assert result2.steps == 8, f"expected step 8 after resume+3, got {result2.steps}"
+
+
+def test_resume_preserves_model_state(tmp_path) -> None:
+    """After resume, the model must evaluate bit-exactly the same as
+    right before the checkpoint was saved. Strongest possible test —
+    any load bug (wrong keys, device mismatch, missing buffers) fails.
+    """
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=30, seed=0, device="cuda",
+    )
+    # Probe = the training batch itself (overfit_token_batches is
+    # deterministic by seed — we can reconstruct it).
+    probe = next(iter(overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=1, seed=0, device="cuda",
+    )))
+
+    # Train 30 steps and checkpoint at step 30.
+    train_loop(model, batches, config=TrainConfig(
+        lr=3e-3, log_every=0, ckpt_every=30, ckpt_dir=str(tmp_path),
+    ))
+    model.eval()
+    with torch.no_grad():
+        loss_pre_save = model(input_ids=probe, labels=probe).loss.item()
+
+    # Fresh random model, resume from the checkpoint, zero extra steps.
+    model2 = _make_tiny_model()
+    train_loop(model2, iter([]), config=TrainConfig(
+        lr=3e-3, log_every=0,
+        resume_from=str(tmp_path / "ckpt_step_000030.pt"),
+    ))
+    model2.eval()
+    with torch.no_grad():
+        loss_post_resume = model2(input_ids=probe, labels=probe).loss.item()
+
+    # Bit-exact within FP numerical noise — no training occurred in model2
+    # beyond the load, so weights should match exactly.
+    assert abs(loss_post_resume - loss_pre_save) < 1e-4, (
+        f"resume drift: pre-save={loss_pre_save:.6f} post-resume={loss_post_resume:.6f}"
+    )
+
+
+def test_resume_missing_file_raises(tmp_path) -> None:
+    """Bad --resume path raises FileNotFoundError with a clear message."""
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=1, seed=0, device="cuda",
+    )
+    bogus = tmp_path / "does_not_exist.pt"
+    with pytest.raises(FileNotFoundError, match="resume checkpoint not found"):
+        train_loop(model, batches, config=TrainConfig(
+            lr=1e-3, log_every=0, resume_from=str(bogus),
+        ))
+
+
+def test_resumed_ckpts_named_with_true_total_step(tmp_path) -> None:
+    """When resuming from step 5 + training 10 more steps with ckpt_every=5,
+    new ckpts are named by TRUE total step (10, 15) — not relative step."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches_a = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=5, seed=0, device="cuda",
+    )
+    train_loop(model, batches_a, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5, ckpt_dir=str(tmp_path),
+        keep_last_n_ckpts=10,
+    ))
+    # Resume from step 5, train 10 more → should write ckpts at 10 and 15.
+    model2 = _make_tiny_model()
+    batches_b = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=10, seed=1, device="cuda",
+    )
+    train_loop(model2, batches_b, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5, ckpt_dir=str(tmp_path),
+        keep_last_n_ckpts=10,
+        resume_from=str(tmp_path / "ckpt_step_000005.pt"),
+    ))
+    all_ckpts = sorted(p.name for p in tmp_path.glob("ckpt_step_*.pt"))
+    assert all_ckpts == [
+        "ckpt_step_000005.pt",
+        "ckpt_step_000010.pt",
+        "ckpt_step_000015.pt",
+    ]
