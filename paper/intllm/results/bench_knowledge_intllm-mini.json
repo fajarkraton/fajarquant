@@ -1,0 +1,37 @@
+{
+  "_description": "Knowledge / few-shot benchmark results (mmlu 5-shot, triviaqa 5-shot, boolq 0-shot \u2014 matching BitNet 2B4T Table 1). Schema consumed by scripts/verify_intllm_tables.py::bench_knowledge. Run via scripts/bench_knowledge.py.",
+  "_phase": "FJQ_PHASE_D_PRODUCTION_PLAN.md \u00a73.3 (knowledge benchmarks)",
+  "_plan_ref": "paper Table 2 knowledge column / BitNet 2B4T Table 1 parity",
+  "model": "intllm-mini",
+  "harness_version": "v0.4.11",
+  "status": "scaffold",
+  "checkpoint": null,
+  "tasks": [
+    "mmlu",
+    "triviaqa",
+    "boolq"
+  ],
+  "num_fewshot_map": {
+    "mmlu": 5,
+    "triviaqa": 5,
+    "boolq": 0
+  },
+  "limit": null,
+  "batch_size": null,
+  "device": null,
+  "elapsed_seconds": 0.0,
+  "results": {
+    "mmlu": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    },
+    "triviaqa": {
+      "exact_match": 0.0,
+      "exact_match_stderr": 0.0
+    },
+    "boolq": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    }
+  }
+}

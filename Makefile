@@ -16,8 +16,9 @@ help:
 	@echo "  fp16-parity-base           Phase 3.5  — measure + emit JSON for Base"
 	@echo ""
 	@echo "  bench-canonical            Phase 3.2  — scaffold JSON for all 3 sizes (CPU, <1s)"
-	@echo "  bench-canonical-real TAG=X Phase 3.2  — (pending LM wrapper, see bench_canonical.py)"
-	@echo "  bench-knowledge            Phase 3.3  — TODO (mmlu 5-shot etc.)"
+	@echo "  bench-canonical-real TAG=X Phase 3.2  — real lm-eval via HFLM (needs GPU+ckpt)"
+	@echo "  bench-knowledge            Phase 3.3  — scaffold JSON (mmlu/triviaqa/boolq, CPU)"
+	@echo "  bench-knowledge-real TAG=X Phase 3.3  — real lm-eval knowledge tasks (GPU+ckpt)"
 	@echo "  bench-baselines            Phase 3.4  — TODO (BitNet, MMfreeLM, SmolLM2)"
 
 PYTHON := .venv/bin/python
@@ -135,9 +136,40 @@ bench-canonical-real:
 		$(if $(TASKS),--tasks $(TASKS),) \
 		--strict
 
-# ─── Phase 3.3/3.4 ─── knowledge / baseline (scaffold follow-ups) ───
-.PHONY: bench-knowledge bench-baselines
-bench-knowledge bench-baselines:
-	@echo "[TODO] Phase 3.3/3.4 — not yet scaffolded."
-	@echo "       See FJQ_PHASE_D_PRODUCTION_PLAN.md §3.3/§3.4 for spec."
+# ─── Phase 3.3 ─── knowledge / few-shot benchmarks ──────────────────
+#
+# Scaffold mode emits schema-valid JSON (mmlu 5-shot, triviaqa 5-shot,
+# boolq 0-shot — matching BitNet 2B4T Table 1). Real mode reuses
+# intllm.lm_eval_wrapper.build_hflm from §3.2.1.
+.PHONY: bench-knowledge
+bench-knowledge:
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_knowledge.py \
+		--tag intllm-mini --scaffold
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_knowledge.py \
+		--tag intllm-base --scaffold
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_knowledge.py \
+		--tag intllm-medium --scaffold
+
+# Real knowledge-benchmark run (Phase 3.3 + wrapper from §3.2.1).
+# Optional vars: LIMIT / TASKS / BATCH / MAXLEN (same as bench-canonical-real).
+.PHONY: bench-knowledge-real
+bench-knowledge-real:
+	@if [ -z "$(TAG)" ]; then \
+		echo "usage: make bench-knowledge-real TAG=mini|base|medium [LIMIT=n] [TASKS=\"...\"]"; \
+		exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_knowledge.py \
+		--tag intllm-$(TAG) \
+		--checkpoint checkpoints/$(TAG)/$(TAG)_final.pt \
+		--batch-size $${BATCH:-4} \
+		$(if $(LIMIT),--limit $(LIMIT),) \
+		$(if $(MAXLEN),--max-length $(MAXLEN),) \
+		$(if $(TASKS),--tasks $(TASKS),) \
+		--strict
+
+# ─── Phase 3.4 ─── baseline re-runs (scaffold follow-up) ────────────
+.PHONY: bench-baselines
+bench-baselines:
+	@echo "[TODO] Phase 3.4 — baseline re-runs not yet scaffolded."
+	@echo "       See FJQ_PHASE_D_PRODUCTION_PLAN.md §3.4 for spec."
 	@exit 1
