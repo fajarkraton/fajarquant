@@ -1,11 +1,18 @@
 {
-  "_description": "IntLLM Base training gate result (c.2 sub-Chinchilla 491M tokens). Will be superseded by c.1 (Chinchilla 982M) when that run lands.",
+  "_description": "IntLLM Base training gate result (c.1 Chinchilla-optimal 982M tokens). Supersedes c.2 (see _superseded_by).",
   "_source_trace": "python/phase_d/scripts/train_base_full_trace.json",
-  "_committed_in": "feat(v31-c-p4.1.5): Base c.2 gate (eed9c4b)",
+  "_committed_in": "feat(v31-c-p7): Base c.1 gate landed",
   "_calibration_doc": "docs/FJQ_PHASE_D_GATE_CALIBRATION.md",
-  "_supersession_note": "Base c.1 full Chinchilla run is in flight as of 2026-04-22 (~12.7h ETA). When it completes, regenerate this JSON from the c.1 trace and bump the verify_intllm_tables.py claim accordingly.",
+  "_decision_doc": "docs/FJQ_PHASE_D_BASE_C1_GATE.md",
+  "_supersedes": {
+    "config_variant": "c.2",
+    "val_loss": 4.129,
+    "tokens_seen": 491520000,
+    "committed_in": "feat(v31-c-p4.1.5): Base c.2 gate (eed9c4b)",
+    "reason": "c.2 was 0.5x Chinchilla (half-trained); c.1 doubles tokens to Chinchilla-optimal 20 tok/param for production-grade margin"
+  },
   "model": "intllm-base",
-  "config_variant": "c.2",
+  "config_variant": "c.1",
   "params": 46454016,
   "arch": {
     "vocab_size": 32768,
@@ -17,26 +24,34 @@
   "training": {
     "dataset": "DKYoon/SlimPajama-6B (streaming)",
     "n_steps": 60000,
-    "batch_size": 4,
+    "batch_size": 8,
     "seq_len": 2048,
-    "tokens_seen": 491520000,
-    "tokens_per_param": 10.58,
+    "tokens_seen": 983040000,
+    "tokens_per_param": 21.16,
+    "chinchilla_ratio": 1.058,
     "lr": 0.002,
     "lr_schedule": "linear warmup 2000 + cosine decay to 10%",
-    "elapsed_seconds": 15660.8,
-    "elapsed_minutes": 261.0,
-    "hardware": "RTX 4090 Laptop"
+    "elapsed_seconds": 29023.8,
+    "elapsed_minutes": 483.7,
+    "elapsed_hours": 8.06,
+    "hardware": "RTX 4090 Laptop",
+    "launch_timestamp_wib": "2026-04-22T18:45",
+    "finish_timestamp_wib": "2026-04-23T02:51",
+    "notes": "First attempt (18h03m-started that same day from 2026-04-22 08:31) hung at step 8600 due to laptop sleep-event stale HF CDN sockets (see memory/feedback_hf_streaming_hang.md). Was killed 18:44 and relaunched fresh. This trace is the relaunch that completed cleanly."
   },
-  "initial_loss": 10.4329,
-  "final_loss": 4.0081,
-  "val_loss": 4.1290,
-  "val_ppl": 62.1,
+  "initial_loss": 10.4352,
+  "final_loss": 4.0242,
+  "final_ppl": 55.9,
+  "val_loss": 3.9903,
+  "val_ppl": 54.1,
   "val_steps": 50,
   "val_seed": 999,
   "gate": {
     "calibrated_threshold": 4.2,
     "calibrated_threshold_ppl": 67,
     "result": "PASS",
-    "margin_nat": 0.071
+    "margin_nat": 0.2097,
+    "margin_x_over_c2": 2.95,
+    "_margin_note": "Margin 0.21 nat = ~3x larger than c.2's 0.07 nat margin. Production-grade: robust to eval variance, reviewer-defensible for paper Table 2 Base row."
   }
 }
