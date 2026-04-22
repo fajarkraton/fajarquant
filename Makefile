@@ -15,7 +15,8 @@ help:
 	@echo "  fp16-parity-mini           Phase 3.5  — measure + emit JSON for Mini"
 	@echo "  fp16-parity-base           Phase 3.5  — measure + emit JSON for Base"
 	@echo ""
-	@echo "  bench-canonical            Phase 3.2  — TODO (lm-eval 8 zero-shot)"
+	@echo "  bench-canonical            Phase 3.2  — scaffold JSON for all 3 sizes (CPU, <1s)"
+	@echo "  bench-canonical-real TAG=X Phase 3.2  — (pending LM wrapper, see bench_canonical.py)"
 	@echo "  bench-knowledge            Phase 3.3  — TODO (mmlu 5-shot etc.)"
 	@echo "  bench-baselines            Phase 3.4  — TODO (BitNet, MMfreeLM, SmolLM2)"
 
@@ -78,9 +79,48 @@ fp16-parity-base:
 	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/run_fp16_parity.py \
 		--checkpoint checkpoints/base/base_final.pt --tag intllm-base
 
-# ─── Phase 3.2/3.3/3.4 ─── canonical / knowledge / baseline ─────────
-.PHONY: bench-canonical bench-knowledge bench-baselines
-bench-canonical bench-knowledge bench-baselines:
-	@echo "[TODO] Phase 3.2/3.3/3.4 — not yet scaffolded."
-	@echo "       See FJQ_PHASE_D_PRODUCTION_PLAN.md §3 for spec."
+# ─── Phase 3.2 ─── canonical zero-shot benchmarks (scaffold today) ──
+#
+# Scaffold mode emits schema-valid JSON with 0.0 placeholders for every
+# (task, metric) pair. This unblocks verify_intllm_tables.py Table 2
+# claim registry (whose claims currently use tolerance=inf, so 0.0
+# passes trivially). When a real bench run lands, it overwrites the
+# scaffold values AND Phase 4.2 tightens the tolerance in
+# scripts/verify_intllm_tables.py.
+#
+# Real mode (bench-canonical-real) requires an LM wrapper around
+# HGRNBitForCausalLM — pending Phase 3.2.1 follow-up, not blocking.
+.PHONY: bench-canonical
+bench-canonical:
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
+		--tag intllm-mini --scaffold
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
+		--tag intllm-base --scaffold
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
+		--tag intllm-medium --scaffold
+
+# Single-tag convenience: `make bench-canonical-one TAG=mini`
+.PHONY: bench-canonical-one
+bench-canonical-one:
+	@if [ -z "$(TAG)" ]; then \
+		echo "usage: make bench-canonical-one TAG=mini|base|medium"; exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
+		--tag intllm-$(TAG) --scaffold
+
+# Real benchmark run (pending LM wrapper — raises NotImplementedError today)
+.PHONY: bench-canonical-real
+bench-canonical-real:
+	@if [ -z "$(TAG)" ]; then \
+		echo "usage: make bench-canonical-real TAG=mini|base|medium"; exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/bench_canonical.py \
+		--tag intllm-$(TAG) \
+		--checkpoint checkpoints/$(TAG)/$(TAG)_final.pt --strict
+
+# ─── Phase 3.3/3.4 ─── knowledge / baseline (scaffold follow-ups) ───
+.PHONY: bench-knowledge bench-baselines
+bench-knowledge bench-baselines:
+	@echo "[TODO] Phase 3.3/3.4 — not yet scaffolded."
+	@echo "       See FJQ_PHASE_D_PRODUCTION_PLAN.md §3.3/§3.4 for spec."
 	@exit 1

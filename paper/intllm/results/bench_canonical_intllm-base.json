@@ -1,0 +1,70 @@
+{
+  "_description": "Canonical zero-shot benchmark results. Schema consumed by scripts/verify_intllm_tables.py::bench_canonical. Run via scripts/bench_canonical.py.",
+  "_phase": "FJQ_PHASE_D_PRODUCTION_PLAN.md \u00a73.2 (canonical benchmarks)",
+  "_plan_ref": "paper Table 2",
+  "model": "intllm-base",
+  "harness_version": "v0.4.11",
+  "status": "scaffold",
+  "checkpoint": null,
+  "tasks": [
+    "wikitext",
+    "lambada_openai",
+    "hellaswag",
+    "piqa",
+    "winogrande",
+    "arc_easy",
+    "arc_challenge",
+    "openbookqa"
+  ],
+  "elapsed_seconds": 0.0,
+  "results": {
+    "wikitext": {
+      "word_perplexity": 0.0,
+      "word_perplexity_stderr": 0.0,
+      "byte_perplexity": 0.0,
+      "byte_perplexity_stderr": 0.0,
+      "bits_per_byte": 0.0,
+      "bits_per_byte_stderr": 0.0
+    },
+    "lambada_openai": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "perplexity": 0.0,
+      "perplexity_stderr": 0.0
+    },
+    "hellaswag": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "piqa": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "winogrande": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    },
+    "arc_easy": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "arc_challenge": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "openbookqa": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    }
+  }
+}
