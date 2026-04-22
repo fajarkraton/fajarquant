@@ -446,6 +446,33 @@ def test_watchdog_fires_only_once() -> None:
     assert wd.check_now() is False
 
 
+def test_watchdog_default_on_fire_sends_sigterm_to_own_process() -> None:
+    """End-to-end signal-delivery test. Uses the DEFAULT on_fire (which
+    is os.kill(getpid(), SIGTERM)) — installs a SIGTERM handler so the
+    test runner doesn't actually terminate. Proves the watchdog's real
+    production code path works, not just the injected callback in the
+    other tests. This is the §6.8 R3 prevention regression.
+    """
+    import signal
+    sigterm_received = threading.Event()
+
+    def _handler(signum, frame):
+        sigterm_received.set()
+
+    old = signal.signal(signal.SIGTERM, _handler)
+    try:
+        wd = StepWatchdog(idle_seconds=1, check_interval=1)  # default on_fire
+        wd.touch()
+        wd._last_step_ts = time.time() - 5  # already idle past threshold
+        wd.start()
+        assert sigterm_received.wait(timeout=4), (
+            "SIGTERM was not delivered within 4s via default on_fire path"
+        )
+        wd.stop()
+    finally:
+        signal.signal(signal.SIGTERM, old)
+
+
 def test_train_loop_respects_watchdog_idle_seconds_zero(tmp_path) -> None:
     """Regression: watchdog_idle_seconds=0 in TrainConfig must not spawn
     a thread or interfere with normal training (backward-compat)."""

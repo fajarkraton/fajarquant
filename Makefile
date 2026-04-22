@@ -11,7 +11,8 @@ help:
 	@echo "FajarQuant Phase D Make targets:"
 	@echo "  verify-intllm-tables       Phase 4.3  — paper-claim gate (--strict)"
 	@echo "  test-intllm-fp16-parity    Phase 3.5  — fp16-vs-ternary smoke on Mini"
-	@echo "  test-phase-d               Phase 4    — pytest tests/ in phase_d (56)"
+	@echo "  test-phase-d               Phase 4    — pytest tests/ in phase_d (82)"
+	@echo "  test-train-watchdog        Track B §6.11 — training-script resilience gate"
 	@echo "  fp16-parity-mini           Phase 3.5  — measure + emit JSON for Mini"
 	@echo "  fp16-parity-base           Phase 3.5  — measure + emit JSON for Base"
 	@echo ""
@@ -34,6 +35,23 @@ verify-intllm-tables:
 .PHONY: test-phase-d
 test-phase-d:
 	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) -m pytest tests/ -q
+
+# ─── Track B §6.11 ─── training-script resilience regression gate ───
+#
+# Exercises the full chain of interruption-safety features shipped in
+# V31.C.P6.1–P6.5:
+#   - StepWatchdog (real daemon thread + real SIGTERM delivery)
+#   - ckpt_every intermediate saves + rotation
+#   - --resume bit-exact state restoration
+#   - HF streaming retry_iter
+#
+# Per CLAUDE.md §6.11, any PR that touches `train_*.py` or `intllm/{data,train}.py`
+# MUST keep this target green. Wired into the pre-push hook so broken
+# resilience code cannot reach origin.
+.PHONY: test-train-watchdog
+test-train-watchdog:
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) -m pytest tests/ \
+		-k "watchdog or ckpt or resume or retry_iter or timeout_env" -q
 
 # ─── Phase 3.5 ─── fp16-vs-ternary parity (IntLLM differentiator) ───
 #
