@@ -12,12 +12,16 @@ build (CPU-only).
 
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 import torch
 
 from intllm.data import overfit_token_batches, synthetic_token_batches
 from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
 from intllm.train import (
+    StepWatchdog,
     TrainConfig,
     _lr_lambda,
     find_latest_checkpoint,
@@ -354,6 +358,107 @@ def test_resume_missing_file_raises(tmp_path) -> None:
         train_loop(model, batches, config=TrainConfig(
             lr=1e-3, log_every=0, resume_from=str(bogus),
         ))
+
+
+# -----------------------------------------------------------------
+# Track B step 3 (V31.C.P6.3) — StepWatchdog
+# -----------------------------------------------------------------
+
+def test_watchdog_disabled_when_idle_seconds_zero() -> None:
+    """idle_seconds=0 → start() is a no-op, enabled is False."""
+    fired = []
+    wd = StepWatchdog(idle_seconds=0, on_fire=lambda: fired.append(True))
+    assert not wd.enabled
+    wd.start()  # must not crash; no thread spawned
+    assert wd._thread is None
+    wd.stop()
+    assert fired == []
+
+
+def test_watchdog_does_not_fire_during_warmup() -> None:
+    """Before first touch(), watchdog never fires — lets model load etc."""
+    fired = []
+    wd = StepWatchdog(idle_seconds=1, on_fire=lambda: fired.append(True))
+    # No touch() → _last_step_ts is None → check_now returns False regardless.
+    import time
+    time.sleep(1.2)
+    assert wd.check_now() is False
+    assert fired == []
+
+
+def test_watchdog_check_now_reports_idle_past_threshold() -> None:
+    """After touch(), check_now() returns True iff elapsed > threshold."""
+    wd = StepWatchdog(idle_seconds=5)
+    wd.touch()
+    now_ts = wd._last_step_ts
+    # Within threshold
+    assert wd.check_now(now=now_ts + 3) is False
+    # Past threshold
+    assert wd.check_now(now=now_ts + 10) is True
+
+
+def test_watchdog_touch_resets_idle_clock() -> None:
+    """touch() resets the idle clock — long-running steps shouldn't fire
+    as long as each step eventually calls touch()."""
+    wd = StepWatchdog(idle_seconds=5)
+    wd.touch()
+    t0 = wd._last_step_ts
+    # Simulate a 4s step → still under threshold
+    assert wd.check_now(now=t0 + 4) is False
+    # Step completes, touch again
+    wd.touch()
+    t1 = wd._last_step_ts
+    # 4s after the NEW touch → still fine
+    assert wd.check_now(now=t1 + 4) is False
+
+
+def test_watchdog_daemon_thread_fires_on_idle() -> None:
+    """Real thread test: start watchdog with 0.3s threshold + 0.1s poll;
+    never touch; within ~0.5s on_fire should be called."""
+    import time
+    fired = threading.Event()
+    wd = StepWatchdog(
+        idle_seconds=0,  # placeholder; override below
+        check_interval=0,  # placeholder; override below
+        on_fire=lambda: fired.set(),
+    )
+    # Force enabled with a tiny threshold for testability.
+    wd.idle_seconds = 1
+    wd.check_interval = 0  # poll as fast as possible; actual wait uses max(1, interval)
+    # touch() BEFORE start() so the _run loop has a baseline.
+    wd.touch()
+    # Wind back the clock so the thread sees "idle > 1s" immediately.
+    wd._last_step_ts = time.time() - 5
+    wd.check_interval = 1  # Event.wait min is the arg; set to 1s
+    wd.start()
+    # Expect fire within 2 poll cycles (~2s).
+    assert fired.wait(timeout=4), "watchdog did not fire within 4s"
+    assert wd.fired
+    wd.stop()
+
+
+def test_watchdog_fires_only_once() -> None:
+    """After firing, further check_now calls return False — single-shot."""
+    wd = StepWatchdog(idle_seconds=1)
+    wd.touch()
+    wd._last_step_ts = time.time() - 10
+    wd._fired = True  # pretend it already fired
+    assert wd.check_now() is False
+
+
+def test_train_loop_respects_watchdog_idle_seconds_zero(tmp_path) -> None:
+    """Regression: watchdog_idle_seconds=0 in TrainConfig must not spawn
+    a thread or interfere with normal training (backward-compat)."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=10, seed=0, device="cuda",
+    )
+    result = train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, watchdog_idle_seconds=0,
+    ))
+    assert result.steps == 10
 
 
 def test_resumed_ckpts_named_with_true_total_step(tmp_path) -> None:

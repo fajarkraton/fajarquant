@@ -74,6 +74,8 @@ def main() -> int:
                             help="Resume from a specific ckpt_step_*.pt file")
     resume_grp.add_argument("--resume-auto", action="store_true",
                             help="Resume from the highest-step checkpoint in --ckpt-dir")
+    p.add_argument("--watchdog-idle-seconds", type=int, default=1800,
+                   help="SIGTERM if step counter idle > N seconds. 0=disabled.")
     args = p.parse_args()
 
     arch = MiniArchConfig()
@@ -148,6 +150,7 @@ def main() -> int:
             ckpt_dir=str(args.ckpt_dir) if ckpt_every > 0 else None,
             keep_last_n_ckpts=3,
             resume_from=str(resume_path) if resume_path else None,
+            watchdog_idle_seconds=0 if args.proof_of_life else args.watchdog_idle_seconds,
         ),
     )
     if result.checkpoints_written:

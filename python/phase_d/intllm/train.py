@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Iterable
+import signal
+import threading
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -39,6 +42,114 @@ class TrainConfig:
     keep_last_n_ckpts: int = 3     # rotation — keep this many newest, prune older
     # Track B step 2 (V31.C.P6.2 — resume from checkpoint).
     resume_from: str | None = None  # path to ckpt; loads model+optimizer+scheduler+step
+    # Track B step 3 (V31.C.P6.3 — step-idle watchdog). 0 → disabled.
+    # When >0, a daemon thread fires SIGTERM to the main process if the
+    # step counter hasn't advanced for this many seconds. Motivated by
+    # the c.1 hang (2026-04-22): training "running" but stuck in a dead
+    # HF CDN socket for 8.5h with zero progress.
+    watchdog_idle_seconds: int = 0
+    watchdog_check_interval: int = 30  # how often the thread polls
+
+
+class StepWatchdog:
+    """Daemon thread that fires a signal if the training step counter
+    doesn't advance for `idle_seconds`.
+
+    Usage:
+        wd = StepWatchdog(idle_seconds=1800)
+        wd.start()
+        try:
+            for batch in batches:
+                ...
+                wd.touch()
+        finally:
+            wd.stop()
+
+    `touch()` must be called once per successful step. During the
+    "warmup" phase (before the first `touch()`), the watchdog does NOT
+    fire — this covers legitimate startup costs (tokenizer init, model
+    load, first CUDA kernel compile) that can take 30-60s.
+
+    `on_fire` defaults to `os.kill(getpid(), SIGTERM)`, which lets the
+    process's signal handler (or default terminate behaviour) clean up.
+    Tests inject a recording callback instead.
+
+    Rationale (post-c.1 hang): with a 30-min threshold and 60K-step
+    Base run @ ~0.8s/step, the watchdog adds zero false-positive risk
+    (normal pauses are seconds, not minutes) while capping worst-case
+    waste-on-hang at ~30 min instead of 8.5h.
+    """
+
+    def __init__(
+        self,
+        idle_seconds: int,
+        check_interval: int = 30,
+        on_fire: Callable[[], None] | None = None,
+    ) -> None:
+        self.idle_seconds = int(idle_seconds)
+        self.check_interval = max(1, int(check_interval))
+        self._on_fire = on_fire or (lambda: os.kill(os.getpid(), signal.SIGTERM))
+        self._last_step_ts: float | None = None
+        self._fired = False
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.idle_seconds > 0
+
+    @property
+    def fired(self) -> bool:
+        return self._fired
+
+    def start(self) -> None:
+        if not self.enabled or self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="StepWatchdog"
+        )
+        self._thread.start()
+
+    def touch(self) -> None:
+        """Record that a training step just completed — resets the idle clock."""
+        self._last_step_ts = time.time()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.check_interval + 1)
+            self._thread = None
+
+    def check_now(self, now: float | None = None) -> bool:
+        """Synchronous idle check — exposed for unit tests.
+
+        Returns True iff the watchdog WOULD fire given the current state.
+        Does not actually fire; callers are expected to use `start()` for
+        production and this method only in tests.
+        """
+        if not self.enabled or self._fired or self._last_step_ts is None:
+            return False
+        elapsed = (now or time.time()) - self._last_step_ts
+        return elapsed > self.idle_seconds
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.check_interval):
+            if self._fired or self._last_step_ts is None:
+                continue
+            idle = time.time() - self._last_step_ts
+            if idle > self.idle_seconds:
+                self._fired = True
+                print(
+                    f"[watchdog] training step counter idle {idle:.0f}s "
+                    f"(threshold {self.idle_seconds}s) — firing SIGTERM to "
+                    f"pid {os.getpid()}",
+                    flush=True,
+                )
+                try:
+                    self._on_fire()
+                except Exception as e:  # best-effort
+                    print(f"[watchdog] on_fire failed: {e}", flush=True)
+                return
 
 
 def _lr_lambda(step: int, *, warmup: int, total: int, min_ratio: float) -> float:
@@ -211,39 +322,52 @@ def train_loop(
         starting_step = int(ckpt["step"])
         print(f"  resumed from {resume_path.name} at step {starting_step}")
 
+    # Track B step 3: step-idle watchdog. Thread only starts if enabled.
+    watchdog = StepWatchdog(
+        idle_seconds=cfg.watchdog_idle_seconds,
+        check_interval=cfg.watchdog_check_interval,
+    )
+    watchdog.start()
+    if watchdog.enabled:
+        print(f"  watchdog armed: SIGTERM if step idle > {cfg.watchdog_idle_seconds}s")
+
     model.train()
 
     result = TrainResult()
     result.steps = starting_step  # reflects resume point even if 0 batches consumed
-    for step_idx, ids in enumerate(batches):
-        current_step = starting_step + step_idx + 1
-        out = model(input_ids=ids, labels=ids)
-        loss = _causal_lm_loss(out, ids)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        if cfg.grad_clip_norm and cfg.grad_clip_norm > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
-        optimizer.step()
-        scheduler.step()
+    try:
+        for step_idx, ids in enumerate(batches):
+            current_step = starting_step + step_idx + 1
+            out = model(input_ids=ids, labels=ids)
+            loss = _causal_lm_loss(out, ids)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            if cfg.grad_clip_norm and cfg.grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+            optimizer.step()
+            scheduler.step()
 
-        loss_val = loss.detach().item()
-        result.losses.append(loss_val)
-        if step_idx == 0:
-            result.initial_loss = loss_val
-        result.final_loss = loss_val
-        result.steps = current_step
+            loss_val = loss.detach().item()
+            result.losses.append(loss_val)
+            if step_idx == 0:
+                result.initial_loss = loss_val
+            result.final_loss = loss_val
+            result.steps = current_step
+            watchdog.touch()
 
-        if cfg.log_every and current_step % cfg.log_every == 0:
-            current_lr = scheduler.get_last_lr()[0]
-            print(f"  step {current_step:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
+            if cfg.log_every and current_step % cfg.log_every == 0:
+                current_lr = scheduler.get_last_lr()[0]
+                print(f"  step {current_step:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
 
-        if ckpt_enabled and current_step % cfg.ckpt_every == 0:
-            path = _save_checkpoint(
-                ckpt_dir_path, current_step, model, optimizer, scheduler, cfg,
-                result.losses,
-            )
-            result.checkpoints_written.append(str(path))
-            _rotate_checkpoints(ckpt_dir_path, cfg.keep_last_n_ckpts)
+            if ckpt_enabled and current_step % cfg.ckpt_every == 0:
+                path = _save_checkpoint(
+                    ckpt_dir_path, current_step, model, optimizer, scheduler, cfg,
+                    result.losses,
+                )
+                result.checkpoints_written.append(str(path))
+                _rotate_checkpoints(ckpt_dir_path, cfg.keep_last_n_ckpts)
+    finally:
+        watchdog.stop()
 
     model.eval()
     return result
