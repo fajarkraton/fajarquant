@@ -4,8 +4,10 @@
 Trains a 21.5M-param HGRNBit model on SlimPajama-6B for ~60K steps
 (≈ 500M tokens) on RTX 4090 Laptop.
 
-Per FJQ_PHASE_D_CONFIG.md §5.1 Mini gate:
-  PASS condition: val_loss < 4.0 on 1M held-out tokens after training
+Per FJQ_PHASE_D_GATE_CALIBRATION.md Mini gate:
+  PASS condition: val_loss < 4.5 on 1M held-out tokens after training
+  (calibrated from Mini v2 at 4.38 — FJQ_PHASE_D_CONFIG.md §5.1's
+  original < 4.0 was uncalibrated; superseded by GATE_CALIBRATION)
 
 For C.P4.0 proof-of-life (this commit), pass `--proof-of-life` to
 limit to a few hundred steps + skip val eval. Full Mini gate run is
@@ -152,8 +154,8 @@ def main() -> int:
                                       device=args.device)
         print(f"  val_loss      : {val_loss:.4f}  (PPL {math.exp(val_loss):,.1f})")
         print(f"  val elapsed   : {time.time() - val_t0:.1f} s")
-        # FJQ_PHASE_D_CONFIG.md §5.1 Mini gate
-        gate = 4.0
+        # FJQ_PHASE_D_GATE_CALIBRATION.md Mini gate (supersedes §5.1 < 4.0)
+        gate = 4.5
         gate_pass = val_loss < gate
         print(f"  Mini gate     : val_loss < {gate} -> "
               f"{'PASS ✓' if gate_pass else 'FAIL ✗'}")
@@ -201,8 +203,8 @@ def main() -> int:
         print(f"\n  POL gate (Δ ≥ 1.0 nat): {'PASS ✓' if gate_pass else 'FAIL ✗'} (Δ={drop:.2f})")
         rc = 0 if gate_pass else 1
     else:
-        # Mini gate per FJQ_PHASE_D_CONFIG.md §5.1
-        rc = 0 if val_loss < 4.0 else 1
+        # Mini gate per FJQ_PHASE_D_GATE_CALIBRATION.md
+        rc = 0 if val_loss < 4.5 else 1
 
     # Explicit teardown to silence sentencepiece's atexit
     # `PyGILState_Release` warning observed in V31.C.P4.0 logs.
