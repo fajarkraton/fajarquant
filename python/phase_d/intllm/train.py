@@ -11,8 +11,10 @@ schedule (constant lr).
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -30,6 +32,11 @@ class TrainConfig:
     warmup_steps: int = 0          # 0 → no warmup (constant lr from step 0)
     total_steps: int = 0           # 0 → no decay (constant lr after warmup)
     min_lr_ratio: float = 0.1      # cosine decays to this fraction of peak lr
+    # Track B step 1 (V31.C.P6.1 — interruption-safety). Defaults preserve
+    # pre-hardening behaviour: ckpt_every=0 → no intermediate checkpoints.
+    ckpt_every: int = 0            # 0 → disabled; N → save every N steps
+    ckpt_dir: str | None = None    # where to write ckpt_step_{step:06d}.pt
+    keep_last_n_ckpts: int = 3     # rotation — keep this many newest, prune older
 
 
 def _lr_lambda(step: int, *, warmup: int, total: int, min_ratio: float) -> float:
@@ -60,6 +67,61 @@ class TrainResult:
     initial_loss: float = float("nan")
     final_loss: float = float("nan")
     steps: int = 0
+    checkpoints_written: list[str] = field(default_factory=list)
+
+
+def _ckpt_path(ckpt_dir: Path, step: int) -> Path:
+    """Filename convention: ckpt_step_{step:06d}.pt (sort-compatible)."""
+    return ckpt_dir / f"ckpt_step_{step:06d}.pt"
+
+
+def _save_checkpoint(
+    ckpt_dir: Path,
+    step: int,
+    model: nn.Module,
+    optimizer,
+    scheduler,
+    cfg: TrainConfig,
+    loss_trace_tail: list[float],
+) -> Path:
+    """Atomically save a checkpoint — write to `.tmp` then `os.replace`.
+
+    Atomic rename guarantees that a reader (resume) never sees a partial
+    file even if the writer is SIGKILL'd mid-write. `os.replace` is
+    POSIX-atomic across the same filesystem.
+    """
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    final_path = _ckpt_path(ckpt_dir, step)
+    tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
+    payload = {
+        "step": step,
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "config": asdict(cfg),
+        "loss_trace_tail": loss_trace_tail[-50:],
+    }
+    torch.save(payload, tmp_path)
+    os.replace(tmp_path, final_path)
+    return final_path
+
+
+def _rotate_checkpoints(ckpt_dir: Path, keep_last_n: int) -> list[Path]:
+    """Delete all but the `keep_last_n` newest `ckpt_step_*.pt` files.
+
+    Sorting by filename works because the step is zero-padded to 6
+    digits. Returns the list of deleted paths for logging.
+    """
+    if keep_last_n <= 0:
+        return []
+    existing = sorted(ckpt_dir.glob("ckpt_step_*.pt"))
+    to_delete = existing[:-keep_last_n] if len(existing) > keep_last_n else []
+    for p in to_delete:
+        try:
+            p.unlink()
+        except OSError:
+            pass  # best-effort; stale ckpts aren't fatal
+    return to_delete
 
 
 def _causal_lm_loss(model_output, labels: torch.Tensor) -> torch.Tensor:
@@ -110,6 +172,8 @@ def train_loop(
             min_ratio=cfg.min_lr_ratio,
         ),
     )
+    ckpt_dir_path = Path(cfg.ckpt_dir) if cfg.ckpt_dir else None
+    ckpt_enabled = cfg.ckpt_every > 0 and ckpt_dir_path is not None
     model.train()
 
     result = TrainResult()
@@ -133,6 +197,14 @@ def train_loop(
         if cfg.log_every and (step + 1) % cfg.log_every == 0:
             current_lr = scheduler.get_last_lr()[0]
             print(f"  step {step + 1:5d} loss={loss_val:.4f} lr={current_lr:.2e}")
+
+        if ckpt_enabled and (step + 1) % cfg.ckpt_every == 0:
+            path = _save_checkpoint(
+                ckpt_dir_path, step + 1, model, optimizer, scheduler, cfg,
+                result.losses,
+            )
+            result.checkpoints_written.append(str(path))
+            _rotate_checkpoints(ckpt_dir_path, cfg.keep_last_n_ckpts)
 
     model.eval()
     return result

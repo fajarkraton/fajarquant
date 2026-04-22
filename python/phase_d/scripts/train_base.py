@@ -118,6 +118,10 @@ def main() -> int:
         warmup, total = 0, 0
     else:
         warmup, total = train_hp.warmup_steps, train_hp.n_steps
+    # Track B step 1 (V31.C.P6.1): wire train_hp.ckpt_every into the
+    # training loop so interrupted runs can resume from the last saved
+    # checkpoint. POL skips checkpointing (too-few steps to matter).
+    ckpt_every = 0 if args.proof_of_life else train_hp.ckpt_every
     result = train_loop(
         model,
         capped_batches(),
@@ -129,8 +133,14 @@ def main() -> int:
             warmup_steps=warmup,
             total_steps=total,
             min_lr_ratio=0.1,
+            ckpt_every=ckpt_every,
+            ckpt_dir=str(args.ckpt_dir) if ckpt_every > 0 else None,
+            keep_last_n_ckpts=3,
         ),
     )
+    if result.checkpoints_written:
+        print(f"  intermediate checkpoints written: {len(result.checkpoints_written)}")
+        print(f"  last intermediate: {result.checkpoints_written[-1]}")
     elapsed = time.time() - t0
 
     print(f"\n  elapsed       : {elapsed:.1f} s ({elapsed / 60:.1f} min)")

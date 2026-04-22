@@ -142,3 +142,102 @@ def test_lr_lambda_midpoint_decay() -> None:
     val = _lr_lambda(500, warmup=0, total=1000, min_ratio=0.1)
     expected = 0.1 + (1.0 - 0.1) * 0.5  # cos(π/2)=0 → 0.5*(1+0)=0.5 cosine
     assert abs(val - expected) < 1e-6
+
+
+# -----------------------------------------------------------------
+# Track B step 1 (V31.C.P6.1) — interruption-safe checkpointing
+# -----------------------------------------------------------------
+
+def test_ckpt_disabled_by_default(tmp_path) -> None:
+    """ckpt_every=0 → zero files written, backward-compatible."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=20, seed=0, device="cuda",
+    )
+    result = train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=0, ckpt_dir=str(tmp_path),
+    ))
+    assert result.checkpoints_written == []
+    assert list(tmp_path.glob("ckpt_*.pt")) == []
+
+
+def test_ckpt_written_every_n_steps(tmp_path) -> None:
+    """ckpt_every=5, 15 steps → 3 checkpoints at steps 5, 10, 15."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=15, seed=0, device="cuda",
+    )
+    result = train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5,
+        ckpt_dir=str(tmp_path), keep_last_n_ckpts=10,
+    ))
+    assert result.steps == 15
+    written = sorted(tmp_path.glob("ckpt_step_*.pt"))
+    assert len(written) == 3, f"expected 3 ckpts, got {[p.name for p in written]}"
+    assert [p.name for p in written] == [
+        "ckpt_step_000005.pt", "ckpt_step_000010.pt", "ckpt_step_000015.pt",
+    ]
+
+
+def test_ckpt_payload_has_required_keys(tmp_path) -> None:
+    """Loaded checkpoint must carry step + state_dict + optimizer +
+    scheduler + config — everything needed by --resume (step 2)."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=5, seed=0, device="cuda",
+    )
+    train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5, ckpt_dir=str(tmp_path),
+    ))
+    ckpt_path = tmp_path / "ckpt_step_000005.pt"
+    assert ckpt_path.exists()
+    payload = torch.load(ckpt_path, map_location="cuda", weights_only=False)
+    for key in ("step", "state_dict", "optimizer", "scheduler", "config"):
+        assert key in payload, f"missing key: {key}"
+    assert payload["step"] == 5
+    assert isinstance(payload["state_dict"], dict)
+    assert payload["config"]["ckpt_every"] == 5
+
+
+def test_ckpt_rotation_keeps_only_last_n(tmp_path) -> None:
+    """keep_last_n_ckpts=2, 6 save events → only 2 newest remain on disk."""
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=12, seed=0, device="cuda",
+    )
+    train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=2,
+        ckpt_dir=str(tmp_path), keep_last_n_ckpts=2,
+    ))
+    remaining = sorted(tmp_path.glob("ckpt_step_*.pt"))
+    # 12 steps / 2 = 6 save events, keep last 2 → steps 10 and 12 remain
+    assert [p.name for p in remaining] == [
+        "ckpt_step_000010.pt", "ckpt_step_000012.pt",
+    ]
+
+
+def test_ckpt_atomic_no_tmp_files_on_disk(tmp_path) -> None:
+    """Atomic-rename invariant: after a clean run, zero .tmp files remain.
+
+    This doesn't test the SIGKILL-mid-write case directly (hard to fake
+    in-process), but asserts the clean path doesn't leak.
+    """
+    torch.manual_seed(0)
+    model = _make_tiny_model()
+    batches = overfit_token_batches(
+        vocab_size=_TINY_VOCAB, seq_len=_TINY_SEQLEN, batch_size=_BATCH,
+        n_batches=5, seed=0, device="cuda",
+    )
+    train_loop(model, batches, config=TrainConfig(
+        lr=1e-3, log_every=0, ckpt_every=5, ckpt_dir=str(tmp_path),
+    ))
+    tmp_files = list(tmp_path.glob("*.tmp"))
+    assert tmp_files == [], f"leaked tmp files: {tmp_files}"
