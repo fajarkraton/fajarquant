@@ -34,6 +34,12 @@ from pathlib import Path
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+# Force line-buffering: nohup-redirected stdout is block-buffered by default,
+# which makes long runs unmonitorable until the buffer flushes (every ~4-8 KB).
+# See memory/feedback_nohup_python_buffering.md (V31.C medium resume, 2026-04-23).
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 if str(ROOT) not in sys.path:
