@@ -175,9 +175,9 @@ CLAIMS: list[Claim] = [
     Claim("Gate: Base val_loss (c.1 982M tok Chinchilla)",
           3.9903, lambda: training_val_loss("intllm-base"),
           0.01, "gate Base<4.2 (c.1 PASS by 0.21 nat; supersedes c.2 which PASSed by only 0.071 nat)"),
-    Claim("Gate: Medium val_loss",
-          0.0, lambda: training_val_loss("intllm-medium"),
-          float("inf"), "gate Medium<4.0 (pending Phase 2.2 run)"),
+    Claim("Gate: Medium val_loss (c.1 1.819B tok ~Chinchilla)",
+          3.7211, lambda: training_val_loss("intllm-medium"),
+          0.01, "gate Medium<4.0 (c.1 PASS by 0.28 nat margin; widest in Phase D scaling chain)"),
     # ── Table 3 fp16-vs-ternary parity (Phase 3.5 IntLLM differentiator) ──
     # First measured 2026-04-22 on Mini v2. BitNet 2B4T did not ship a
     # parity gate; high absolute rel-error is expected for 1.58-bit
