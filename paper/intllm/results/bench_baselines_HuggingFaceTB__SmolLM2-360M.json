@@ -1,0 +1,108 @@
+{
+  "_description": "Baseline re-run benchmark results. Same 11-task suite + same HFLM plumbing as IntLLM itself \u2014 \u00a76.9 R3 baseline parity. Schema consumed by scripts/verify_intllm_tables.py. Run via scripts/bench_baselines.py.",
+  "_phase": "FJQ_PHASE_D_PRODUCTION_PLAN.md \u00a73.4 (baseline re-runs)",
+  "_plan_ref": "paper Table 2 baseline rows",
+  "_b0_findings": "docs/FJQ_PHASE_D_3_4_B0_FINDINGS.md",
+  "repo": "HuggingFaceTB/SmolLM2-360M",
+  "tag": "HuggingFaceTB__SmolLM2-360M",
+  "arch": "llama",
+  "params_approx": 360000000,
+  "training_regime": "pretrain_only",
+  "tokenizer_family": "smollm2-49k",
+  "sft_lift_caveat": false,
+  "kernel_note": "Base (non-Instruct) checkpoint.",
+  "harness_version": "v0.4.11",
+  "status": "scaffold",
+  "tasks": [
+    "wikitext",
+    "lambada_openai",
+    "hellaswag",
+    "piqa",
+    "winogrande",
+    "arc_easy",
+    "arc_challenge",
+    "openbookqa",
+    "mmlu",
+    "triviaqa",
+    "boolq"
+  ],
+  "num_fewshot_map": {
+    "wikitext": 0,
+    "lambada_openai": 0,
+    "hellaswag": 0,
+    "piqa": 0,
+    "winogrande": 0,
+    "arc_easy": 0,
+    "arc_challenge": 0,
+    "openbookqa": 0,
+    "mmlu": 5,
+    "triviaqa": 5,
+    "boolq": 0
+  },
+  "limit": null,
+  "batch_size": null,
+  "device": null,
+  "elapsed_seconds": 0.0,
+  "results": {
+    "wikitext": {
+      "word_perplexity": 0.0,
+      "word_perplexity_stderr": 0.0,
+      "byte_perplexity": 0.0,
+      "byte_perplexity_stderr": 0.0,
+      "bits_per_byte": 0.0,
+      "bits_per_byte_stderr": 0.0
+    },
+    "lambada_openai": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "perplexity": 0.0,
+      "perplexity_stderr": 0.0
+    },
+    "hellaswag": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "piqa": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "winogrande": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    },
+    "arc_easy": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "arc_challenge": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "openbookqa": {
+      "acc": 0.0,
+      "acc_stderr": 0.0,
+      "acc_norm": 0.0,
+      "acc_norm_stderr": 0.0
+    },
+    "mmlu": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    },
+    "triviaqa": {
+      "exact_match": 0.0,
+      "exact_match_stderr": 0.0
+    },
+    "boolq": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    }
+  }
+}

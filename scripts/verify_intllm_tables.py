@@ -92,6 +92,31 @@ def bench_knowledge(model: str, task: str, metric: str = "acc") -> float:
     return float(data["results"][task][metric])
 
 
+def bench_baselines(tag: str, task: str, metric: str) -> float:
+    """Load a baseline-re-run benchmark result from bench_baselines_<tag>.json.
+
+    Schema (from `scripts/bench_baselines.py`, Phase 3.4 — see
+    `docs/BASELINE_UNPORTED_FEATURES.md`):
+        {
+          "repo": "microsoft/bitnet-b1.58-2B-4T",
+          "tag": "microsoft__bitnet-b1_58-2B-4T",
+          "training_regime": "pretrain_sft_dpo" | "pretrain_only",
+          "tokenizer_family": "mistral-v3-32k" | "llama3-128k" | ...,
+          "sft_lift_caveat": bool,  // Table 2 footnote gate
+          "results": {
+            "<task>": {"<metric>": 0.xxx, "<metric>_stderr": 0.xxx, ...}
+          },
+          ...
+        }
+
+    The `tag` here is the filesystem-safe derivative produced by
+    `bench_baselines.repo_to_tag()` (slashes → '__', dots → '_'), NOT the
+    HF repo id itself.
+    """
+    data = load_json(f"bench_baselines_{tag}.json")
+    return float(data["results"][task][metric])
+
+
 def training_val_loss(model: str) -> float:
     """Load final val_loss from a training gate result."""
     data = load_json(f"training_{model}.json")
@@ -225,6 +250,98 @@ CLAIMS: list[Claim] = [
     Claim("Table 3: Mini fp16 parity rel_l2 max",
           19.3093, lambda: fp16_parity_summary("intllm-mini", "rel_error_l2_max"),
           0.01, "Table 3 / Mini / rel_l2_max (worst layer)"),
+    # ── Table 2 baseline rows (Phase 3.4) ──
+    # 7 baselines × 3 headline metrics = 21 placeholder claims. All start
+    # with paper_value=0.0 + tolerance=inf so the script runs green today
+    # against the scaffold JSONs produced by `make bench-baselines`. When
+    # the real Phase 3.4 sweep lands (`make bench-baselines-real-all`,
+    # ~13 GPU-hours), each cell is activated by setting paper_value to the
+    # measured number and tolerance to 0.01.
+    #
+    # Headline metric selection (§6.9 R3 + BASELINE_UNPORTED_FEATURES.md §2):
+    #   1. wikitext / bits_per_byte  — tokenizer-invariant text-modeling metric
+    #      (PPL is NOT cross-comparable across the 5 tokenizer families in
+    #      the set; BPB is the fix).
+    #   2. hellaswag / acc_norm      — zero-shot reasoning headline, matches
+    #      IntLLM Table 2 hellaswag row for direct side-by-side.
+    #   3. mmlu / acc (5-shot)       — knowledge headline, matches BitNet
+    #      2B4T Table 1 column + IntLLM Table 1 mmlu row.
+    #
+    # Footnote reminders (enforced by the Phase 4 pre-commit hook):
+    #   - BitNet 2B4T row is post-SFT+DPO — zero-shot accuracy cells must
+    #     carry the SFT-lift footnote (BASELINE_UNPORTED_FEATURES.md §2.1).
+    #   - MMfreeLM 1.3B / 2.7B have no upstream-published Table 1 to
+    #     cross-check against (§3.2).
+    # ─── BitNet 2B4T (post-SFT+DPO — zero-shot accuracies need SFT-lift footnote) ───
+    Claim("Table 2 Baseline: microsoft/bitnet-b1.58-2B-4T wikitext BPB",
+          0.0, lambda: bench_baselines("microsoft__bitnet-b1_58-2B-4T", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / BitNet-2B4T / wikitext_bpb (placeholder — populate from Phase 3.4 real run)"),
+    Claim("Table 2 Baseline: microsoft/bitnet-b1.58-2B-4T hellaswag",
+          0.0, lambda: bench_baselines("microsoft__bitnet-b1_58-2B-4T", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / BitNet-2B4T / hellaswag_acc_norm (placeholder; SFT-lift footnote required)"),
+    Claim("Table 2 Baseline: microsoft/bitnet-b1.58-2B-4T mmlu (5-shot)",
+          0.0, lambda: bench_baselines("microsoft__bitnet-b1_58-2B-4T", "mmlu", "acc"),
+          float("inf"), "Table 2 / BitNet-2B4T / mmlu_acc (placeholder; SFT-lift footnote required)"),
+    # ─── MMfreeLM 370M (cleanest apples-to-apples baseline — same arch family + tokenizer) ───
+    Claim("Table 2 Baseline: ridger/MMfreeLM-370M wikitext BPB",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-370M", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / MMfreeLM-370M / wikitext_bpb (placeholder)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-370M hellaswag",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-370M", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / MMfreeLM-370M / hellaswag_acc_norm (placeholder)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-370M mmlu (5-shot)",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-370M", "mmlu", "acc"),
+          float("inf"), "Table 2 / MMfreeLM-370M / mmlu_acc (placeholder)"),
+    # ─── MMfreeLM 1.3B (first-party eval; no upstream Table 1 for cross-check) ───
+    Claim("Table 2 Baseline: ridger/MMfreeLM-1.3B wikitext BPB",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-1_3B", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / MMfreeLM-1.3B / wikitext_bpb (placeholder; no upstream cross-check)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-1.3B hellaswag",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-1_3B", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / MMfreeLM-1.3B / hellaswag_acc_norm (placeholder; no upstream cross-check)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-1.3B mmlu (5-shot)",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-1_3B", "mmlu", "acc"),
+          float("inf"), "Table 2 / MMfreeLM-1.3B / mmlu_acc (placeholder; no upstream cross-check)"),
+    # ─── MMfreeLM 2.7B (largest baseline; VRAM-constrained at batch_size=2) ───
+    Claim("Table 2 Baseline: ridger/MMfreeLM-2.7B wikitext BPB",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-2_7B", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / MMfreeLM-2.7B / wikitext_bpb (placeholder; no upstream cross-check)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-2.7B hellaswag",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-2_7B", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / MMfreeLM-2.7B / hellaswag_acc_norm (placeholder; no upstream cross-check)"),
+    Claim("Table 2 Baseline: ridger/MMfreeLM-2.7B mmlu (5-shot)",
+          0.0, lambda: bench_baselines("ridger__MMfreeLM-2_7B", "mmlu", "acc"),
+          float("inf"), "Table 2 / MMfreeLM-2.7B / mmlu_acc (placeholder; no upstream cross-check)"),
+    # ─── SmolLM2-135M (pretrain-only base; native Llama arch) ───
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-135M wikitext BPB",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-135M", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / SmolLM2-135M / wikitext_bpb (placeholder)"),
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-135M hellaswag",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-135M", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / SmolLM2-135M / hellaswag_acc_norm (placeholder)"),
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-135M mmlu (5-shot)",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-135M", "mmlu", "acc"),
+          float("inf"), "Table 2 / SmolLM2-135M / mmlu_acc (placeholder)"),
+    # ─── SmolLM2-360M ───
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-360M wikitext BPB",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-360M", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / SmolLM2-360M / wikitext_bpb (placeholder)"),
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-360M hellaswag",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-360M", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / SmolLM2-360M / hellaswag_acc_norm (placeholder)"),
+    Claim("Table 2 Baseline: HuggingFaceTB/SmolLM2-360M mmlu (5-shot)",
+          0.0, lambda: bench_baselines("HuggingFaceTB__SmolLM2-360M", "mmlu", "acc"),
+          float("inf"), "Table 2 / SmolLM2-360M / mmlu_acc (placeholder)"),
+    # ─── Pythia-160m (classic Pile pretrain) ───
+    Claim("Table 2 Baseline: EleutherAI/pythia-160m wikitext BPB",
+          0.0, lambda: bench_baselines("EleutherAI__pythia-160m", "wikitext", "bits_per_byte"),
+          float("inf"), "Table 2 / Pythia-160m / wikitext_bpb (placeholder)"),
+    Claim("Table 2 Baseline: EleutherAI/pythia-160m hellaswag",
+          0.0, lambda: bench_baselines("EleutherAI__pythia-160m", "hellaswag", "acc_norm"),
+          float("inf"), "Table 2 / Pythia-160m / hellaswag_acc_norm (placeholder)"),
+    Claim("Table 2 Baseline: EleutherAI/pythia-160m mmlu (5-shot)",
+          0.0, lambda: bench_baselines("EleutherAI__pythia-160m", "mmlu", "acc"),
+          float("inf"), "Table 2 / Pythia-160m / mmlu_acc (placeholder)"),
 ]
 
 

@@ -292,14 +292,43 @@ traceable to JSON artifacts.
 - [ ] Results per size in `paper/results/bench_knowledge_<model>.json`
 
 #### 3.4 Baseline re-runs
-- [ ] `scripts/bench_baselines.py` — download + evaluate on SAME
-  harness:
+
+**B0 pre-flight (§6.8 R1):**
+- [x] `docs/FJQ_PHASE_D_3_4_B0_FINDINGS.md` — baseline inventory, HF
+  accessibility (7/7 live 2026-04-24), env audit, §6.9 R3 unported-feature
+  risk map, GPU budget estimate (~13h), 10 committed decisions, §6.8 + §6.9
+  self-check 8/8 + 7/7 (2 n/a) YES. **Downstream §3.4 unblocked.**
+
+**Scaffold commit (unblocks verify + Make + docs without GPU):**
+- [x] `python/phase_d/scripts/bench_baselines.py` — 7-repo registry
+  (BASELINE_REGISTRY), 11-task union (8 canonical + 3 knowledge),
+  scaffold + real modes, HFLM plumbing shared with bench_canonical +
+  bench_knowledge per §6.9 R3
+- [x] `docs/BASELINE_UNPORTED_FEATURES.md` — public §6.9 R3 disclosure
+  ledger: BitNet SFT-lift caveat (§2.1), cross-tokenizer BPB-not-PPL
+  requirement (§2.2), per-baseline ledger (§3), 4 Table 2 footnote
+  requirements machine-checked in Phase 4 (§5)
+- [x] `Makefile` — `bench-baselines`, `bench-baselines-one REPO=<id>`,
+  `bench-baselines-real REPO=<id>`, `bench-baselines-real-all` (4 targets,
+  shared BASELINE_REPOS list)
+- [x] 7 scaffold JSONs at `paper/intllm/results/bench_baselines_*.json`
+  (all 11 tasks populated with 0.0 placeholders, status=scaffold)
+- [x] 21 placeholder claims in `scripts/verify_intllm_tables.py`
+  (7 repos × 3 headline metrics: wikitext BPB, hellaswag acc_norm,
+  mmlu 5-shot acc). `make verify-intllm-tables --strict` → exit 0
+  with `21 activated + 22 placeholder(s)` report.
+
+**Real sweep (~13 GPU-hours, PEND):**
+- [ ] `make bench-baselines-real-all` run on all 7 repos
   - BitNet b1.58 2B4T (`microsoft/bitnet-b1.58-2B-4T`)
   - MatMul-Free 370M / 1.3B / 2.7B (`ridger/MMfreeLM-*`)
   - SmolLM2-135M / 360M (`HuggingFaceTB/SmolLM2-*`)
   - Pythia-160M (`EleutherAI/pythia-160m`)
-- [ ] `docs/BASELINE_UNPORTED_FEATURES.md` — explicit list of unported
-  features (e.g., BitNet CUDA pack-store pipeline)
+- [ ] Bump `eval/HARNESS_SHA` from `v0.4.11` tag to full 40-char SHA
+  (§3.1 carry-over; capture at first real run)
+- [ ] Activate all 21 placeholder claims in `verify_intllm_tables.py`
+  by setting `paper_value` → measured + `tolerance` → 0.01 (same commit
+  as the real JSONs)
 
 #### 3.5 fp16-vs-ternary parity gate (IntLLM differentiator)
 - [ ] Implement `--fp16-reference` flag in training driver producing

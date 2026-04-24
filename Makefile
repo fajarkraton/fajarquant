@@ -20,7 +20,10 @@ help:
 	@echo "  bench-canonical-real TAG=X Phase 3.2  — real lm-eval via HFLM (needs GPU+ckpt)"
 	@echo "  bench-knowledge            Phase 3.3  — scaffold JSON (mmlu/triviaqa/boolq, CPU)"
 	@echo "  bench-knowledge-real TAG=X Phase 3.3  — real lm-eval knowledge tasks (GPU+ckpt)"
-	@echo "  bench-baselines            Phase 3.4  — TODO (BitNet, MMfreeLM, SmolLM2)"
+	@echo "  bench-baselines            Phase 3.4  — scaffold JSON for all 7 baselines (CPU, <5s)"
+	@echo "  bench-baselines-one REPO=X Phase 3.4  — scaffold a single baseline repo"
+	@echo "  bench-baselines-real REPO=X Phase 3.4 — real lm-eval on one HF baseline (GPU)"
+	@echo "  bench-baselines-real-all   Phase 3.4  — real lm-eval sweep (~13 GPU-hours)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -185,9 +188,83 @@ bench-knowledge-real:
 		$(if $(TASKS),--tasks $(TASKS),) \
 		--strict
 
-# ─── Phase 3.4 ─── baseline re-runs (scaffold follow-up) ────────────
+# ─── Phase 3.4 ─── baseline re-runs (scaffold + real) ───────────────
+#
+# Same HFLM plumbing as bench-canonical / bench-knowledge so IntLLM and
+# baselines share the identical eval path (§6.9 R3 parity — see
+# docs/FJQ_PHASE_D_3_4_B0_FINDINGS.md §3.1).
+#
+# The 7 baselines registered in scripts/bench_baselines.py::BASELINE_REGISTRY
+# and docs/BASELINE_UNPORTED_FEATURES.md §1. If you add/remove a repo here,
+# update those two files in the same commit (§7 decision #2).
+#
+# Real mode needs:
+#   - venv with lm_eval 0.4.11 + transformers ≥ 4.54 + torch + CUDA
+#   - for hgrn_bit repos, vendored mmfreelm at python/phase_d/_upstream/
+#     (recreate via UPSTREAM_PIN.md)
+#   - batch_size defaults per repo (2 for 2B+ models, 4 otherwise); override
+#     with BATCH=<n>. See BASELINE_REGISTRY for per-repo defaults.
+BASELINE_REPOS := \
+	microsoft/bitnet-b1.58-2B-4T \
+	ridger/MMfreeLM-370M \
+	ridger/MMfreeLM-1.3B \
+	ridger/MMfreeLM-2.7B \
+	HuggingFaceTB/SmolLM2-135M \
+	HuggingFaceTB/SmolLM2-360M \
+	EleutherAI/pythia-160m
+
 .PHONY: bench-baselines
 bench-baselines:
-	@echo "[TODO] Phase 3.4 — baseline re-runs not yet scaffolded."
-	@echo "       See FJQ_PHASE_D_PRODUCTION_PLAN.md §3.4 for spec."
-	@exit 1
+	@for repo in $(BASELINE_REPOS); do \
+		cd $(PHASE_D) && PYTHONPATH=_upstream:. ../../$(PYTHON) scripts/bench_baselines.py \
+			--repo $$repo --scaffold || exit $$?; \
+		cd ../..; \
+	done
+
+# Single-repo scaffold convenience: `make bench-baselines-one REPO=ridger/MMfreeLM-370M`
+.PHONY: bench-baselines-one
+bench-baselines-one:
+	@if [ -z "$(REPO)" ]; then \
+		echo "usage: make bench-baselines-one REPO=<hf_repo_id>"; \
+		echo "registered: $(BASELINE_REPOS)"; exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=_upstream:. ../../$(PYTHON) scripts/bench_baselines.py \
+		--repo $(REPO) --scaffold
+
+# Real baseline run — single repo.
+#
+# Optional vars (same pattern as bench-canonical-real):
+#   LIMIT=<n>       cap docs per task (smoke); <1.0 = fraction, ≥1 = absolute
+#   TASKS="<list>"  space-separated subset of the 11 tasks
+#   BATCH=<n>       override BASELINE_REGISTRY default_batch_size
+#   DEVICE=<d>      torch device (default: cuda)
+#
+# Examples:
+#   make bench-baselines-real REPO=EleutherAI/pythia-160m
+#   make bench-baselines-real REPO=microsoft/bitnet-b1.58-2B-4T LIMIT=50 TASKS="piqa boolq"
+#   make bench-baselines-real REPO=ridger/MMfreeLM-2.7B BATCH=1
+.PHONY: bench-baselines-real
+bench-baselines-real:
+	@if [ -z "$(REPO)" ]; then \
+		echo "usage: make bench-baselines-real REPO=<hf_repo_id> [LIMIT=n] [TASKS=\"...\"] [BATCH=n]"; \
+		echo "registered: $(BASELINE_REPOS)"; exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=_upstream:. ../../$(PYTHON) scripts/bench_baselines.py \
+		--repo $(REPO) \
+		$(if $(BATCH),--batch-size $(BATCH),) \
+		$(if $(LIMIT),--limit $(LIMIT),) \
+		$(if $(TASKS),--tasks $(TASKS),) \
+		$(if $(DEVICE),--device $(DEVICE),) \
+		--strict
+
+# Real sweep across all 7 baselines — ~13 GPU-hours on RTX 4090 Laptop 16 GB
+# per FJQ_PHASE_D_3_4_B0_FINDINGS.md §5 GPU budget estimate. Use with care;
+# this is the committed Phase 3.4 production run.
+.PHONY: bench-baselines-real-all
+bench-baselines-real-all:
+	@for repo in $(BASELINE_REPOS); do \
+		echo "=== $$repo ==="; \
+		cd $(PHASE_D) && PYTHONPATH=_upstream:. ../../$(PYTHON) scripts/bench_baselines.py \
+			--repo $$repo --strict || exit $$?; \
+		cd ../..; \
+	done
