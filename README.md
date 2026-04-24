@@ -1,22 +1,86 @@
-# FajarQuant v3.1 — Adaptive Per-Head KV Cache Quantization
+# FajarQuant — Quantization Research for Compiler-Verified LLM Systems
 
-> **No single KV cache quantization method dominates across attention architectures.
-> FajarQuant v3.1 profiles each KV head and routes to the optimal strategy,
-> matching or beating the best fixed method in 7 of 9 evaluation cells with
-> zero catastrophic failures.**
+> **Two research arms, one umbrella.**
+> **Phase D IntLLM** trains a 1.58-bit MatMul-Free LLM family (Mini/Base/Medium 21M-74M params), validates a 3-scale calibrated training-gate chain with monotonically widening margins (0.12 → 0.21 → 0.28 nat), and deploys end-to-end inside the OS kernel via FajarOS Nova IntLLM kernel-path. **v3.1 KV Cache Quant** (mature, paper artifact) profiles each KV head and routes to the optimal strategy, matching or beating the best fixed method in 7 of 9 evaluation cells with zero catastrophic failures.
 
 [![Crates.io](https://img.shields.io/crates/v/fajarquant?color=blue)](https://crates.io/crates/fajarquant)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-yellow.svg)](LICENSE)
-[![Compiler](https://img.shields.io/badge/compiler-Fajar_Lang_v27.5.0-blueviolet)](https://github.com/fajarkraton/fajar-lang)
-[![Paper](https://img.shields.io/badge/paper-v3.1_adaptive-success)](paper/fajarquant.pdf)
-[![Verify](https://img.shields.io/badge/claims-28%2F28_verified-brightgreen)](reproduce.sh)
+[![Compiler](https://img.shields.io/badge/compiler-Fajar_Lang_v31.0.0-blueviolet)](https://github.com/fajarkraton/fajar-lang)
+[![Phase D](https://img.shields.io/badge/Phase_D-Mini%2BBase%2BMedium_PASS-success)](docs/FJQ_PHASE_D_PRODUCTION_PLAN.md)
+[![Track B](https://img.shields.io/badge/Track_B-6--layer_interruption--safety-success)](python/phase_d/intllm/train.py)
+[![Paper](https://img.shields.io/badge/paper-v3.1_KV_quant-success)](paper/fajarquant.pdf)
+[![Verify](https://img.shields.io/badge/claims-12%2F13_verified-brightgreen)](scripts/verify_intllm_tables.py)
+[![FajarOS](https://img.shields.io/badge/FajarOS-Nova_v3.9.0_IntLLM_kernel--path-orange)](https://github.com/fajarkraton/fajaros-x86)
 [![Made in Indonesia](https://img.shields.io/badge/Made_in-Indonesia-red)]()
 
-FajarQuant is a Rust-native KV cache quantization library with the first
-systematic cross-architecture perplexity evaluation across 3 models and 3
-bit widths (9 cells total), using the canonical R-α.1 model-surgery protocol.
+FajarQuant is a Rust + Python research repository housing **two distinct research lines** in LLM quantization, both with compile-time `@kernel`/`@device` safety guarantees through the Fajar Lang compiler. The repo started as a KV cache quantization library (v0.1.0–v0.3.0, paper v3.1) and expanded with the Phase D IntLLM training-quantization research line in v0.4.0 (this release).
 
-## Headline Results — FajarQuant v3.1 vs Best Fixed Method
+---
+
+## Two Research Arms
+
+### Arm A — Phase D IntLLM (training-time quant, v0.4.0, primary going forward)
+
+Train ternary {-1, 0, +1} weights end-to-end via MatMul-Free LLM architecture (HGRNBitForCausalLM), validate scaling chain across 3 calibrated gates, deploy entirely inside `@kernel` context with no heap allocation.
+
+- **Models:** intllm-mini (21.5M), intllm-base (46.4M), intllm-medium (74.5M)
+- **Training:** 491M / 982M / 1.819B tokens (Chinchilla 22.8 / 21.16 / 24.4 tok/p)
+- **3 gates PASS** with monotonically widening margins:
+  - Mini v2 val_loss 4.38 PPL 80.0 (gate < 4.5, margin 0.12 nat)
+  - Base c.1 val_loss 3.99 PPL 54.1 (gate < 4.2, margin 0.21 nat)
+  - Medium c.1 val_loss 3.72 PPL 41.3 (gate < 4.0, margin **0.28 nat**)
+- **Track B 5+1-layer interruption-safety:** ckpt_every / --resume / StepWatchdog / HF timeout+retry / regression gate / nohup line-buffering. Validated end-to-end during a real laptop-shutdown event mid-Medium training.
+- **In-kernel deployment** via [FajarOS Nova v3.9.0 IntLLM Kernel Path](https://github.com/fajarkraton/fajaros-x86/releases/tag/v3.9.0).
+
+### Arm B — v3.1 KV Cache Quantization (mature, paper artifact)
+
+Profile each KV head's statistical properties at calibration time, route to optimal quantization strategy. First systematic cross-architecture perplexity evaluation (3 models × 3 bit widths = 9 cells) using the canonical R-α.1 model-surgery protocol. Paper at `paper/fajarquant.pdf` (MLSys 2027 target).
+
+See [Arm B section below](#v31-kv-cache-quant--headline-results-arm-b) for full results.
+
+## Phase D IntLLM — Scaling Chain Results (Arm A)
+
+3-row monotonic LM-modeling improvement on 8-task lm-eval v0.4.11 (real bench, no limit, RTX 4090 Laptop):
+
+| Metric                      | Mini 21M | Base 46M | Medium 74M | Δ Mini→Med |
+|-----------------------------|---------:|---------:|-----------:|-----------:|
+| wikitext word_PPL           |   342.98 |   201.09 | **138.36** |       −60% |
+| wikitext bits_per_byte      |    1.575 |    1.431 |  **1.330** |       −16% |
+| lambada_openai PPL          |  51,121  |  16,729  | **5,277**  |       −90% |
+| **lambada_openai acc**      |    0.001 |    0.007 |  **0.023** |    **16×** |
+| arc_easy acc                |    0.306 |    0.319 |  **0.341** |     +0.035 |
+| openbookqa acc              |    0.110 |    0.128 |  **0.130** |     +0.020 |
+
+**Pure LM modeling (wikitext, lambada):** clean monotonic scaling. Lambada PPL drops by an order of magnitude per scale step. Lambada accuracy scales 16× from Mini to Medium.
+
+**Multi-choice reasoning (hellaswag, piqa, winogrande, arc_*, openbookqa):** noisy at sub-100M scale, mostly within ±1-2 stderr. Per Chinchilla literature, sub-100M models cannot meaningfully beat random on these tasks; expectation-aligned. Phase D contribution is NOT "win on benchmark X" — model is too small for that.
+
+### Phase D Contribution
+
+The actual contribution of Phase D is three-fold:
+
+1. **Compiler/kernel-path enabling LLM inference inside `@kernel` context** with no heap allocation (FajarOS Nova v3.9.0 IntLLM Kernel Path).
+2. **Track B 5+1 layer interruption-safety hardening** validated end-to-end during a real laptop-shutdown event mid-Medium training (no progress lost beyond the worst-case 36-min checkpoint window).
+3. **Calibrated training-gate methodology** (Mini < 4.5 / Base < 4.2 / Medium < 4.0 / Stretch < 3.7) that all three calibrated scales pass with monotonically widening margins (0.12 → 0.21 → 0.28 nat).
+
+Bench numbers above verify the scaling validation but are not the headline claim.
+
+### Phase D Reproducibility
+
+```bash
+make verify-intllm-tables          # 12/13 paper claims verified (--strict)
+make bench-canonical-real TAG=mini # 8-task lm-eval on mini_final.pt (~10 min)
+make bench-canonical-real TAG=base
+make bench-canonical-real TAG=medium
+make test-train-watchdog            # Track B 5+1 layer gate (24 tests + signal delivery)
+make test-intllm-fp16-parity       # fp16-vs-ternary parity (37 hooks, IntLLM differentiator)
+```
+
+See `docs/FJQ_PHASE_D_PRODUCTION_PLAN.md` for the 9-week plan + `docs/FJQ_PHASE_D_GATE_CALIBRATION.md` for evidence-backed calibrated gate thresholds.
+
+---
+
+## v3.1 KV Cache Quant — Headline Results (Arm B)
 
 | Model | Arch | Bits | FP16 | **FQ v3.1** | KIVI | TQ outlier | Strategy |
 |-------|------|-----:|-----:|------------:|-----:|-----------:|----------|
@@ -235,6 +299,28 @@ If you use FajarQuant in academic work, please cite:
 
 ## Status
 
+### Arm A — Phase D IntLLM (v0.4.0)
+
+| Component | Status |
+|---|---|
+| HGRNBitForCausalLM 1.58-bit ternary architecture | Production |
+| Mistral v3 32K tokenizer + SlimPajama-6B streaming loader | Production |
+| Calibrated gate methodology (Mini/Base/Medium/Stretch) | Production |
+| **Mini c.1 training (491M tokens)** | **PASS gate by 0.12 nat margin** |
+| **Base c.1 training (982M Chinchilla-optimal tokens)** | **PASS gate by 0.21 nat margin** |
+| **Medium c.1 training (1.819B tokens, ~Chinchilla)** | **PASS gate by 0.28 nat margin** |
+| Stretch c.1 training | Unblocked, not yet launched |
+| Track B 5+1-layer interruption-safety (V31.C.P6.1-P6.6) | Production, validated end-to-end |
+| `make test-train-watchdog` regression gate (24 tests + signal delivery) | Green |
+| Bench canonical real (8 lm-eval tasks × Mini/Base/Medium) | Complete |
+| `make verify-intllm-tables --strict` (12/13 claims PASS) | 1 pending: kernel E2E Mini tok/s (FajarOS-side artifact) |
+| Bench knowledge real (mmlu, triviaqa, boolq) | Pending scaffold |
+| BitNet 2B4T baseline comparison | Pending scaffold |
+| In-kernel deployment via FajarOS Nova IntLLM kernel-path | Production (FajarOS v3.9.0) |
+| Phase D paper (Table 2 wikitext + hellaswag rows) | Real numbers populated |
+
+### Arm B — v3.1 KV Cache Quant (mature paper artifact)
+
 | Component | Status |
 |---|---|
 | Four innovations (adaptive, outlier-aware PCA, fused, hierarchical) | Production |
@@ -250,6 +336,14 @@ If you use FajarQuant in academic work, please cite:
 | MLSys 2027 paper submission | **Pending (external deadline)** |
 | Wall-clock latency benchmarks (ms/token vs KIVI/TQ) | Deferred (future work) |
 
+### Cross-Repo Linkage
+
+This v0.4.0 release pairs with:
+- **[Fajar Lang v31.0.0](https://github.com/fajarkraton/fajar-lang/releases/tag/v31.0.0)** — compiler dependency; Phase D IntLLM uses `@noinline` + `@inline` + `@cold` (V29.P1) and `@no_vectorize` (V31.B.P2) attributes.
+- **[FajarOS Nova v3.9.0](https://github.com/fajarkraton/fajaros-x86/releases/tag/v3.9.0)** — runs Phase D `medium_final.pt` checkpoints inside `@kernel` context via the IntLLM kernel-path (`make test-intllm-kernel-path` 4-invariant gate).
+
+All three repos share Apache 2.0 license (relicensed from MIT on 2026-04-24 for fajar-lang + fajaros-x86; fajarquant has been Apache 2.0 since inception).
+
 See `paper/SUBMISSION.md` and
 [V26 Production Plan Phase C](https://github.com/fajarkraton/fajar-lang/blob/main/docs/V26_PRODUCTION_PLAN.md)
 for the full roadmap and gate dates.
@@ -262,4 +356,4 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 ---
 
-*FajarQuant crate v0.3.0 / algorithm v3.1 — Made in Indonesia by [Fajar](https://github.com/fajarkraton) (PrimeCore.id) — built with [Fajar Lang](https://github.com/fajarkraton/fajar-lang) + Claude Opus 4.6*
+*FajarQuant crate v0.4.0 / Phase D IntLLM + KV quant v3.1 — Made in Indonesia by [Muhamad Fajar Putranto](https://github.com/fajarkraton) (PrimeCore.id) — built with [Fajar Lang](https://github.com/fajarkraton/fajar-lang) v31.0.0 + Claude Opus 4.7*

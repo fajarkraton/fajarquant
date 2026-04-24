@@ -1,9 +1,9 @@
 [package]
 name = "fajarquant"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Muhamad Fajar Putranto <fajar@pajak.com>"]
-description = "Adaptive per-head KV cache quantization for LLMs — matches or beats best fixed method in 7/9 cells across MQA/GQA architectures"
+description = "Quantization research for compiler-verified LLM systems. Two arms: (A) Phase D IntLLM training-time ternary quant with 1.58-bit MatMul-Free LLM (Mini/Base/Medium scaling chain validated, 3 calibrated gates PASS, in-kernel deployment via FajarOS Nova); (B) v3.1 adaptive KV cache quantization (matches or beats best fixed method in 7/9 cells across MQA/GQA architectures)."
 documentation = "https://docs.rs/fajarquant"
 homepage = "https://github.com/fajarkraton/fajarquant"
 repository = "https://github.com/fajarkraton/fajarquant"
