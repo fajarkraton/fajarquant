@@ -4,8 +4,8 @@
   "_plan_ref": "paper Table 2",
   "model": "intllm-base",
   "harness_version": "v0.4.11",
-  "status": "scaffold",
-  "checkpoint": null,
+  "status": "real",
+  "checkpoint": "checkpoints/base/base_final.pt",
   "tasks": [
     "wikitext",
     "lambada_openai",
@@ -17,57 +17,54 @@
     "openbookqa"
   ],
   "limit": null,
-  "batch_size": null,
-  "device": null,
-  "elapsed_seconds": 0.0,
+  "batch_size": 4,
+  "device": "cuda",
+  "elapsed_seconds": 315.414,
   "results": {
     "wikitext": {
-      "word_perplexity": 0.0,
-      "word_perplexity_stderr": 0.0,
-      "byte_perplexity": 0.0,
-      "byte_perplexity_stderr": 0.0,
-      "bits_per_byte": 0.0,
-      "bits_per_byte_stderr": 0.0
+      "word_perplexity": 201.0903613790586,
+      "byte_perplexity": 2.696160107981167,
+      "bits_per_byte": 1.4309061716428682
     },
     "lambada_openai": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "perplexity": 0.0,
-      "perplexity_stderr": 0.0
+      "perplexity": 16729.42461631104,
+      "perplexity_stderr": 1004.7939234693553,
+      "acc": 0.0067921599068503785,
+      "acc_stderr": 0.0011442899754322072
     },
     "hellaswag": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "acc_norm": 0.0,
-      "acc_norm_stderr": 0.0
+      "acc": 0.25951005775741887,
+      "acc_stderr": 0.004374699189284837,
+      "acc_norm": 0.26239792869946227,
+      "acc_norm_stderr": 0.00439038677540091
     },
     "piqa": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "acc_norm": 0.0,
-      "acc_norm_stderr": 0.0
+      "acc": 0.5549510337323177,
+      "acc_stderr": 0.011595157509775814,
+      "acc_norm": 0.5364526659412405,
+      "acc_norm_stderr": 0.01163477983787243
     },
     "winogrande": {
-      "acc": 0.0,
-      "acc_stderr": 0.0
+      "acc": 0.4988161010260458,
+      "acc_stderr": 0.014052446290528871
     },
     "arc_easy": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "acc_norm": 0.0,
-      "acc_norm_stderr": 0.0
+      "acc": 0.3194444444444444,
+      "acc_stderr": 0.009567482017268035,
+      "acc_norm": 0.3135521885521885,
+      "acc_norm_stderr": 0.009519779157242126
     },
     "arc_challenge": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "acc_norm": 0.0,
-      "acc_norm_stderr": 0.0
+      "acc": 0.19197952218430034,
+      "acc_stderr": 0.01150959890659822,
+      "acc_norm": 0.22781569965870307,
+      "acc_norm_stderr": 0.012256708602326964
     },
     "openbookqa": {
-      "acc": 0.0,
-      "acc_stderr": 0.0,
-      "acc_norm": 0.0,
-      "acc_norm_stderr": 0.0
+      "acc": 0.128,
+      "acc_stderr": 0.014955913837590627,
+      "acc_norm": 0.26,
+      "acc_norm_stderr": 0.019635965529725526
     }
   }
 }
