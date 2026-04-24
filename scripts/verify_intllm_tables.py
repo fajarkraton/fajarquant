@@ -162,6 +162,39 @@ CLAIMS: list[Claim] = [
     Claim("Table 2: IntLLM-Base hellaswag",
           0.2624, lambda: bench_canonical("intllm-base", "hellaswag", "acc_norm"),
           0.01, "Table 2 / Base / hellaswag (acc_norm)"),
+    # ── Table 1 knowledge benchmarks (Phase 3.3) ──
+    # mmlu (5-shot, 4-choice, random=0.25); triviaqa (5-shot exact_match);
+    # boolq (0-shot binary, random=0.50). Sub-100M models near-random on
+    # mmlu/triviaqa as expected per Chinchilla — included for honest
+    # negative-result reporting. boolq shows clear monotonic scaling
+    # (0.378 → 0.449 → 0.620) with Medium meaningfully above random.
+    Claim("Table 1: IntLLM-Mini mmlu (5-shot)",
+          0.2295, lambda: bench_knowledge("intllm-mini", "mmlu"),
+          0.01, "Table 1 / Mini / mmlu_acc (random 0.25, model below threshold)"),
+    Claim("Table 1: IntLLM-Base mmlu (5-shot)",
+          0.2297, lambda: bench_knowledge("intllm-base", "mmlu"),
+          0.01, "Table 1 / Base / mmlu_acc (random 0.25, model below threshold)"),
+    Claim("Table 1: IntLLM-Medium mmlu (5-shot)",
+          0.2374, lambda: bench_knowledge("intllm-medium", "mmlu"),
+          0.01, "Table 1 / Medium / mmlu_acc (random 0.25, model marginally above Mini)"),
+    Claim("Table 1: IntLLM-Mini triviaqa (5-shot exact)",
+          0.0002, lambda: bench_knowledge("intllm-mini", "triviaqa", "exact_match"),
+          0.01, "Table 1 / Mini / triviaqa_em (sub-100M cannot recall trivia)"),
+    Claim("Table 1: IntLLM-Base triviaqa (5-shot exact)",
+          0.0002, lambda: bench_knowledge("intllm-base", "triviaqa", "exact_match"),
+          0.01, "Table 1 / Base / triviaqa_em (sub-100M cannot recall trivia)"),
+    Claim("Table 1: IntLLM-Medium triviaqa (5-shot exact)",
+          0.0003, lambda: bench_knowledge("intllm-medium", "triviaqa", "exact_match"),
+          0.01, "Table 1 / Medium / triviaqa_em (sub-100M cannot recall trivia)"),
+    Claim("Table 1: IntLLM-Mini boolq (0-shot)",
+          0.3783, lambda: bench_knowledge("intllm-mini", "boolq"),
+          0.01, "Table 1 / Mini / boolq_acc (random 0.50, below)"),
+    Claim("Table 1: IntLLM-Base boolq (0-shot)",
+          0.4492, lambda: bench_knowledge("intllm-base", "boolq"),
+          0.01, "Table 1 / Base / boolq_acc (random 0.50, approaching)"),
+    Claim("Table 1: IntLLM-Medium boolq (0-shot)",
+          0.6202, lambda: bench_knowledge("intllm-medium", "boolq"),
+          0.01, "Table 1 / Medium / boolq_acc (0.62 vs random 0.50 — clear scaling signal, +24pts vs Mini)"),
     # ── Table 4 FajarOS E2E (Phase 4.2 Table 4) ──
     Claim("Table 4: kernel E2E Mini tok/s",
           0.0, lambda: kernel_e2e_tokens_per_sec("intllm-mini"),
