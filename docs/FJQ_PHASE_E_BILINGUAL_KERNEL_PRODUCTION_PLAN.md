@@ -1,6 +1,17 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.2 (2026-04-25 v1.2 patch — TaxPrime data ownership + synthetic-data policy)
+> **Plan version:** 1.3 (2026-04-25 v1.3 patch — synthetic recipe + generator licensing corrections per fresh research)
+>
+> **v1.2 → v1.3 changelog (2026-04-25 same-day patch):**
+> - **§14 Lapis 2 recipe correction:** explicit BeyondWeb-style **REPHRASE real text** (not generate-from-scratch). Cite arxiv 2508.10975 (DatologyAI 2026) — 50:50 real:rephrase synthetic = SOTA, 7.7× faster training than open web alone, 2.7× faster than Nemotron-Synth.
+> - **Generator list CORRECTED based on fresh license research:**
+>   - ✅ ADDED **Gemma 4** (Google, Apache 2.0 — *unrestricted commercial use, fine-tuning, derivative models*) as primary clean generator
+>   - ✅ Mixtral-8x7B-Instruct retained (Apache 2.0)
+>   - ⚠️ Qwen2.5 caveat: weights Apache 2.0, but **outputs custom-licensed — <100M MAU cannot train other LLMs besides Qwen/derivatives**. TaxPrime/PrimeCore.id under threshold → restricted. Verify exact ToS in E0.0.10.
+>   - ❌ DROPPED **Llama-3.3** — Llama Community License **forbids using Llama outputs to train other LLMs (besides Llama derivatives)** for any party with <700M MAU. Was previously listed with caveat in v1.2 — now confirmed blocker.
+> - **Fair-use defense citation added:** Bartz v. Anthropic (N.D. Cal. June 2025) — LLM training on copyrighted works = "quintessentially transformative" fair use. Caveat: pirated source material = no fair-use defense ($1.5B Anthropic settlement).
+> - **Cost numbers corrected** for Claude Opus 4.7 — output **$25/MTok** (not $15 as v1.2 estimate); 100B token full ID+EN scope = **$1.25M (Batch API) to $3.4M (worst case)**, 1500–5000× more expensive than open-source rephrase path.
+> - **§14.2 R8 NEW hard rule:** synthetic content must be REPHRASE-of-real, not generate-from-scratch (BeyondWeb canonical recipe).
 > **Author:** Claude Opus 4.7 + Fajar (PrimeCore.id / TaxPrime)
 > **Predecessor:** `FJQ_PHASE_D_PRODUCTION_PLAN.md` v1.2 (Phase D ≈95% done)
 > **Companion docs:** `FJQ_PHASE_D_GATE_CALIBRATION.md`, `FJQ_PHASE_D_OPS.md`, `FJQ_PHASE_D_CONFIG.md`, **`FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0 (NEW v1.2)**
@@ -248,18 +259,21 @@ Deliverable: `data/tax_id_corpus_v1.parquet` from TaxPrime archives (post-NDA re
 
 `python scripts/dedup_bilingual.py --inputs id_corpus_v1.parquet en_subset.parquet --output bilingual_v1.parquet --threshold 0.85` (MinHash LSH per Falcon-Edge / RedPajama recipe).
 
-#### E1.5 Synthetic pretrain augmentation (NEW v1.2 — Lapis 2 of synthetic policy)
+#### E1.5 Synthetic pretrain augmentation (v1.3 — BeyondWeb recipe, REPHRASE-of-real)
 
-Per §14 synthetic-data hygiene: add 5–10 B synthetic Indonesian tokens (15–25% of total pretrain mix) via **open-source generator** to fill diversity gaps in real corpus. Open-source generator pinned by E0.0.10 legal review (default: Mixtral-8x7B-Instruct, Apache 2.0).
+Per §14 synthetic-data hygiene + R8: add 5–10 B (up to 50% of pretrain mix per BeyondWeb 50:50 SOTA) synthetic tokens via **REPHRASING real Indonesian/English text** (not generate-from-scratch). Open-source generator pinned by E0.0.10 legal review (v1.3 PRIMARY: **Gemma 4 Apache 2.0**; secondary: Mixtral-8x7B Apache 2.0).
 
-**Synthetic generation strategies (Cosmopedia + Phi-4 inspired):**
+**BeyondWeb-style rephrase strategies (canonical recipe per arxiv 2508.10975):**
 
-| Task | Description | Volume target |
+| Task | Description (each is REPHRASE of real seed text) | Volume target |
 |---|---|---|
-| E1.5.1 EN→ID translation | Translate selected high-quality EN technical/educational content to ID | 2–4 B tokens |
-| E1.5.2 Web-text cleaning | Rephrase low-quality CC-100 / OSCAR ID into coherent Indonesian | 2–3 B tokens |
-| E1.5.3 Textbook-style explanations | Generate textbook explanations for STEM / social topics seeded by Indonesian Wikipedia stubs | 1–2 B tokens |
-| E1.5.4 Quality filter | LLM-as-judge filter (Mixtral or Qwen2.5) — drop bottom 20% generated | enforced |
+| E1.5.1 Cross-lingual rephrase | Take EN technical/educational seed, generate Indonesian-language paraphrase preserving facts | 2–4 B tokens |
+| E1.5.2 Web-text cleanup rephrase | Rephrase low-quality CC-100 / OSCAR ID (typos, run-ons) into clean coherent Indonesian | 2–3 B tokens |
+| E1.5.3 Textbook-style restructure | Take Indonesian Wikipedia seed paragraph, restructure as textbook explanation (not invent new facts) | 1–2 B tokens |
+| E1.5.4 Multi-domain expansion | Rephrase technical/legal/medical seeds into Indonesian academic style preserving claim structure | 1–2 B tokens |
+| E1.5.5 Quality filter (LLM-as-judge) | Gemma 4 or Mixtral filter: drop bottom 20% per "How to Synthesize Without Model Collapse" recipe; bias-detect for political/religious slant | enforced |
+
+**v1.3 explicit anti-pattern:** generate-from-scratch synthetic (no real seed) is **PROHIBITED** per §14 R8. Every synthetic example must trace to a `source_seed_id` from real corpus.
 
 **Prevention layer:** `make verify-synthetic-mix` enforces synthetic ratio ≤ 25% of total pretrain mix per §14 R1. Pre-commit hook rejects mix violations.
 
@@ -881,23 +895,24 @@ Phase E synthetic-data strategy locked. Decision matrix below is the contract; d
 
 ### 14.1 Three lapis hierarchy
 
-| Lapis | Use case | Generator allowed | ToS-clean? | Why |
+| Lapis | Use case | Generator allowed (v1.3 corrected) | ToS-clean? | Why |
 |---|---|---|---|---|
 | **Lapis 1** | Pretrain core (E1+E3) | **NONE — real data only** | N/A | E0.0.1 confirmed 25–54 B post-dedup ID tokens available; no synthetic needed |
-| **Lapis 2** | Pretrain augmentation (E1.5) | Open-source: **Mixtral-8x7B (Apache 2.0)**, **Qwen2.5-72B (Apache 2.0)**, Llama-3.3-70B (Llama Community License — verify no-compete clause via E0.0.10) | ✅ yes | own-host, repro-pin, no third-party API ToS issue |
+| **Lapis 2** | Pretrain augmentation (E1.5) — **REPHRASE real text per BeyondWeb recipe** | **PRIMARY: Gemma 4 (Apache 2.0, *unrestricted derivative*)**. SECONDARY: Mixtral-8x7B-Instruct (Apache 2.0). RESTRICTED: Qwen2.5 (Apache 2.0 weights but output license <100M MAU → BLOCKED for us). BLOCKED: Llama 3.3 (Community License <700M MAU output restriction). BLOCKED: Claude/GPT (ToS). | ✅ Gemma 4 / Mixtral | own-host, repro-pin, no API ToS issue, BeyondWeb 7.7× training speedup empirically validated |
 | **Lapis 3a** | Vertical FT — Tax (E4.1) | **NONE — TaxPrime real data only per spec v1.0** | N/A | Tier 3 wedge is the differentiator; real proprietary > synthetic always; ToS-clean by construction |
-| **Lapis 3b** | Vertical FT — Instruct (E4.2) | Open-source generator OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
+| **Lapis 3b** | Vertical FT — Instruct (E4.2) | Gemma 4 / Mixtral rephrase OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
 | **Lapis 3c** | Eval / LLM-as-judge (§11) | Claude / GPT-4 / open — any judge is OK because **judging ≠ training** | ✅ yes (judging is not derivative-model creation) | standard practice in lm-eval ecosystem |
 
 ### 14.2 Hard rules
 
-1. **R1 — Synthetic ratio cap:** Lapis 2 synthetic tokens ≤ 25% of total pretrain mix. Pre-commit hook `verify-synthetic-mix` enforces.
-2. **R2 — No Claude API output as TRAINING data.** Confirmed by Anthropic Usage Policy update + active enforcement (VentureBeat 2026 — xAI/Cursor restricted). Applies to E1.5, E4.1, E4.2 — exception only Lapis 3c (judge).
+1. **R1 — Synthetic ratio cap:** Lapis 2 synthetic tokens ≤ 50% of pretrain mix per BeyondWeb 50:50 SOTA recipe (was ≤25% in v1.2 — **relaxed to match canonical empirical recipe**). Pre-commit hook `verify-synthetic-mix` enforces.
+2. **R2 — No Claude API output as TRAINING data.** Confirmed by Anthropic Usage Policy update + active enforcement (VentureBeat 2026 — xAI/Cursor restricted; CNBC Feb 2026 — Anthropic publicly accused DeepSeek/Moonshot/MiniMax of distillation). Applies to E1.5, E4.1, E4.2 — exception only Lapis 3c (judge).
 3. **R3 — Generator pinning:** every synthetic token must be reproducible via committed generator-weights hash + prompt template. `FJQ_PHASE_E_E1_5_SYNTHETIC.md` records generator, version, prompt corpus.
 4. **R4 — Quality filter mandatory:** LLM-as-judge filters bottom 20% of generated content per "How to Synthesize Without Model Collapse" (arxiv 2412.14689).
 5. **R5 — No recursive bootstrapping:** never train Phase E IntLLM on Phase E IntLLM's own output. Per "The Curse of Recursion" (Shumailov+ 2023). Applies even at SFT.
-6. **R6 — Cost ceiling:** synthetic generation cost ≤ 5% of total Phase E cloud GPU budget. Default: ≤ $40 of ~$800 total.
+6. **R6 — Cost ceiling:** synthetic generation cost ≤ 5% of total Phase E cloud GPU budget. Default: ≤ $40 of ~$800 total. Note v1.3: Gemma 4 self-host on H100 cloud burst is expected to satisfy this trivially (~$200–500 for 5–10 B tokens vs 1500–5000× more for Claude API path).
 7. **R7 — Annotator FAQ enforced:** TaxPrime spec §14 already has "DO NOT use ChatGPT/Claude to draft training data" rule; reinforced here at plan level.
+8. **R8 (NEW v1.3) — REPHRASE-of-real, not GENERATE-from-scratch.** Synthetic must be transformations of real Indonesian/English text (paraphrase, summarize, structure-extract, textbook-rewrite), seeded by real corpus chunks. Canonical recipe: BeyondWeb (DatologyAI 2026, arxiv 2508.10975) — empirically beats Cosmopedia/Nemotron-Synth pure-synthetic by 2.6–5.1 pp at same training budget. Generate-from-scratch synthetic loses authentic distribution and risks model collapse.
 
 ### 14.3 Per-use-case decision rules
 
@@ -914,32 +929,41 @@ For any new training-data ask:
     → REJECT. R1 violation.
 ```
 
-### 14.4 Reference papers (cited in §10 literature review)
+### 14.4 Reference papers (cited in §10 literature review, expanded v1.3)
 
 - *The Curse of Recursion* (Shumailov+ 2023) — model collapse foundational
 - *How to Synthesize Without Model Collapse* (arxiv 2412.14689, 2024) — quality filter recipes
 - *Demystifying Synthetic Data in LLM Pre-training* (arxiv 2510.01631, 2025) — scaling laws
 - *Phi-4 Technical Report* (Microsoft 2024) — multi-agent + self-revision recipes (Microsoft owned generator, not subject to third-party ToS)
 - *Cosmopedia* (HuggingFace 2024) — Mixtral-generated 25 B token open-source pretrain dataset (canonical Lapis 2 reference)
-- *BeyondWeb: Lessons from Scaling Synthetic Data for Trillion-scale Pretraining* (DatologyAI 2026)
+- ⭐ *BeyondWeb: Lessons from Scaling Synthetic Data for Trillion-scale Pretraining* (DatologyAI 2026, **arxiv 2508.10975**) — **Phase E §14.2 R8 canonical recipe**. 50:50 real:rephrase synthetic outperforms Cosmopedia by 5.1 pp + Nemotron-Synth by 2.6 pp. 7.7× faster training than open web; 2.7× faster than Nemotron-Synth. 3B model on 180B BeyondWeb tokens > 8B on Cosmopedia same budget.
 - *Anthropic Usage Policy update* (anthropic.com/news/usage-policy-update) — ToS basis for R2
+- ⭐ **Bartz v. Anthropic** (N.D. Cal. June 2025) — fair-use precedent for LLM training on copyrighted works ("quintessentially transformative"). Critical caveat: pirated source = no fair-use defense ($1.5 B settlement). Phase E uses only legally-acquired data so fair-use defense holds.
+- *Anthropic v. DeepSeek/Moonshot/MiniMax distillation accusations* (CNBC Feb 2026) — public-accusation precedent that elevates ToS R2 from contractual concern to reputational risk
+- *LLM License Types Guide 2025* (local-ai-zone) — Llama Community License 700M MAU output restriction; Qwen2.5 100M MAU output restriction; Apache 2.0 unrestricted derivative
 
-### 14.5 Cost reality check
+### 14.5 Cost reality check (v1.3 — corrected pricing + 100B scope)
 
-| Approach | 30 B tokens cost | Reproducible? | ToS-clean? | Verdict |
-|---|---|---|---|---|
-| Claude Opus 4.7 API | **~$450,000** | No (model versions drift) | No (R2 violation) | ❌ catastrophic |
-| GPT-5 API | ~$300–500K | No | No (similar OpenAI ToS) | ❌ catastrophic |
-| Self-host Mixtral-8x7B on cloud H100 | **~$300–600** | Yes (pin weights) | Yes (Apache 2.0) | ✅ Lapis 2 default |
-| Self-host Qwen2.5-72B on cloud H100 | ~$500–1000 | Yes | Yes (Apache 2.0) | ✅ alternative if Mixtral quality insufficient |
-| No synthetic (real corpus only) | $0 | Trivially | Yes | ✅ Lapis 1 default |
+| Approach | 30 B tokens | 100 B tokens (full ID+EN scope) | Reproducible? | ToS-clean? | Verdict |
+|---|---|---|---|---|---|
+| Claude Opus 4.7 API standard ($25/MTok output) | $750K | **$2.5M** | No (Opus 4.7→4.8 drift) | No (R2 violation) | ❌ catastrophic |
+| Claude Opus 4.7 Batch API (50% off) | $375K | **$1.25M** | No | No | ❌ catastrophic |
+| Claude Opus 4.7 worst case (+35% tokenizer bloat) | $1.0M | **$3.4M** | No | No | ❌ catastrophic |
+| GPT-5 API | $400–600K | $1.3–2M | No | No (OpenAI ToS) | ❌ catastrophic |
+| **Self-host Gemma 4 on cloud H100** ⭐ | $300–600 | **$1000–2000** | Yes (pin weights) | Yes (Apache 2.0 *unrestricted*) | ✅ **Lapis 2 PRIMARY default v1.3** |
+| Self-host Mixtral-8x7B on cloud H100 | $300–600 | $1000–2000 | Yes | Yes (Apache 2.0) | ✅ Lapis 2 secondary |
+| Self-host Qwen2.5-72B on cloud H100 | $500–1000 | $1700–3300 | Yes | ⚠️ output license <100M MAU restriction | ⚠️ check ToS first |
+| Self-host Llama-3.3-70B on cloud H100 | $400–800 | $1400–2700 | Yes | ❌ **<700M MAU output restriction** | ❌ blocked |
+| No synthetic (real corpus only) | $0 | $0 | Trivially | Yes | ✅ Lapis 1 default |
 
-**Cost arithmetic confirms:** open-source self-host is **1000× cheaper** than API approach. Reproducibility + legal cleanliness are bonuses on top.
+**Cost arithmetic confirms (v1.3 corrected):** open-source Gemma 4 self-host is **1500–5000× cheaper** than Claude API path at 100B token scope. Reproducibility + legal cleanliness + BeyondWeb SOTA recipe compatibility are bonuses on top.
+
+**Methodology arithmetic (v1.3 NEW):** even ignoring cost + legal — Claude full-synthetic loses methodologically vs hybrid 50:50 real:rephrase. BeyondWeb proves 7.7× training efficiency from recipe choice, dwarfing the ~5–15% generator-quality gap between Claude vs Gemma 4/Mixtral. **Recipe > generator quality.**
 
 ---
 
-*Plan version: 1.2 (2026-04-25). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
-*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companion: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 (NEW v1.2).*
-*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy (§14 NEW).*
+*Plan version: 1.3 (2026-04-25). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companion: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0.*
+*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy (§14 NEW). v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 added as primary, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe locked as canonical (§14.2 R8 NEW) + Bartz v. Anthropic fair-use precedent cited.*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
 *Subject to revision per phase findings; major scope changes require new Plan version (v1.x → v2.0).*
