@@ -21,7 +21,12 @@
 #   4. Update paper §4.1 reproducibility footnote + rerun
 #      scripts/verify_intllm_tables.py --strict.
 
-repo: EleutherAI/lm-evaluation-harness
-ref:  v0.4.11
-note: tag pinned (not SHA); a future commit will replace `ref:` with the
-      full 40-char SHA once a real benchmark run resolves it in CI.
+repo:    EleutherAI/lm-evaluation-harness
+ref:     27988a293647d5853e48edea291640b4af54740c
+tag:     v0.4.11
+date:    2026-02-13T20:21:47Z
+authors: baberabb (release author)
+note:    Full 40-char commit SHA pinned (Phase E E0.0.5 update 2026-04-25).
+         Resolved via api.github.com/repos/EleutherAI/lm-evaluation-harness/git/refs/tags/v0.4.11.
+         Phase D V31.C.P9 / V31.C.P10 / V31.C.P3.4 sweep results (BitNet ✅, MMfreeLM-370M ✅)
+         all generated against this exact ref.
