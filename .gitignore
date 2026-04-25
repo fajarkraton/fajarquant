@@ -39,6 +39,13 @@ data/kv_cache/*_dryrun/prompt_*/
 data/kv_cache/*_dryrun/stats.json
 data/kv_cache/dryrun_*/
 
+# Phase E E1.1 — Indonesian corpus raw shards (large, regeneratable via
+# python/phase_e/scripts/build_id_corpus.py; future: hash-pinned via DVC).
+# Per-source manifest JSONs (small) ARE kept so corpus stats stay
+# verifiable from the repo without re-running the download.
+data/phase_e/corpus_id/**/shard_*.parquet
+data/phase_e/corpus_id/**/shard_*.parquet.tmp
+
 # Local HF token (defensive — should live in $HOME, never in repo)
 .huggingface_env
 
