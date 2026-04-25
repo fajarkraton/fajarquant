@@ -1,0 +1,14 @@
+{
+  "source": "Wikipedia Indonesian",
+  "started_at": "2026-04-25T18:28:34+00:00",
+  "finished_at": "2026-04-25T18:32:02+00:00",
+  "elapsed_s": 207.407,
+  "num_docs_written": 665621,
+  "num_docs_skipped_empty": 1,
+  "bytes_written_text": 1061685858,
+  "bytes_written_parquet": 383750173,
+  "num_shards": 4,
+  "schema_sample": null,
+  "dry_run": false,
+  "error": null
+}
