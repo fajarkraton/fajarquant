@@ -1,0 +1,41 @@
+{
+  "_phase": "FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md §3 E0.0.3",
+  "_plan_ref": "§2 Q3 tokenizer compression decision",
+  "_threshold_custom_24k_trigger": 4.0,
+  "_threshold_efficient": 3.5,
+  "_generated_at": "2026-04-25T16:13:58.275792+00:00",
+  "tokenizer_name": "mistralai/Mistral-7B-v0.3",
+  "tokenizer_vocab_size": 32768,
+  "n_articles": 1000,
+  "per_language": {
+    "Indonesian": {
+      "articles_count": 1000,
+      "measurement": {
+        "n_chars": 10242886,
+        "n_bytes": 10268396,
+        "n_words": 1378462,
+        "n_tokens": 4063491,
+        "bytes_per_token": 2.526988739485334,
+        "chars_per_token": 2.520710886279802,
+        "tokens_per_word": 2.947844046480788,
+        "tokenize_elapsed_s": 5.629,
+        "throughput_kchar_per_s": 1819.7
+      }
+    },
+    "English": {
+      "articles_count": 1000,
+      "measurement": {
+        "n_chars": 23087971,
+        "n_bytes": 23182235,
+        "n_words": 3635855,
+        "n_tokens": 6052942,
+        "bytes_per_token": 3.8299119667758257,
+        "chars_per_token": 3.8143387133066864,
+        "tokens_per_word": 1.6647919127687985,
+        "tokenize_elapsed_s": 14.547,
+        "throughput_kchar_per_s": 1587.1
+      }
+    }
+  },
+  "decision": "keep_mistral_v3_32k"
+}
