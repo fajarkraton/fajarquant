@@ -1,6 +1,18 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.4 (2026-04-25 v1.4 patch — E0 phase COMPLETE + laptop-only hardware + two-tier deployment scoping)
+> **Plan version:** 1.5 (2026-04-26 v1.5 patch — Claude as Lapis 2.5 quality filter + audit + meta-design role)
+>
+> **v1.4 → v1.5 changelog (2026-04-26):**
+> - **§14.1 Lapis 2.5 NEW** — Claude Opus 4.7 admitted as **quality filter + audit + meta-design** role for synthetic data pipeline. Categorically distinct from Lapis 2 generation (ToS-blocked) — Claude here judges/audits/designs, never produces training tokens.
+> - **§14.2 R2 expanded with explicit boundary clarification:** judging/filtering/auditing/prompt-design = OK; rewriting/expanding/translating/generating = NOT OK. Bright-line distinction added to plan-level hard rules.
+> - **§3 E1.5 sub-tasks restructured:**
+>   - E1.5.0 NEW: Claude-assisted BeyondWeb prompt-template engineering (meta-design — Claude doesn't see corpus, designs prompts only).
+>   - E1.5.5 updated: quality filter using Claude Opus 4.7 (was Gemma 4 self-filter; Claude expected ~5-15% better discrimination per Indonesian-fluency benchmarks).
+>   - E1.5.6 NEW: Claude audit pass on top-quality synthetic batch (5-10% sample for hallucination/bias/factual-error detection).
+> - **§14.5 cost reality check** updated with Claude filter cost row (~$50-100 for 5-10B token rating with prompt caching). Total Phase E synthetic-augmentation cost: ~$1050-2100 (Gemma 4 generation $1000-2000 + Claude filter $50-100).
+> - **§14.4 reference papers** add: ToS-clean precedent for LLM-as-judge usage in pretrain pipelines.
+>
+> **v1.3 → v1.4 changelog (2026-04-25 same-day patch):**
 >
 > **v1.3 → v1.4 changelog (2026-04-25 same-day patch):**
 > - 🎉 **Phase E E0 (pre-flight) phase: 100% CLOSED** — all 10 sub-tasks delivered with mechanical decision files. See §3 status updates per sub-task.
@@ -283,13 +295,15 @@ Per §14 synthetic-data hygiene + R8: add 5–10 B (up to 50% of pretrain mix pe
 
 **BeyondWeb-style rephrase strategies (canonical recipe per arxiv 2508.10975):**
 
-| Task | Description (each is REPHRASE of real seed text) | Volume target |
-|---|---|---|
-| E1.5.1 Cross-lingual rephrase | Take EN technical/educational seed, generate Indonesian-language paraphrase preserving facts | 2–4 B tokens |
-| E1.5.2 Web-text cleanup rephrase | Rephrase low-quality CC-100 / OSCAR ID (typos, run-ons) into clean coherent Indonesian | 2–3 B tokens |
-| E1.5.3 Textbook-style restructure | Take Indonesian Wikipedia seed paragraph, restructure as textbook explanation (not invent new facts) | 1–2 B tokens |
-| E1.5.4 Multi-domain expansion | Rephrase technical/legal/medical seeds into Indonesian academic style preserving claim structure | 1–2 B tokens |
-| E1.5.5 Quality filter (LLM-as-judge) | Gemma 4 or Mixtral filter: drop bottom 20% per "How to Synthesize Without Model Collapse" recipe; bias-detect for political/religious slant | enforced |
+| Task | Description | Volume target | Tool |
+|---|---|---|---|
+| E1.5.0 **(NEW v1.5)** Prompt-template engineering | **Claude Opus 4.7** designs the rephrase prompt templates for each task below (E1.5.1-4). Claude reads NO corpus chunks, only writes prompt template strings. Claude tokens never enter training. | one-shot design (~5K input, 5K output, ~$0.10) | Claude Opus 4.7 (Lapis 2.5 meta-design role) |
+| E1.5.1 Cross-lingual rephrase | Take EN technical/educational seed, generate Indonesian-language paraphrase preserving facts | 2–4 B tokens | **Gemma 4** (Lapis 2 generator) |
+| E1.5.2 Web-text cleanup rephrase | Rephrase low-quality CC-100 / OSCAR ID (typos, run-ons) into clean coherent Indonesian | 2–3 B tokens | Gemma 4 |
+| E1.5.3 Textbook-style restructure | Take Indonesian Wikipedia seed paragraph, restructure as textbook explanation (not invent new facts) | 1–2 B tokens | Gemma 4 |
+| E1.5.4 Multi-domain expansion | Rephrase technical/legal/medical seeds into Indonesian academic style preserving claim structure | 1–2 B tokens | Gemma 4 |
+| E1.5.5 **(UPDATED v1.5)** Quality filter (LLM-as-judge) | **Claude Opus 4.7** rates each Gemma 4 output 1-10 on (fluency, factual-preservation, no-hallucination); drop bottom 20% per "How to Synthesize Without Model Collapse" recipe. Claude only outputs scores (~5 tokens per example), not new content. | enforced; ~$50-100 total (5-10B Gemma input × ~$5/MTok input + ~50 output tokens × $25/MTok = mostly input cost; prompt caching saves ~50%) | Claude Opus 4.7 (Lapis 2.5 filter role) |
+| E1.5.6 **(NEW v1.5)** Quality audit pass | **Claude Opus 4.7** reads 5-10% random sample of top-quality synthetic batch, flags hallucination / political slant / factual-error / bias / Indonesian dialect issues; outputs structured issue report (NOT modifications). | ~$10-20 (sample-only, output-flagging only) | Claude Opus 4.7 (Lapis 2.5 audit role) |
 
 **v1.3 explicit anti-pattern:** generate-from-scratch synthetic (no real seed) is **PROHIBITED** per §14 R8. Every synthetic example must trace to a `source_seed_id` from real corpus.
 
@@ -931,12 +945,24 @@ Phase E synthetic-data strategy locked. Decision matrix below is the contract; d
 | **Lapis 2** | Pretrain augmentation (E1.5) — **REPHRASE real text per BeyondWeb recipe** | **PRIMARY: Gemma 4 (Apache 2.0, *unrestricted derivative*)**. SECONDARY: Mixtral-8x7B-Instruct (Apache 2.0). RESTRICTED: Qwen2.5 (Apache 2.0 weights but output license <100M MAU → BLOCKED for us). BLOCKED: Llama 3.3 (Community License <700M MAU output restriction). BLOCKED: Claude/GPT (ToS). | ✅ Gemma 4 / Mixtral | own-host, repro-pin, no API ToS issue, BeyondWeb 7.7× training speedup empirically validated |
 | **Lapis 3a** | Vertical FT — Tax (E4.1) | **NONE — TaxPrime real data only per spec v1.0** | N/A | Tier 3 wedge is the differentiator; real proprietary > synthetic always; ToS-clean by construction |
 | **Lapis 3b** | Vertical FT — Instruct (E4.2) | Gemma 4 / Mixtral rephrase OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
+| **Lapis 2.5 (NEW v1.5)** | Synthetic-data pipeline support: filter / audit / meta-design (E1.5.0 + E1.5.5 + E1.5.6) | **Claude Opus 4.7 ALLOWED** for: (a) quality filter — rate Gemma 4 output drop bottom-N%, (b) bias/hallucination audit — read sample, flag issues, (c) prompt-template engineering — design BeyondWeb rephrase prompts. **NEVER** generate, rewrite, expand, translate, or otherwise contribute tokens that enter training corpus. | ✅ yes — categorically judging/auditing/meta-design, NOT training-data creation | Claude likely +5-15% better Indonesian-fluency discrimination than Gemma 4 self-filter; ToS-clean per "judging ≠ training" principle |
 | **Lapis 3c** | Eval / LLM-as-judge (§11) | Claude / GPT-4 / open — any judge is OK because **judging ≠ training** | ✅ yes (judging is not derivative-model creation) | standard practice in lm-eval ecosystem |
 
 ### 14.2 Hard rules
 
 1. **R1 — Synthetic ratio cap:** Lapis 2 synthetic tokens ≤ 50% of pretrain mix per BeyondWeb 50:50 SOTA recipe (was ≤25% in v1.2 — **relaxed to match canonical empirical recipe**). Pre-commit hook `verify-synthetic-mix` enforces.
-2. **R2 — No Claude API output as TRAINING data.** Confirmed by Anthropic Usage Policy update + active enforcement (VentureBeat 2026 — xAI/Cursor restricted; CNBC Feb 2026 — Anthropic publicly accused DeepSeek/Moonshot/MiniMax of distillation). Applies to E1.5, E4.1, E4.2 — exception only Lapis 3c (judge).
+2. **R2 — No Claude API output as TRAINING data.** Confirmed by Anthropic Usage Policy update + active enforcement (VentureBeat 2026 — xAI/Cursor restricted; CNBC Feb 2026 — Anthropic publicly accused DeepSeek/Moonshot/MiniMax of distillation). Applies to E1.5, E4.1, E4.2 — exceptions: Lapis 2.5 (filter/audit/meta-design — NEW v1.5) and Lapis 3c (judge — original).
+   - **R2 bright-line clarification (NEW v1.5):**
+     - ✅ **Judging** Gemma 4 output (rate, score, classify, drop low-quality) — Claude OK
+     - ✅ **Auditing** synthetic batch for hallucination/bias/factual-error — Claude OK (read-only role)
+     - ✅ **Meta-designing** prompt templates that Gemma 4 then executes (Claude doesn't see/produce training tokens) — Claude OK
+     - ❌ **Generating** synthetic from scratch — Claude BLOCKED
+     - ❌ **Rewriting/improving/expanding** Gemma 4 output (Claude tokens enter training via backdoor) — Claude BLOCKED
+     - ❌ **Translating** corpus chunks (translation = generation) — Claude BLOCKED
+     - ❌ **Distillation** (Claude as teacher for IntLLM) — Claude BLOCKED
+     - ⚠️ **Soft training signal via assigned scores baked into weights** — AVOID (gray zone; treat as blocked)
+     - ⚠️ **Hybrid output partial-Claude-partial-Gemma** — AVOID (fraction of Claude tokens enter training)
+   - Operational test: *"Does any Claude-API token ID end up directly in IntLLM's training data, or as a label/loss target derived from Claude content?"* If YES → BLOCKED. If NO → allowed.
 3. **R3 — Generator pinning:** every synthetic token must be reproducible via committed generator-weights hash + prompt template. `FJQ_PHASE_E_E1_5_SYNTHETIC.md` records generator, version, prompt corpus.
 4. **R4 — Quality filter mandatory:** LLM-as-judge filters bottom 20% of generated content per "How to Synthesize Without Model Collapse" (arxiv 2412.14689).
 5. **R5 — No recursive bootstrapping:** never train Phase E IntLLM on Phase E IntLLM's own output. Per "The Curse of Recursion" (Shumailov+ 2023). Applies even at SFT.
@@ -988,11 +1014,23 @@ For any new training-data ask:
 
 **Cost arithmetic confirms (v1.3 corrected):** open-source Gemma 4 self-host is **1500–5000× cheaper** than Claude API path at 100B token scope. Reproducibility + legal cleanliness + BeyondWeb SOTA recipe compatibility are bonuses on top.
 
+### 14.5.1 Claude as quality filter / audit (NEW v1.5 — Lapis 2.5)
+
+| Use case | Claude API cost (5-10 B Gemma 4 token batch) | Notes |
+|---|---|---|
+| **E1.5.0 prompt-template design** (Claude one-shot) | ~$0.10 | tiny; Claude reads no corpus, writes 4-6 prompt templates |
+| **E1.5.5 quality filter** (Claude rates Gemma 4 output 1-10) | **~$50-100** | mostly Claude INPUT cost ($5/MTok × 5-10B = $25-50); short-output scores; prompt caching saves ~50% on identical rubric |
+| **E1.5.6 audit pass** (Claude reads 5-10% sample, flags issues) | **~$10-20** | sample-only; structured issue report output |
+| **TOTAL Lapis 2.5 Claude cost** | **~$60-120** | added to Lapis 2 Gemma 4 generation cost |
+| **Combined Phase E synthetic-augmentation cost** | **~$1,060-2,120** | Gemma 4 generation (~$1000-2000) + Claude filter+audit (~$60-120) |
+
+Still **dramatically cheaper** than full-Claude-synthetic path ($1.25-3.4M). Claude as filter/audit/meta-design adds quality discrimination edge AT cost of $60-120 (rounding error vs $0 budget).
+
 **Methodology arithmetic (v1.3 NEW):** even ignoring cost + legal — Claude full-synthetic loses methodologically vs hybrid 50:50 real:rephrase. BeyondWeb proves 7.7× training efficiency from recipe choice, dwarfing the ~5–15% generator-quality gap between Claude vs Gemma 4/Mixtral. **Recipe > generator quality.**
 
 ---
 
-*Plan version: 1.4 (2026-04-25/26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Plan version: 1.5 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 + 10 E0 decision docs.*
 *v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 PRIMARY, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe + Bartz v. Anthropic fair-use precedent. v1.3→v1.4: 🎉 **Phase E E0 (pre-flight) phase 100% COMPLETE — all 10 sub-tasks delivered single-session 2026-04-25.** Hardware decision = laptop-only RTX 4090 (no cloud cost; +6-8 weeks calendar). Stretch replan = option (C) reduced 1.5B × 15B. Two-tier deployment scoping (Tier A paper + Tier B1 commercial-clean + Tier C ID-market carve-out).*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
