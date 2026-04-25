@@ -1,11 +1,21 @@
 # TaxPrime Dataset Specification — Phase E Tier 3 Vertical Wedge
 
-> **Spec version:** 1.0 (2026-04-25)
-> **Audience:** TaxPrime knowledge team + domain experts (Sr. tax consultants)
-> **Authoring lead:** Fajar (TaxPrime founder + FajarQuant author)
-> **Implementation lead:** TBD per TaxPrime team
-> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.1 §3 E4.1 + §11
-> **Repo location for final dataset:** `~/Documents/fajarquant/data/tax_id_corpus_v1/` (DVC- or HF-Datasets-pinned)
+> **Spec version:** 1.1 (2026-04-26 v1.1 patch — solo execution mode per plan v1.6 Option A)
+> **Audience:** Fajar (founder, sole executor) — no TaxPrime team available
+> **Implementation lead:** Fajar (founder, single-rater)
+> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` **v1.6** §3 E4.1 + §11
+> **Repo location for final dataset:** `~/Documents/fajarquant/data/tax_id_corpus_v1/` (DVC-pinned per E0.0.8)
+>
+> **v1.0 → v1.1 changelog (2026-04-26):**
+> - **Solo execution mode adopted** per founder confirmation 2026-04-26 ("saya mengerjakan sendiri, tidak ada tim taxprime"). Plan v1.6 Option A scope-down.
+> - **Eval set volume reduced:** 500 prompts → **100-200 prompts**
+> - **Training corpus reduced:** 5K-50K examples → **1K-5K examples**
+> - **Methodology shift §1+§11.2:** double-rater Cohen κ ≥ 0.7 → **single-rater + self-consistency calibration runs** (rate same example 3× over 1-week intervals, expect ≥80% rating consistency)
+> - **External bias auditor: REMOVED.** Replaced with informal self-check + explicit paper transparency disclaimer
+> - **§14 FAQ expanded** with solo-execution Q&A
+> - **§12 effort estimate revised:** 190-270 hours → **~150-200 hours solo** (reduced volume but no parallelism gain), realistic ~4-7 months at 10h/wk
+> - **§9 privacy/compliance:** external privacy counsel review still required (~Rp 5-10M) — only legal step that can't be self-served
+> - **Paper framing:** results section will state *"preliminary single-expert-rated evaluation; external multi-rater validation deferred to future work"*
 
 ---
 
@@ -26,20 +36,23 @@ This spec is the contract between TaxPrime knowledge team (data producers) and F
 
 ## 1. Two datasets, two methodologies (the most important distinction)
 
+### v1.1 SOLO EXECUTION TABLE (founder = sole rater)
+
 | Attribute | Training corpus (E4.1) | Evaluation set (§11) |
 |---|---|---|
-| **Volume target** | 5,000–50,000 examples | exactly 500 examples |
-| **Annotator count per example** | 1 (single-annotator OK) | 2 (double-rater MANDATORY) |
-| **IRR requirement** | none | Cohen's κ ≥ 0.7 |
-| **Quality target** | ≥80% factually correct (5% sample) | 100% (after IRR + adjudication) |
-| **Conflict resolution** | informal — discard ambiguous | formal 3rd-rater adjudication, logged |
+| **Volume target** | **1,000–5,000 examples** (was 5K-50K) | **100–200 examples** (was exactly 500) |
+| **Annotator count per example** | 1 (founder) | 1 (founder) — **single-rater + self-consistency** |
+| **IRR requirement** | none | **Self-consistency ≥ 80%** (rate same example 3× over 1-week intervals; expect ≥80% rating consistency on 4-dim scoring) |
+| **Quality target** | ≥80% factually correct (5% sample re-review by founder after 2-week interval) | 100% pass on self-consistency calibration; explicit paper disclaimer |
+| **Conflict resolution** | informal — discard ambiguous | informal — flag for re-annotation after 1-week cool-off, take majority of 3 self-ratings |
 | **Difficulty mix** | natural distribution | enforced 30% easy / 50% medium / 20% hard |
 | **PII sanitization** | mandatory (§6) | mandatory (§6) |
-| **Bias audit** | optional | required (light external auditor OK) |
-| **Annotator seniority** | mid+ tax consultant | senior tax consultant (3+ yrs) |
-| **Cost (rough estimate)** | 50–80 person-hours | 30–40 person-hours |
+| **Bias audit** | informal self-check | informal self-check (external auditor REMOVED v1.1) |
+| **Annotator seniority** | founder (TaxPrime founder, ITR World Tax "Highly Regarded" 2021-24) | same |
+| **Cost (rough estimate)** | ~80-120 founder-hours | ~50-80 founder-hours (incl. 3× self-consistency rating cycles) |
 | **Reusability** | training only — never used for eval | eval only — never used for training |
-| **Acceptance gate** | §13.1 | §13.2 |
+| **Acceptance gate** | §13.1 (v1.1 thresholds adjusted) | §13.2 (v1.1 thresholds adjusted) |
+| **Paper framing** | (training set not paper-disclosed in detail) | *"preliminary single-expert-rated evaluation; external multi-rater validation deferred to future Phase F"* |
 
 **Hard rule:** No example appears in both training and eval sets. Cross-contamination invalidates Phase E paper claims (§6.9 R6 violation).
 
@@ -308,54 +321,56 @@ data/tax_id_corpus_v1/
 - [ ] Privacy: senior partner sign-off in `AUDIT_LOG.md`
 - [ ] Source mix: matches §4 target percentages within ±5pp
 
-### 11.2 Evaluation set acceptance (stricter)
+### 11.2 Evaluation set acceptance (v1.1 — solo single-rater mode)
 
-- [ ] Total examples: exactly 500 ±5
+- [ ] Total examples: **100-200 ±10** (was 500 ±5)
 - [ ] Schema validation passes for 100%
 - [ ] PII automated check `--strict` exit 0
-- [ ] Double-rated: 100% of examples have 2 rater labels
-- [ ] Cohen's κ overall ≥ 0.7
-- [ ] Per-category κ ≥ 0.6 (some flexibility)
-- [ ] All conflicts adjudicated; adjudication log committed
-- [ ] Difficulty distribution: 30% L1-2, 50% L3, 20% L4-5 (within ±3pp)
+- [ ] **Single-rater + self-consistency calibration** (was double-rater): every example rated 3× by founder over 1-week intervals; ≥80% rating consistency on 4-dim scoring
+- [ ] **Self-consistency rate ≥ 80%** (was Cohen κ ≥ 0.7)
+- [ ] Per-category self-consistency ≥ 75% (was κ ≥ 0.6)
+- [ ] Inconsistency resolution: examples with <80% self-consistency over 3 rounds → flag for 1-week cool-off then re-annotate; take majority of latest 3 ratings
+- [ ] Difficulty distribution: 30% L1-2, 50% L3, 20% L4-5 (within ±5pp — looser given smaller N)
 - [ ] Bilingual mix matches §7 (within ±5pp)
-- [ ] Bias audit: `BIAS_AUDIT.md` committed; no category >20% or <2%
-- [ ] External light audit: 50 random examples reviewed; <5 issues flagged
+- [ ] **Bias audit: informal self-check** (external auditor REMOVED v1.1); founder reviews category/industry/regional coverage; no category >25% or <2%
 - [ ] Cross-contamination: 0 examples appear in both `train.jsonl` and `eval.jsonl` (auto-checked via id + content hash)
+- [ ] **Paper transparency disclaimer drafted** for paper §4: explicit single-rater + self-consistency methodology + future-work note
 
 ---
 
 ## 12. Estimated effort
 
-### 12.1 Person-hours
+### 12.1 Person-hours (v1.1 SOLO MODE)
 
 | Task | Hours | Owner |
 |---|---|---|
-| Spec walkthrough + annotator training | 8h | TaxPrime methodology lead + 2-3 annotators |
-| Calibration pass (each annotator) | 4h × N annotators | annotators |
-| Source curation (training corpus) | 30–50h | TaxPrime knowledge team |
-| Sanitization (training corpus) | 20–30h | sanitization specialist |
-| Annotation (training, ~10K examples) | 50–80h | annotators (mid+ tax consultants) |
-| Annotation (eval, 500 examples × 2 raters) | 30–40h | senior tax consultants |
-| IRR computation + conflict adjudication | 10h | methodology lead + senior partner |
-| QC + privacy review | 20–30h | senior partner + in-house counsel |
-| Bias audit + external review | 10h | methodology lead + external auditor |
-| Final commit + version-tag + handoff | 5h | technical lead |
-| **Total** | **~190–270h** | TaxPrime team |
+| Spec walkthrough + self-calibration | 4h | founder |
+| Source curation (training corpus, smaller scope 1K-5K examples) | 20–30h | founder |
+| Sanitization (training corpus + eval set) | 15–20h | founder |
+| Annotation (training, ~3K examples) | 30–50h | founder (single-rater) |
+| Annotation (eval, 100-200 examples × 3 self-rounds 1-wk apart) | 30–50h | founder (3× self-rating cycles + cool-off) |
+| Self-consistency computation + inconsistency resolution | 5h | founder |
+| QC + privacy redaction | 10–15h | founder |
+| Informal self bias-check | 3h | founder |
+| External privacy counsel review (only outsourced step) | 5h liaison | founder + external counsel |
+| Final commit + version-tag | 3h | founder |
+| **Total v1.1 solo** | **~125–185h** | founder |
+| (v1.0 with-team estimate was ~190-270h across multiple people) | | |
 
-### 12.2 Calendar time
+### 12.2 Calendar time (v1.1 SOLO REALISTIC)
 
-- Realistic part-time pace: 6–10 weeks
-- Crunch full-time (3–4 dedicated people): 3–4 weeks
-- **Phase E plan §4 budgeted E0.0.2 + E1.3 + E4.0 combined ≈ 4 weeks for TaxPrime data path.** Fits the 6–10 week realistic envelope if started early in Phase E0.
+- Realistic part-time pace at ~10h/wk: **~4-7 months (16-28 weeks)**
+- Crunch full-time founder (no day-job): ~3-5 weeks (impractical given TaxPrime business + Phase E engineering)
+- **Phase E plan v1.6 §4 budgets E1.3 + E4.0 + E4.1 combined ≈ 11 weeks** (Wk 38-48) for solo Tier 3 data path
+- Self-consistency cycles introduce **mandatory 2-week minimum elapsed time** (3 rating rounds 1-wk apart)
 
-### 12.3 Cost estimates (rough, per-Indonesian-market rates)
+### 12.3 Cost estimates (v1.1 SOLO — drastically reduced)
 
-- Senior tax consultant time: ~Rp 500K–1M / hour (consulting rate); but for internal effort, opportunity cost ~Rp 200K–400K / hour
-- External privacy counsel: ~Rp 5–15M one-shot review
-- External light auditor (academic): ~Rp 15–25M one-shot
-- **Total external cost: ~Rp 20–40M (~ USD 1300–2600)**
-- **Internal opportunity cost: ~190h × Rp 300K/h = ~Rp 57M (~USD 3700)**
+- Founder time: opportunity cost only (no marginal cash) ~Rp 500K-1M/h × 150h = **Rp 75-150M (~USD 5,000-10,000) opportunity cost** but no out-of-pocket
+- **External privacy counsel: ~Rp 5-10M one-shot** (~USD 300-700) — only mandatory cash expense
+- **External bias auditor: REMOVED v1.1** (saved ~Rp 15-25M)
+- **Total external cash cost v1.1: ~USD 300-700** (was ~USD 1,300-2,600 in v1.0)
+- Realistic cash budget impact: drops from ~$3-4K to ~$300-700
 
 ---
 
@@ -393,12 +408,33 @@ A: Mark `pii_status: "blocked"` and don't include. Better to skip than include u
 **Q: Can I use ChatGPT / Claude to draft answers and then edit?**
 A: **NO.** Per Phase E synthetic-data policy + Anthropic ToS concerns, do NOT use third-party LLM tools to draft training data. Use only your own expertise + reference materials. (Exception: Claude / GPT may be used as DICTIONARY / TRANSLATION reference, not as drafter.)
 
+### v1.1 Solo execution Q&A (NEW)
+
+**Q: How does single-rater self-consistency replace double-rater Cohen κ?**
+A: Founder rates each eval-set example 3× over 1-week intervals (week 1, week 2, week 3). For each 4-dim score (fluency / factual / no-hallucination / no-slant), consistency is measured: |max - min| ≤ 2 on 1-10 scale = consistent. Aggregate: ≥80% of examples must be consistent on all 4 dimensions. Calibrates against rater-fatigue + within-rater drift.
+
+**Q: Why 1-week intervals?**
+A: To break short-term recall — founder shouldn't remember exact prior rating. Long enough for context-shift, short enough to keep the project moving.
+
+**Q: What if my self-consistency rate is < 80%?**
+A: Indicates rubric ambiguity OR personal rating instability. Refine §6 difficulty rubric with concrete examples; optionally add 4th rating round; if still <80%, flag for rubric revision rather than discarding the example.
+
+**Q: Is single-rater paper-publishable?**
+A: Yes, with explicit transparency: paper §4 Methodology must state *"single-expert rated due to solo execution constraint; external multi-rater validation deferred to Phase F future work."* Reviewers may discount but won't reject — single-rater is acceptable for preliminary domain-specific evaluation, common in resource-constrained Indonesian NLP work (cf. Cendol arxiv 2404.06138 single-team evaluation).
+
+**Q: What if pass@1 < 65% target post-FT?**
+A: Per plan v1.6 §1 item 4 + §5 E4 FAIL path: if pass@1 < 50% absolute → ABORT (Phase E ships bilingual without tax-vertical, or Phase F redo with hire); 50-64% → ship as "preliminary" with caveats. Threshold is calibrated post-baseline E4.0 anyway.
+
+**Q: Bandwidth concerns — TaxPrime business + Phase E engineering + Tier 3 — can I really do this in ~13.5 months?**
+A: Honest answer: maybe, with discipline. Plan v1.6 §6 risk register flags "founder bandwidth burnout" at Med/High. Mitigation: explicit decision-point reviews at end of E1, E2, E3, E4 — re-scope or pivot to Phase F deferral if month-on-month progress slips. Cloud burst rescue path also remains open ($300-500) if elapsed time becomes unworkable.
+
 **Q: How do I handle outdated regulations (UU 36/2008 superseded by UU 7/2021 HPP)?**
 A: Include both old and new where relevant. Use `tax_period_relevance` to mark validity windows. The model needs to know how rules evolved (court cases referencing old rules + new rules).
 
 ---
 
-*Spec version: 1.0 (2026-04-25). Author: Claude Opus 4.7 + Fajar (TaxPrime / PrimeCore.id).*
+*Spec version: 1.1 (2026-04-26). Author: Claude Opus 4.7 + Fajar (TaxPrime / PrimeCore.id).*
+*v1.0 → v1.1 patch: solo execution mode per plan v1.6 Option A — eval set 500→100-200, training 5K-50K→1K-5K, double-rater κ→single-rater self-consistency ≥80%, external auditor removed, calendar 6-10 wk team→4-7 mo solo, cash cost $1.3-2.6K→$300-700.*
 *Dataset deliverable: `data/tax_id_corpus_v1/` to be produced by TaxPrime knowledge team.*
 *Phase E gate dependency: E1.3 + E4.1 + §11. Dataset acceptance unblocks vertical FT training and pass@1 evaluation.*
 *This spec is the contract between TaxPrime data producers and FajarQuant Phase E plan. Modifications require version bump (v1.x → v1.y or v2.0) and re-acceptance per §11.*

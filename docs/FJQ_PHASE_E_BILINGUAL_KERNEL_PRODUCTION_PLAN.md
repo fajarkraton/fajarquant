@@ -1,6 +1,22 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.5 (2026-04-26 v1.5 patch — Claude as Lapis 2.5 quality filter + audit + meta-design role)
+> **Plan version:** 1.6 (2026-04-26 v1.6 patch — solo execution mode: scope-down Tier 3 + extended calendar)
+>
+> **v1.5 → v1.6 changelog (2026-04-26 same-day):**
+> - **Reality update:** founder confirmed solo execution — no TaxPrime team available for parallel dataset assembly. All 190-270 person-hours of Tier 3 work fall on the founder alongside engineering + day-job.
+> - **Tier 3 (tax-vertical) SCOPE-DOWN per Option A** (strategic decision 2026-04-26):
+>   - Eval set: 500 prompts → **100-200 prompts**
+>   - Training corpus: 5K-50K examples → **1K-5K examples**
+>   - Methodology: double-rater Cohen κ ≥ 0.7 → **single-rater + self-consistency calibration runs**
+>   - External bias auditor: removed (informal self-check)
+>   - Paper transparency: claims framed as *"preliminary single-expert-rated evaluation"*
+> - **§11 reference now points to TaxPrime spec v1.1** (solo-execution methodology — companion patch).
+> - **§4 calendar EXTENDED:** 34 weeks (with-team assumption) → **~52-65 weeks (12-15 months solo, 10h/week realistic)** — accommodates founder bandwidth across engineering + Tier 3 + day-job.
+> - **§6 risk register:** "TaxPrime team unavailable" RESOLVED via solo-mode adopt; **"founder bandwidth burnout"** added (Med likelihood, High impact); **"single-rater eval validity"** added (Med likelihood, Med impact, mitigation = explicit paper transparency + self-consistency calibration).
+> - **§1 item 4** updated with solo-rater caveat: pass@1 ≥ 65% target retained but flagged "preliminary" until external validation in future Phase F.
+> - **§13 serving target validation** unaffected (kernel-path tests still solo-runnable on laptop).
+>
+> **v1.4 → v1.5 changelog (2026-04-26):**
 >
 > **v1.4 → v1.5 changelog (2026-04-26):**
 > - **§14.1 Lapis 2.5 NEW** — Claude Opus 4.7 admitted as **quality filter + audit + meta-design** role for synthetic data pipeline. Categorically distinct from Lapis 2 generation (ToS-blocked) — Claude here judges/audits/designs, never produces training tokens.
@@ -93,7 +109,7 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
    - Pin: lm-eval `0.4.11` (full 40-char SHA recorded in `eval/HARNESS_SHA` per Phase D pattern)
 2. **English eval parity (canonical, same harness SHA):** MMLU (5-shot), HellaSwag, ARC-easy/challenge, PIQA, WinoGrande, BoolQ, OpenBookQA, lambada_openai, wikitext, triviaqa.
 3. **Bilingual coherence gate:** ID and EN perplexity at Medium scale **within 1.3× of each other** (looser than v1.0's 1.2× because Indonesian web text noisier; calibrated empirically post-E3.1 results, recorded in `FJQ_PHASE_E_E3_BILINGUAL_GATE_CALIBRATION.md`).
-4. **Vertical eval (tax/legal Indonesian):** ≥500-prompt gold-labeled eval set per **§11 methodology spec** (double-rater + IRR ≥0.7 Cohen's κ + bias audit). Pass@1 ≥ 65% target on tax-rule retrieval at Medium scale; threshold revisited post-E4.0 baseline.
+4. **Vertical eval (tax/legal Indonesian) — v1.6 SOLO MODE:** **100-200**-prompt gold-labeled eval set per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 (single-rater + self-consistency calibration; double-rater removed in solo-execution Option A). Pass@1 ≥ 65% target on tax-rule retrieval at Medium scale, framed in paper as *"preliminary single-expert-rated evaluation"*. Future Phase F may validate with external consultants if resources allow.
 5. **Canonical baselines re-run on bilingual axis:** BitNet-2B4T, MMfreeLM-1.3B/2.7B, SEA-LION-8B-IT, Sahabat-AI-8B-Llama3-CPT, Komodo-7B-Instruct (all on ID core set + EN canonical set + tax-vertical set, same harness SHA).
 
 ### B. Baseline parity (CLAUDE §6.9 R3)
@@ -547,19 +563,28 @@ Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual T
 
 ## 4. Timeline + effort rollup
 
-### v1.4 calendar (laptop-only, with reduced Stretch)
+### v1.6 calendar (solo execution — laptop-only, reduced Stretch, scoped-down Tier 3)
 
-| Phase | Calendar | Human (h) | GPU (h) | Cost | Gates |
+Realistic timeline for founder solo execution at ~10h/week part-time (engineering + Tier 3 + concurrent TaxPrime day-job).
+
+| Phase | Calendar (solo, ~10h/wk) | Human (h) | GPU (h) | Cost | Gates |
 |---|---|---|---|---|---|
-| E0 Pre-flight | ✅ DONE Week 1 (3.5h actual vs 15h est, -77% — single-session) | 3.5 | 0 | $0 | 10 decision docs ✅ |
-| E1 Bilingual data + Tier B1 fork | Weeks 2–4 | 30 | ~5 | ~$0 (laptop) | corpus + verify-bilingual-corpus |
-| E2 Algorithm catch-up | Weeks 5–9 | 20 | ~30–60 | ~$0 (laptop, +2 wk vs cloud parallel) | 5 ablation decision docs |
-| E3 Bilingual pretrain Mini/Base/Medium | Weeks 10–22 | 30 | ~70–150 | ~$0 (laptop, +4 wk sequential) | 3 scale gates + canonical bench |
-| E3.4 Reduced Stretch ~1.5B × 15B (option C) | Weeks 23–25 | 5 | ~50–100 | ~$0 (laptop) | gate <3.8 |
-| E4 Vertical fine-tune | Weeks 26–30 | 20 | ~30–60 | ~$0 (laptop) | tax pass@1 + expert sign-off |
-| E5 Kernel + paper + IP | Weeks 31–34 | 25 | ~5 | ~$0 (laptop) | 2 kernel-path gates + paper + releases |
-| **Total laptop-only** | **~34 weeks (~8 months) reduced Stretch** | **~133h** | **~190–380h on laptop** | **~$0 marginal** | **6 phase gates** |
-| **Alt total Medium-only** (defer Stretch) | ~28 weeks | ~128h | ~140–280h on laptop | ~$0 | 5 phase gates |
+| E0 Pre-flight | ✅ DONE Week 1 (3.5h actual, single-session) | 3.5 | 0 | $0 | 10 decision docs ✅ |
+| E1 Bilingual data + Tier B1 fork | Weeks 2–6 (~5 wk, +1 wk vs v1.5 — solo) | 30 | ~5 | $0 | corpus + verify-bilingual-corpus |
+| E2 Algorithm catch-up | Weeks 7–14 (~8 wk, +3 wk vs v1.5) | 25 | ~30–60 | $0 | 5 ablation decision docs |
+| E3 Bilingual pretrain Mini/Base/Medium | Weeks 15–32 (~18 wk, +5 wk vs v1.5 — solo bandwidth + multi-week training elapsed) | 35 | ~70–150 | $0 | 3 scale gates + canonical bench |
+| E3.4 Reduced Stretch ~1.5B × 15B | Weeks 33–37 (~5 wk) | 8 | ~50–100 | $0 | gate <3.8 |
+| **E4 Tax-vertical solo (scoped-down)** | Weeks 38–48 (~11 wk solo, was 5 wk team) | **40** (was 20) | ~30–60 | **~Rp 5-10M (~$300-700) external counsel privacy review only** | tax pass@1 + self-consistency calibration |
+| E5 Kernel + paper + IP | Weeks 49–58 (~10 wk, +6 wk vs v1.5 — solo paper writing) | 35 | ~5 | $0 | 2 kernel-path gates + paper + releases |
+| **Total v1.6 solo** | **~58 weeks (~13.5 months) realistic** | **~176.5h** | **~190–380h** | **~$300-700 (privacy counsel)** | **6 phase gates** |
+| **Alt scope-down further (Medium-only + skip Tier 3 entirely → Phase F)** | ~36 weeks (~8.5 months) | ~135h | ~140–280h | $0 | 5 phase gates |
+| **v1.5 with-team assumption (DEPRECATED)** | ~34 weeks | ~140h | ~220–430h | ~$420-820 | 6 phase gates |
+
+**v1.6 takeaway:** solo realistic = **13.5 months** vs v1.5 with-team **8 months**. +5.5 months reflects (a) +5 wk per major phase for solo bandwidth, (b) Tier 3 work fully on founder.
+
+> **§6.8 R5 surprise budget:** all estimates carry +25% default. Solo-mode entries carry +30% (single-point-of-execution risk). Realistic worst-case: ~17 months if day-job intensifies.
+
+> **Calendar elasticity:** if mid-flight resources allow (revenue → freelance consultant hire, or partner joins), can re-scope Tier 3 back to v1.5 double-rater methodology. Plan optionality preserved.
 
 > **§6.8 R5 surprise budget:** all estimates carry +25% default. E0 actual undershoot (-77%) due to single-session efficiency — won't generalize to GPU-bound phases.
 
@@ -602,6 +627,10 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 |---|---|---|---|
 | **Indonesian corpus quality insufficient** (Q1 returns < 10B usable tokens) | Medium | High (forces multi-lingual or English-heavy ratio) | E0.0.1 inventory done before E1 commitment; fallback = synthetic Indonesian via translation of English subset (LoRA-translate bridge) |
 | ~~**TaxPrime data not usable** (NDA / privacy block in E0.0.2)~~ ✅ **RESOLVED v1.2** | ~~Medium~~ | ~~Medium~~ | TaxPrime data ownership confirmed by founder; spec v1.0 committed; risk class downgraded |
+| ~~**TaxPrime team unavailable** (parallel work blocked)~~ ✅ **RESOLVED v1.6** | ~~Med~~ | ~~Med~~ | Founder solo-execution mode adopted; Tier 3 scoped-down per Option A; spec v1.1 |
+| **Founder bandwidth burnout** (NEW v1.6) | Medium | High (Phase E lock + day-job impact) | (1) Realistic 13.5-month calendar at 10h/wk; (2) Phase F deferral always-available pivot if month-on-month progress slips; (3) cloud burst rescue ($300-500) if elapsed time becomes blocker; (4) explicit decision-point review at end of E1, E2, E3, E4 — re-scope vs continue |
+| **Single-rater eval validity** (NEW v1.6 Option A) | Medium | Medium (paper claim weaker) | Self-consistency calibration runs (rate same example 3× over 1-week intervals, expect ≥80% rating consistency); paper transparently frames as "preliminary single-expert-rated"; explicit Phase F future-work note for external validation |
+| **Day-job conflict** (TaxPrime business demands during E3 multi-week training) | Medium | Medium | Track B 6-layer interruption-safety covers laptop suspend; sequential per-scale training allows pause-resume |
 | **Synthetic generator legal blocker** (E1.5 + E4.2) | Low–Medium | Medium | E0.0.10 review pre-emptive; fallback to most-permissive open-source generator (Qwen2.5 Apache 2.0) or no-synthetic |
 | **Anthropic ToS challenge** (regulator or Anthropic claims dataset uses Claude output) | Low | High (could force model retraction) | §14 explicit policy + annotator FAQ in TaxPrime spec §14 + monthly literature sweep monitors enforcement actions |
 | **Bilingual catastrophic interference at ternary precision** (Phase E3 Mini fails coherence gate) | Medium | High | E2.4 combined ablation includes bilingual mini run; if interference shows, add language-conditioned LayerNorm or per-language adapter |
@@ -1030,7 +1059,7 @@ Still **dramatically cheaper** than full-Claude-synthetic path ($1.25-3.4M). Cla
 
 ---
 
-*Plan version: 1.5 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Plan version: 1.6 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 + 10 E0 decision docs.*
 *v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 PRIMARY, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe + Bartz v. Anthropic fair-use precedent. v1.3→v1.4: 🎉 **Phase E E0 (pre-flight) phase 100% COMPLETE — all 10 sub-tasks delivered single-session 2026-04-25.** Hardware decision = laptop-only RTX 4090 (no cloud cost; +6-8 weeks calendar). Stretch replan = option (C) reduced 1.5B × 15B. Two-tier deployment scoping (Tier A paper + Tier B1 commercial-clean + Tier C ID-market carve-out).*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
