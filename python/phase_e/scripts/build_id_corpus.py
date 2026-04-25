@@ -51,9 +51,26 @@ class SourceSpec:
 
 
 # Registry — add a new SourceSpec entry per E1.1.x sub-task.
-# Wikipedia ID lands first because it is smallest (~0.5-1B tokens, ~1-2 GB raw),
-# CC BY-SA licensed (commercial-clean), and high-quality curated reference text.
+# Plan §E1.1 token estimates from audit_id_corpora.py output (E0.0.1).
+# All HF dataset IDs verified `available` against HF probe at audit time
+# (E0.0.1 only confirms reachability of the HF Hub record, not download
+# accessibility — that is verified separately at E1.1.x dry-run time).
+#
+# E1.1.2 dry-run blocker status (2026-04-25, recorded in commit body):
+#   - wikipedia_id     ✅ schema PASS, downloaded in E1.1.1
+#   - fineweb_2_id     ✅ schema PASS, ready to run
+#   - cc100_id         ❌ HF removed Python script datasets (cc100.py)
+#                          → mirror at https://data.statmt.org/cc-100/ as raw HTTP
+#                            tarball; needs separate downloader (E1.1.3 future)
+#   - oscar_2301_id    ❌ HF-gated; user must accept terms at
+#                          https://huggingface.co/datasets/oscar-corpus/OSCAR-2301
+#   - culturax_id      ❌ HF-gated; user must accept terms at
+#                          https://huggingface.co/datasets/uonlp/CulturaX
+#   - madlad_400_id    ❌ 99,272 siblings; HF Datasets config resolution > 90s
+#                          → use HF Hub list_repo_files + glob "data/*/id/*.jsonl.gz"
+#                            (E1.1.4 future)
 SOURCES: dict[str, SourceSpec] = {
+    # E1.1.1 — Wikipedia ID (smallest, public domain, curated)
     "wikipedia_id": SourceSpec(
         name="Wikipedia Indonesian",
         hf_dataset_id="wikimedia/wikipedia",
@@ -63,6 +80,61 @@ SOURCES: dict[str, SourceSpec] = {
         license="CC BY-SA 4.0 (commercial-OK with attribution)",
         plan_estimate_tokens_b=(0.5, 1.0),
         notes="curated; ~700K articles; 20231101.id snapshot. First E1.1 source.",
+    ),
+    # E1.1.2 — FineWeb-2 ID (READY: latest high-quality multilingual; BCP-47 ind_Latn)
+    "fineweb_2_id": SourceSpec(
+        name="FineWeb-2 Indonesian (HuggingFaceFW)",
+        hf_dataset_id="HuggingFaceFW/fineweb-2",
+        hf_config="ind_Latn",
+        hf_split="train",
+        text_field="text",
+        license="ODC-By (commercial-OK with attribution)",
+        plan_estimate_tokens_b=(10.0, 30.0),
+        notes="NEW v1.1: latest high-quality multilingual web; ind_Latn (BCP-47).",
+    ),
+    # E1.1.2 — CC-100 ID (BLOCKED: HF removed cc100.py script-dataset)
+    "cc100_id": SourceSpec(
+        name="CC-100 Indonesian",
+        hf_dataset_id="cc100",
+        hf_config="id",
+        hf_split="train",
+        text_field="text",
+        license="CC-100 custom (NOT commercial-OK; excluded from E1.1.1 Tier B1)",
+        plan_estimate_tokens_b=(10.0, 15.0),
+        notes="BLOCKED: HF removed Python script datasets. Use statmt.org mirror.",
+    ),
+    # E1.1.2 — OSCAR v23.01 ID (BLOCKED: HF-gated, user accept needed)
+    "oscar_2301_id": SourceSpec(
+        name="OSCAR Indonesian v23.01",
+        hf_dataset_id="oscar-corpus/OSCAR-2301",
+        hf_config="id",
+        hf_split="train",
+        text_field="text",
+        license="CC0 1.0 (commercial-OK; HF gated)",
+        plan_estimate_tokens_b=(5.0, 8.0),
+        notes="BLOCKED: gated. Accept at huggingface.co/datasets/oscar-corpus/OSCAR-2301.",
+    ),
+    # E1.1.2 — CulturaX ID (BLOCKED: HF-gated, user accept needed)
+    "culturax_id": SourceSpec(
+        name="CulturaX Indonesian",
+        hf_dataset_id="uonlp/CulturaX",
+        hf_config="id",
+        hf_split="train",
+        text_field="text",
+        license="ODC-By (commercial-OK with attribution; gated on HF)",
+        plan_estimate_tokens_b=(8.0, 20.0),
+        notes="BLOCKED: gated. Accept at huggingface.co/datasets/uonlp/CulturaX.",
+    ),
+    # E1.1.2 — MADLAD-400 ID (BLOCKED: 99K siblings, needs glob-list workaround)
+    "madlad_400_id": SourceSpec(
+        name="MADLAD-400 Indonesian (Google)",
+        hf_dataset_id="allenai/MADLAD-400",
+        hf_config="id",
+        hf_split="train",
+        text_field="text",
+        license="ODC-By (commercial-OK with attribution)",
+        plan_estimate_tokens_b=(5.0, 10.0),
+        notes="BLOCKED: 99K siblings; HF Datasets config-resolve >90s. Need glob workaround.",
     ),
 }
 
