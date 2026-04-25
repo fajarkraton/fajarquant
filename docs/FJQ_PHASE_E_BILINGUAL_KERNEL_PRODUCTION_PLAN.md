@@ -1,6 +1,20 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.6 (2026-04-26 v1.6 patch — solo execution mode: scope-down Tier 3 + extended calendar)
+> **Plan version:** 1.7 (2026-04-26 v1.7 patch — Option B aggressive $0 minimalism)
+>
+> **v1.6 → v1.7 changelog (2026-04-26 same-day):**
+> - **🎯 Cash budget zero:** Phase E total external cash cost = **$0**. Founder self-funds all compute (laptop) + self-reviews privacy (founder is qualified counsel SH., MH.) + skips DVC/S3 cloud (plain local filesystem).
+> - **DVC + S3 ap-southeast-1 DROPPED** (E0.0.8 simplified): plain `data/` directory structure on laptop. Reproducibility now via methodology spec + public corpus pin via HF Datasets revision SHA + git-committed result JSONs. Saved ~$105/yr + 30-60 min AWS setup. Risk accepted: laptop hardware fail = 4-7 month restart; mitigated via methodology-equivalent recreation possible from public corpus + pinned generator.
+> - **External privacy counsel DROPPED** (Spec §9 + §11.2 simplified): founder is SH., MH. + 14yr TaxPrime practice = qualified Indonesian privacy counsel. Founder self-reviews UU PDP compliance. Risk accepted: defensibility slightly weaker than independent review; mitigated via founder credentials + spec methodology disclosure.
+> - **Lapis 2 (synthetic augmentation E1.5) DEFERRED TO PHASE F** per Option B: real corpus alone (25-54 B post-dedup ID + EN per E0.0.1) is sufficient. Phase D Mini/Base/Medium succeeded real-only — empirical proof. Lose BeyondWeb 7.7× speedup; calendar +0 (vs +3 mo for laptop-Gemma-4-9B option A). Methodology defensible — paper acknowledges "Lapis 2 synthetic augmentation deferred to future work for resource reasons."
+>   - E1.5.0 prompt templates v1.0 (`python/phase_e/prompts/LAPIS2_TEMPLATES.md`) PRESERVED as Phase F future-reference. Annotated as "DEFERRED" in template header.
+>   - E1.5.5/E1.5.6 Claude filter+audit DEFERRED with the rest.
+>   - Lapis 2.5 (Claude meta-design role) NOT NEEDED for v1.7 (no synthetic to filter); footnote retained for Phase F.
+> - **Cloud-burst rescue path REMOVED** from §6 risk register: previously "$300-500 emergency" — now founder accepts hardware-fail restart cost as Tier 3 risk + uses external SSD for periodic backup (founder's choice, not formally required).
+> - **§4 calendar:** total external cost $300-700 → **$0**. Calendar duration unchanged at ~13.5 months solo (Lapis 2 dropped saves no time net since it was a parallelizable sub-task).
+> - **§14.5 cost reality check** simplified to single-row: "Phase E v1.7 total = $0."
+>
+> **v1.5 → v1.6 changelog (2026-04-26):**
 >
 > **v1.5 → v1.6 changelog (2026-04-26 same-day):**
 > - **Reality update:** founder confirmed solo execution — no TaxPrime team available for parallel dataset assembly. All 190-270 person-hours of Tier 3 work fall on the founder alongside engineering + day-job.
@@ -563,21 +577,22 @@ Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual T
 
 ## 4. Timeline + effort rollup
 
-### v1.6 calendar (solo execution — laptop-only, reduced Stretch, scoped-down Tier 3)
+### v1.7 calendar (Option B aggressive $0 — laptop-only, reduced Stretch, scoped-down Tier 3, NO synthetic Lapis 2)
 
-Realistic timeline for founder solo execution at ~10h/week part-time (engineering + Tier 3 + concurrent TaxPrime day-job).
+Realistic timeline for founder solo execution at ~10h/week part-time. Total external cash cost: **$0**.
 
 | Phase | Calendar (solo, ~10h/wk) | Human (h) | GPU (h) | Cost | Gates |
 |---|---|---|---|---|---|
 | E0 Pre-flight | ✅ DONE Week 1 (3.5h actual, single-session) | 3.5 | 0 | $0 | 10 decision docs ✅ |
-| E1 Bilingual data + Tier B1 fork | Weeks 2–6 (~5 wk, +1 wk vs v1.5 — solo) | 30 | ~5 | $0 | corpus + verify-bilingual-corpus |
-| E2 Algorithm catch-up | Weeks 7–14 (~8 wk, +3 wk vs v1.5) | 25 | ~30–60 | $0 | 5 ablation decision docs |
-| E3 Bilingual pretrain Mini/Base/Medium | Weeks 15–32 (~18 wk, +5 wk vs v1.5 — solo bandwidth + multi-week training elapsed) | 35 | ~70–150 | $0 | 3 scale gates + canonical bench |
-| E3.4 Reduced Stretch ~1.5B × 15B | Weeks 33–37 (~5 wk) | 8 | ~50–100 | $0 | gate <3.8 |
-| **E4 Tax-vertical solo (scoped-down)** | Weeks 38–48 (~11 wk solo, was 5 wk team) | **40** (was 20) | ~30–60 | **~Rp 5-10M (~$300-700) external counsel privacy review only** | tax pass@1 + self-consistency calibration |
-| E5 Kernel + paper + IP | Weeks 49–58 (~10 wk, +6 wk vs v1.5 — solo paper writing) | 35 | ~5 | $0 | 2 kernel-path gates + paper + releases |
-| **Total v1.6 solo** | **~58 weeks (~13.5 months) realistic** | **~176.5h** | **~190–380h** | **~$300-700 (privacy counsel)** | **6 phase gates** |
-| **Alt scope-down further (Medium-only + skip Tier 3 entirely → Phase F)** | ~36 weeks (~8.5 months) | ~135h | ~140–280h | $0 | 5 phase gates |
+| E1 Bilingual data + Tier B1 fork (NO Lapis 2 per v1.7) | Weeks 2–5 (~4 wk, simpler than v1.6 — Lapis 2 dropped) | 25 | ~5 | $0 | corpus + verify-bilingual-corpus |
+| E2 Algorithm catch-up | Weeks 6–13 (~8 wk) | 25 | ~30–60 | $0 | 5 ablation decision docs (E2.4 BilingualCalibrationSampler retained for real-corpus calibration) |
+| E3 Bilingual pretrain Mini/Base/Medium | Weeks 14–31 (~18 wk, sequential laptop) | 35 | ~70–150 | $0 | 3 scale gates + canonical bench |
+| E3.4 Reduced Stretch ~1.5B × 15B | Weeks 32–36 (~5 wk) | 8 | ~50–100 | $0 | gate <3.8 |
+| E4 Tax-vertical solo (founder self-review, no external counsel) | Weeks 37–47 (~11 wk solo) | 40 | ~30–60 | **$0** (was $300-700 in v1.6) | tax pass@1 + self-consistency calibration + founder UU-PDP self-review |
+| E5 Kernel + paper + IP | Weeks 48–57 (~10 wk, solo paper writing) | 35 | ~5 | $0 | 2 kernel-path gates + paper + releases |
+| **Total v1.7 solo Option B** | **~57 weeks (~13 months) realistic** | **~171.5h** | **~190–380h on laptop** | **$0** | **6 phase gates** |
+| **Alt: skip Tier 3 entirely → Phase F** | ~35 weeks (~8 months) | ~125h | ~140–280h | $0 | 5 phase gates (no E4) |
+| **v1.6 (still listed for reference)** | ~58 weeks | ~176.5h | ~190–380h | ~$300-700 | 6 gates |
 | **v1.5 with-team assumption (DEPRECATED)** | ~34 weeks | ~140h | ~220–430h | ~$420-820 | 6 phase gates |
 
 **v1.6 takeaway:** solo realistic = **13.5 months** vs v1.5 with-team **8 months**. +5.5 months reflects (a) +5 wk per major phase for solo bandwidth, (b) Tier 3 work fully on founder.
@@ -628,14 +643,14 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 | **Indonesian corpus quality insufficient** (Q1 returns < 10B usable tokens) | Medium | High (forces multi-lingual or English-heavy ratio) | E0.0.1 inventory done before E1 commitment; fallback = synthetic Indonesian via translation of English subset (LoRA-translate bridge) |
 | ~~**TaxPrime data not usable** (NDA / privacy block in E0.0.2)~~ ✅ **RESOLVED v1.2** | ~~Medium~~ | ~~Medium~~ | TaxPrime data ownership confirmed by founder; spec v1.0 committed; risk class downgraded |
 | ~~**TaxPrime team unavailable** (parallel work blocked)~~ ✅ **RESOLVED v1.6** | ~~Med~~ | ~~Med~~ | Founder solo-execution mode adopted; Tier 3 scoped-down per Option A; spec v1.1 |
-| **Founder bandwidth burnout** (NEW v1.6) | Medium | High (Phase E lock + day-job impact) | (1) Realistic 13.5-month calendar at 10h/wk; (2) Phase F deferral always-available pivot if month-on-month progress slips; (3) cloud burst rescue ($300-500) if elapsed time becomes blocker; (4) explicit decision-point review at end of E1, E2, E3, E4 — re-scope vs continue |
+| **Founder bandwidth burnout** (v1.6 → v1.7 mitigation chain shortened) | Medium | High (Phase E lock + day-job impact) | (1) Realistic 13-month calendar at 10h/wk; (2) Phase F deferral always-available pivot if month-on-month progress slips; (3) ~~cloud burst rescue~~ REMOVED v1.7 (no cloud budget); (4) explicit decision-point review at end of E1, E2, E3, E4 — re-scope vs continue (4-week review scheduled `trig_01MdWsiy1MnM9PCkwsEZ9vdo` for E1) |
 | **Single-rater eval validity** (NEW v1.6 Option A) | Medium | Medium (paper claim weaker) | Self-consistency calibration runs (rate same example 3× over 1-week intervals, expect ≥80% rating consistency); paper transparently frames as "preliminary single-expert-rated"; explicit Phase F future-work note for external validation |
 | **Day-job conflict** (TaxPrime business demands during E3 multi-week training) | Medium | Medium | Track B 6-layer interruption-safety covers laptop suspend; sequential per-scale training allows pause-resume |
 | **Synthetic generator legal blocker** (E1.5 + E4.2) | Low–Medium | Medium | E0.0.10 review pre-emptive; fallback to most-permissive open-source generator (Qwen2.5 Apache 2.0) or no-synthetic |
 | **Anthropic ToS challenge** (regulator or Anthropic claims dataset uses Claude output) | Low | High (could force model retraction) | §14 explicit policy + annotator FAQ in TaxPrime spec §14 + monthly literature sweep monitors enforcement actions |
 | **Bilingual catastrophic interference at ternary precision** (Phase E3 Mini fails coherence gate) | Medium | High | E2.4 combined ablation includes bilingual mini run; if interference shows, add language-conditioned LayerNorm or per-language adapter |
 | ~~**Stretch GPU cost overrun** (cloud burst > $1000)~~ ✅ **RESOLVED v1.4** | ~~Low–Medium~~ | ~~Medium~~ | Laptop-only chosen; reduced Stretch (option C) ~50-100h on laptop; cost $0 marginal |
-| **Laptop hardware SPOF** (NEW v1.4) | Low | High (full Phase E lock) | (1) Regular S3 ckpt sync via DVC per E0.0.8; (2) cloud burst NOT foreclosed — $300-500 rescue path open per E0.0.4; (3) borrow alternate GPU machine in emergency |
+| **Laptop hardware SPOF** (v1.4 → v1.7 mitigation simplified) | Low | High (full Phase E lock) | (1) ~~S3 ckpt sync via DVC~~ REMOVED v1.7 (no DVC/S3); (2) ~~cloud burst rescue~~ REMOVED v1.7; (3) **founder accepts hardware-fail = 4-7 month restart cost**; (4) MITIGATION: optional external SSD weekly backup (founder's choice, not formal requirement); (5) public corpus + pinned generator weights + spec methodology = methodology-equivalent recreation possible from scratch in worst case |
 | **Thermal throttling** during sustained laptop training (NEW v1.4) | Medium | Low–Medium | Cooling pad + cooler hours (22:00-06:00 WIB) + 6h breaks; nvidia-smi temp monitor |
 | **CC-100 commercial license challenge** (NEW v1.4) | Low (BLOOM/mGPT precedent) | Medium | Tier B1 commercial-clean corpus subset (drops CC-100) prepared in parallel with paper Tier A |
 | **Wikipedia CC-BY-SA share-alike commercial** (NEW v1.4) | Low (Wikimedia accepts ML fair use) | Low | Attribution + share-alike-equivalent in model release docs |
@@ -968,10 +983,10 @@ Phase E synthetic-data strategy locked. Decision matrix below is the contract; d
 
 ### 14.1 Three lapis hierarchy
 
-| Lapis | Use case | Generator allowed (v1.3 corrected) | ToS-clean? | Why |
+| Lapis | Use case | Generator allowed (v1.7 simplified) | ToS-clean? | Why |
 |---|---|---|---|---|
-| **Lapis 1** | Pretrain core (E1+E3) | **NONE — real data only** | N/A | E0.0.1 confirmed 25–54 B post-dedup ID tokens available; no synthetic needed |
-| **Lapis 2** | Pretrain augmentation (E1.5) — **REPHRASE real text per BeyondWeb recipe** | **PRIMARY: Gemma 4 (Apache 2.0, *unrestricted derivative*)**. SECONDARY: Mixtral-8x7B-Instruct (Apache 2.0). RESTRICTED: Qwen2.5 (Apache 2.0 weights but output license <100M MAU → BLOCKED for us). BLOCKED: Llama 3.3 (Community License <700M MAU output restriction). BLOCKED: Claude/GPT (ToS). | ✅ Gemma 4 / Mixtral | own-host, repro-pin, no API ToS issue, BeyondWeb 7.7× training speedup empirically validated |
+| **Lapis 1** | Pretrain core (E1+E3) | **NONE — real data only** | N/A | E0.0.1 confirmed 25–54 B post-dedup ID tokens available; no synthetic needed. **PRIMARY PATH v1.7.** |
+| ~~**Lapis 2**~~ | ~~Pretrain augmentation (E1.5) — REPHRASE real text per BeyondWeb recipe~~ | **DEFERRED TO PHASE F per v1.7 Option B.** Real corpus alone is sufficient for Phase E (Phase D Mini/Base/Medium succeeded real-only). Phase F may revisit when resources allow. | N/A | Saves ~3 months calendar + complexity. Lose BeyondWeb 7.7× speedup (acceptable for solo). LAPIS2_TEMPLATES.md preserved as Phase F future-reference. |
 | **Lapis 3a** | Vertical FT — Tax (E4.1) | **NONE — TaxPrime real data only per spec v1.0** | N/A | Tier 3 wedge is the differentiator; real proprietary > synthetic always; ToS-clean by construction |
 | **Lapis 3b** | Vertical FT — Instruct (E4.2) | Gemma 4 / Mixtral rephrase OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
 | **Lapis 2.5 (NEW v1.5)** | Synthetic-data pipeline support: filter / audit / meta-design (E1.5.0 + E1.5.5 + E1.5.6) | **Claude Opus 4.7 ALLOWED** for: (a) quality filter — rate Gemma 4 output drop bottom-N%, (b) bias/hallucination audit — read sample, flag issues, (c) prompt-template engineering — design BeyondWeb rephrase prompts. **NEVER** generate, rewrite, expand, translate, or otherwise contribute tokens that enter training corpus. | ✅ yes — categorically judging/auditing/meta-design, NOT training-data creation | Claude likely +5-15% better Indonesian-fluency discrimination than Gemma 4 self-filter; ToS-clean per "judging ≠ training" principle |
@@ -1027,7 +1042,31 @@ For any new training-data ask:
 - *Anthropic v. DeepSeek/Moonshot/MiniMax distillation accusations* (CNBC Feb 2026) — public-accusation precedent that elevates ToS R2 from contractual concern to reputational risk
 - *LLM License Types Guide 2025* (local-ai-zone) — Llama Community License 700M MAU output restriction; Qwen2.5 100M MAU output restriction; Apache 2.0 unrestricted derivative
 
-### 14.5 Cost reality check (v1.3 — corrected pricing + 100B scope)
+### 14.5 Cost reality check (v1.7 — true $0 solo path)
+
+**Phase E v1.7 total external cash cost: $0.**
+
+| Component | Cost | Why $0 |
+|---|---|---|
+| Compute | $0 | Laptop-only RTX 4090 (own hardware) |
+| Storage | $0 | Plain local filesystem (no DVC, no S3) |
+| Synthetic generation (Lapis 2) | $0 | DEFERRED to Phase F per Option B |
+| Lapis 2.5 Claude filter/audit/meta-design | $0 | Lapis 2 deferred → no synthetic to filter |
+| Privacy counsel | $0 | Founder is qualified counsel (SH., MH.) — self-review |
+| External bias auditor | $0 | Founder self-check (per spec v1.1 §11.2) |
+| AWS account / cloud setup | $0 | Not needed (no cloud) |
+| **Total Phase E external cash** | **$0** | |
+| Founder opportunity cost (~171.5h × hourly rate) | informational only | not a budgeted item |
+
+**Reproducibility surface (no DVC manifest needed):**
+1. git commit SHA (this repo)
+2. eval/HARNESS_SHA (lm-eval pin)
+3. result JSONs committed to git
+4. methodology spec (FJQ_PHASE_E_TAXPRIME_DATASET_SPEC v1.1+)
+
+4-tuple replaces v1.6's 5-tuple (DVC manifest dropped).
+
+### 14.5.1 Cost reality check (v1.3 reference — DEPRECATED, kept for plan-evolution audit)
 
 | Approach | 30 B tokens | 100 B tokens (full ID+EN scope) | Reproducible? | ToS-clean? | Verdict |
 |---|---|---|---|---|---|
@@ -1059,7 +1098,8 @@ Still **dramatically cheaper** than full-Claude-synthetic path ($1.25-3.4M). Cla
 
 ---
 
-*Plan version: 1.6 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Plan version: 1.7 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*v1.7 patch: Option B aggressive $0 minimalism — Lapis 2 deferred to Phase F + DVC/S3 dropped + external counsel dropped + cloud rescue dropped. Total Phase E cash: $0.*
 *Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 + 10 E0 decision docs.*
 *v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 PRIMARY, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe + Bartz v. Anthropic fair-use precedent. v1.3→v1.4: 🎉 **Phase E E0 (pre-flight) phase 100% COMPLETE — all 10 sub-tasks delivered single-session 2026-04-25.** Hardware decision = laptop-only RTX 4090 (no cloud cost; +6-8 weeks calendar). Stretch replan = option (C) reduced 1.5B × 15B. Two-tier deployment scoping (Tier A paper + Tier B1 commercial-clean + Tier C ID-market carve-out).*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*

@@ -1,6 +1,13 @@
 # TaxPrime Dataset Specification — Phase E Tier 3 Vertical Wedge
 
-> **Spec version:** 1.1 (2026-04-26 v1.1 patch — solo execution mode per plan v1.6 Option A)
+> **Spec version:** 1.2 (2026-04-26 v1.2 patch — privacy counsel removed, founder self-review per plan v1.7 Option B)
+>
+> **v1.1 → v1.2 changelog (2026-04-26):**
+> - **External privacy counsel REMOVED.** Founder is qualified Indonesian counsel (SH., MH. + 14yr TaxPrime practice). Self-reviews UU PDP 27/2022 compliance + sanitization.
+> - §9 privacy/compliance checklist updated: "external privacy counsel review" → "founder self-review (SH., MH.)"
+> - §11.2 acceptance: "external counsel sign-off" line removed (was already minimal)
+> - §12.3 cash budget: ~$300-700 → **$0**
+> - Risk acknowledged: defensibility vs independent review slightly weaker. Mitigation: founder credentials + spec methodology disclosure + paper transparency note.
 > **Audience:** Fajar (founder, sole executor) — no TaxPrime team available
 > **Implementation lead:** Fajar (founder, single-rater)
 > **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` **v1.6** §3 E4.1 + §11
@@ -367,10 +374,10 @@ data/tax_id_corpus_v1/
 ### 12.3 Cost estimates (v1.1 SOLO — drastically reduced)
 
 - Founder time: opportunity cost only (no marginal cash) ~Rp 500K-1M/h × 150h = **Rp 75-150M (~USD 5,000-10,000) opportunity cost** but no out-of-pocket
-- **External privacy counsel: ~Rp 5-10M one-shot** (~USD 300-700) — only mandatory cash expense
+- ~~**External privacy counsel**~~ **REMOVED v1.2** — founder is qualified Indonesian counsel (SH., MH. + 14yr TaxPrime practice). Self-reviews UU PDP compliance.
 - **External bias auditor: REMOVED v1.1** (saved ~Rp 15-25M)
-- **Total external cash cost v1.1: ~USD 300-700** (was ~USD 1,300-2,600 in v1.0)
-- Realistic cash budget impact: drops from ~$3-4K to ~$300-700
+- **Total external cash cost v1.2: $0** (was $300-700 v1.1; was $1,300-2,600 v1.0)
+- Realistic cash budget impact: $0 — founder owns/handles all cost categories
 
 ---
 
@@ -433,7 +440,7 @@ A: Include both old and new where relevant. Use `tax_period_relevance` to mark v
 
 ---
 
-*Spec version: 1.1 (2026-04-26). Author: Claude Opus 4.7 + Fajar (TaxPrime / PrimeCore.id).*
+*Spec version: 1.2 (2026-04-26). Author: Claude Opus 4.7 + Fajar (TaxPrime / PrimeCore.id).*
 *v1.0 → v1.1 patch: solo execution mode per plan v1.6 Option A — eval set 500→100-200, training 5K-50K→1K-5K, double-rater κ→single-rater self-consistency ≥80%, external auditor removed, calendar 6-10 wk team→4-7 mo solo, cash cost $1.3-2.6K→$300-700.*
 *Dataset deliverable: `data/tax_id_corpus_v1/` to be produced by TaxPrime knowledge team.*
 *Phase E gate dependency: E1.3 + E4.1 + §11. Dataset acceptance unblocks vertical FT training and pass@1 evaluation.*

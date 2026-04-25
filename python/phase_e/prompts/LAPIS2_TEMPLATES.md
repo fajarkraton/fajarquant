@@ -1,10 +1,13 @@
 # Phase E Lapis 2 + 2.5 Prompt Templates v1.0
 
+> **🚨 STATUS v1.7 (2026-04-26): LAPIS 2 DEFERRED TO PHASE F per Option B aggressive $0 simplification.**
+> **This document is PRESERVED as Phase F future-reference.** Phase E v1.7 uses real corpus only (no synthetic augmentation). When Phase F revisits Lapis 2 with available resources, restart from this template + plan §14.4 reference papers.
+>
 > **Scope:** BeyondWeb-style synthetic data generation prompts (Lapis 2 — for Gemma 4) + quality filter rubric + audit checklist (Lapis 2.5 — for Claude Opus 4.7).
-> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.5 §3 E1.5 + §14
-> **Designed:** 2026-04-26 by Claude Opus 4.7 (Lapis 2.5 meta-design role per §14.1)
-> **Validation status:** initial design — empirical iteration during E1.5 execution
-> **Generator target:** Gemma 4 (Apache 2.0, primary per E0.0.10)
+> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.5 §3 E1.5 + §14 (now DEFERRED in v1.7)
+> **Designed:** 2026-04-26 by Claude Opus 4.7 (Lapis 2.5 meta-design role per v1.5 §14.1)
+> **Validation status:** initial design — never empirically iterated (deferred v1.7)
+> **Generator target (when activated):** Gemma 4 (Apache 2.0, primary per E0.0.10)
 
 ---
 
