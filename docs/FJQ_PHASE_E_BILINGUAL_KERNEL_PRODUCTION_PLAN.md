@@ -1,21 +1,26 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.1 (2026-04-25 v1.1 patch — 8 substantive gaps closed via empirical verification)
+> **Plan version:** 1.2 (2026-04-25 v1.2 patch — TaxPrime data ownership + synthetic-data policy)
 > **Author:** Claude Opus 4.7 + Fajar (PrimeCore.id / TaxPrime)
 > **Predecessor:** `FJQ_PHASE_D_PRODUCTION_PLAN.md` v1.2 (Phase D ≈95% done)
-> **Companion docs:** `FJQ_PHASE_D_GATE_CALIBRATION.md`, `FJQ_PHASE_D_OPS.md`, `FJQ_PHASE_D_CONFIG.md`
+> **Companion docs:** `FJQ_PHASE_D_GATE_CALIBRATION.md`, `FJQ_PHASE_D_OPS.md`, `FJQ_PHASE_D_CONFIG.md`, **`FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0 (NEW v1.2)**
 > **Cross-repo:** fajarquant (primary), fajar-lang (compiler features), fajaros-x86 (kernel deployment)
 >
-> **v1.0 → v1.1 changelog (2026-04-25):**
-> - **Gap #1 closed:** Indonesian eval suite empirically verified — 94 strict Indonesian-language tasks present in lm-eval v0.4.11 (was vague claim in v1.0). Canonical set picked.
-> - **Gap #2 closed:** Tier 1 prior-art literature review actually done — unikernel + RTOS + TinyML stacks surveyed; no kernel-mode LLM inference work surfaced Q1 2026 (claim defensible, not arrogant).
-> - **Gap #3 closed:** Multilingual quantization interference now PRIMARY design feature (calibration data balanced + language-conditioned arch), not a fallback. Cites *"Calibrating Beyond English"* (2026).
-> - **Gap #4 closed:** Explicit ABORT criteria added per phase (every gate has both PASS and FAIL paths).
-> - **Gap #5 closed:** Tax-vertical eval methodology fully spec'd (annotation, IRR, gold-label, bias audit).
-> - **Gap #6 closed:** Kernel-LLM serving targets now in §1 + §13 (tokens/sec, first-token latency, memory, power).
-> - **Gap #7 closed:** Phase D §3.4 baseline-sweep dependency explicitly resolved in E0.
-> - **Gap #8 closed:** Monthly literature sweep cadence added as prevention layer.
-> - **+ light gaps closed:** data licensing review, DVC strategy, CI GPU runner plan, security review subphase.
+> **v1.1 → v1.2 changelog (2026-04-25):**
+> - **TaxPrime data ownership confirmed:** Fajar (TaxPrime founder) owns Tier 3 vertical dataset creation. E0.0.2 abort risk resolved. Companion spec `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0 committed (404 lines, 14 sections covering schema, taxonomy, PII rules, IRR, acceptance gates).
+> - **Synthetic-data policy locked in §14 (NEW appendix):** 3-lapis hybrid hierarchy.
+>   - Lapis 1 — pretrain (E1+E3): NO synthetic. Real corpora only (25–54 B post-dedup ID per E0.0.1 finding).
+>   - Lapis 2 — pretrain augmentation (E1.5 NEW): open-source generator (Mixtral / Llama-3.3-70B / Qwen2.5-72B), 5–10 B synthetic tokens, ~$50–200 cloud cost.
+>   - Lapis 3 — vertical FT + instruct: TaxPrime real data for E4.1 (per spec); open-source generator for E4.2 (general bilingual instruct); Claude OK for §11 eval / LLM-as-judge only.
+> - **Anthropic ToS compliance:** No Claude Opus output used as TRAINING data for IntLLM (pretrain or vertical FT). Active enforcement confirmed (VentureBeat 2026 — Anthropic restricted xAI/Cursor for competing-model training).
+> - **E0.0.10 (NEW):** synthetic data legal review subphase — open-source generator licensing for E1.5 + E4.2.
+> - **E1.5 (NEW):** synthetic pretrain augmentation via open-source generator.
+> - **E4.1 updated:** points to `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md`; synthetic-via-Claude DESCOPED.
+> - **§6 risk register:** "TaxPrime data not usable" status changed Medium → Resolved.
+> - **§14 (NEW appendix):** synthetic data hygiene policy — Phi-4 + Cosmopedia + "no-collapse" recipe references, ToS reasoning, per-use-case decision rules.
+>
+> **v1.0 → v1.1 changelog (2026-04-25, retained for history):**
+> - 8 substantive gaps closed via empirical verification (Indonesian eval suite 94 tasks confirmed; literature review 15 papers; multilingual interference primary feature; FAIL paths; tax eval methodology; serving targets; Phase D dependency; monthly literature sweep). 4 light gaps closed (data licensing, DVC, CI GPU, security review).
 
 ---
 
@@ -156,7 +161,7 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 ### Open questions / known unknowns (must close in E0)
 
 - Q1: How much high-quality Indonesian text is realistically obtainable from public sources (CC-100, OSCAR, WikiID, Indonesian news crawls)? **Abort threshold:** < 8B usable tokens post-dedup → Phase E pivot.
-- Q2: What fraction of TaxPrime archives are usable for vertical fine-tune (privacy / NDA / data-use review)? **Abort threshold:** 100% blocked → fall back to public Indonesian tax corpora only (Tier 3 weakened but not killed).
+- Q2: ✅ **CLOSED v1.2:** TaxPrime data ownership confirmed by Fajar (founder). Dataset creation owned by TaxPrime knowledge team per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0. NDA / privacy / UU PDP compliance internal to TaxPrime. Synthetic-via-Claude descoped for E4.1.
 - Q3: Tokenizer compression efficiency: Mistral-v3 32k on Indonesian corpus — what's bytes-per-token? **Decision rule:** if Mistral-v3 32k yields >4.0 bytes/token on Indonesian corpus, train custom 24k tokenizer in E2 (vs ≤3.5 bytes/token threshold of efficient tokenizer).
 - Q4: Cloud GPU budget: is laptop-only acceptable for Phase E, or is cloud burst budgeted? **Decision dimensions:** dollar cap ($1000 default), preemption tolerance, security (TaxPrime data must NOT leave Indonesia per data residency).
 - Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.1:** empirically verified 2026-04-25 → 94 strict ID tasks in lm-eval v0.4.11 (see §1 item 1). E0.0.5 reduced to harness SHA pinning + canonical task list selection.
@@ -187,6 +192,7 @@ Deliverable: `docs/FJQ_PHASE_E_E0_FINDINGS.md` with hands-on answers to Q1–Q5 
 | E0.0.7 **(NEW)** Data licensing review | `docs/FJQ_PHASE_E_E0_LICENSING.md` checked in: per-source license compatibility for paper publication AND commercial deployment | +30% (multi-source legal review) | news crawls non-commercial-only → paper-OK but commercial product blocked, fallback to research-only artifact |
 | E0.0.8 **(NEW)** Dataset versioning strategy | `docs/FJQ_PHASE_E_E0_DATA_VERSIONING.md` chooses ONE: HF Datasets / DVC / git-lfs | +20% | none viable for >30B tokens → S3 + manifest checksums |
 | E0.0.9 **(NEW)** CI GPU runner availability | check fajaros-x86 + fajarquant CI: are GPU runners present for new bilingual gates? `docs/FJQ_PHASE_E_E0_CI_GPU_PLAN.md` checked in | +25% | no GPU runners → manual gate runs on dev machine, document in plan |
+| E0.0.10 **(NEW v1.2)** Synthetic data legal review | `docs/FJQ_PHASE_E_E0_SYNTHETIC_LEGAL.md` checked in: open-source generator licensing matrix (Mixtral Apache 2.0 ✓, Llama-3.3 Llama Community License — check no-compete clause for E1.5 + E4.2, Qwen2.5 Apache 2.0 ✓). Claude API explicitly EXCLUDED for training-data use per Anthropic ToS active enforcement (VentureBeat 2026). | +25% | E1.5 generator legally blocked → use only Mixtral/Qwen2.5; E4.2 instruct fall back to open Cendol-Llama or other ID-instruct datasets |
 
 #### E0.1 Plan E0 self-check + commit
 
@@ -242,13 +248,34 @@ Deliverable: `data/tax_id_corpus_v1.parquet` from TaxPrime archives (post-NDA re
 
 `python scripts/dedup_bilingual.py --inputs id_corpus_v1.parquet en_subset.parquet --output bilingual_v1.parquet --threshold 0.85` (MinHash LSH per Falcon-Edge / RedPajama recipe).
 
-#### E1.5 Final corpus packaging
+#### E1.5 Synthetic pretrain augmentation (NEW v1.2 — Lapis 2 of synthetic policy)
 
-`docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` with: source breakdown, token counts, dedup rate, language ratio, license attribution.
+Per §14 synthetic-data hygiene: add 5–10 B synthetic Indonesian tokens (15–25% of total pretrain mix) via **open-source generator** to fill diversity gaps in real corpus. Open-source generator pinned by E0.0.10 legal review (default: Mixtral-8x7B-Instruct, Apache 2.0).
 
-**Prevention layer:** `make verify-bilingual-corpus` Makefile target running checksum + token-count validation, wired into pre-commit.
+**Synthetic generation strategies (Cosmopedia + Phi-4 inspired):**
 
-**Gate E1:** corpus committed (or hash-pinned for large files via DVC/git-lfs/HF Datasets) AND `verify-bilingual-corpus` exit 0 AND `FJQ_PHASE_E_E1_FINDINGS.md` committed.
+| Task | Description | Volume target |
+|---|---|---|
+| E1.5.1 EN→ID translation | Translate selected high-quality EN technical/educational content to ID | 2–4 B tokens |
+| E1.5.2 Web-text cleaning | Rephrase low-quality CC-100 / OSCAR ID into coherent Indonesian | 2–3 B tokens |
+| E1.5.3 Textbook-style explanations | Generate textbook explanations for STEM / social topics seeded by Indonesian Wikipedia stubs | 1–2 B tokens |
+| E1.5.4 Quality filter | LLM-as-judge filter (Mixtral or Qwen2.5) — drop bottom 20% generated | enforced |
+
+**Prevention layer:** `make verify-synthetic-mix` enforces synthetic ratio ≤ 25% of total pretrain mix per §14 R1. Pre-commit hook rejects mix violations.
+
+**Gate E1.5:**
+- **PASS:** synthetic 5–10 B tokens generated AND quality filter applied AND mix ratio ≤ 25% AND `FJQ_PHASE_E_E1_5_SYNTHETIC.md` checked in with generator-pin + cost log
+- **FAIL path:** mix ratio breach OR generator legal blocker → fall back to no-synthetic (real corpus only); update §14 risk register
+
+**Note v1.2:** Phase D Mini already on real corpus alone hit val_loss 4.38 PASS. Phase E E1.5 is additive optimization, not foundational dependency. If E1.5 fully fails, Phase E proceeds with real-only at marginal quality cost.
+
+#### E1.6 Final corpus packaging
+
+`docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` with: source breakdown, token counts (real + synthetic), dedup rate, language ratio, license attribution, synthetic-mix-ratio audit.
+
+**Prevention layer:** `make verify-bilingual-corpus` Makefile target running checksum + token-count validation + synthetic-ratio check, wired into pre-commit.
+
+**Gate E1:** corpus committed (or hash-pinned for large files via DVC/git-lfs/HF Datasets) AND `verify-bilingual-corpus` exit 0 AND `FJQ_PHASE_E_E1_FINDINGS.md` committed AND (if E1.5 ran) `FJQ_PHASE_E_E1_5_SYNTHETIC.md` checked in.
 
 ---
 
@@ -370,18 +397,28 @@ Re-run §3.2 Phase D `bench-canonical-real` for ID+EN coverage. Add IndoMMLU + I
 
 ### PHASE E4: Vertical fine-tune (Weeks 19–22, ~20h human, ~30–60h GPU)
 
+> **v1.2 update:** E4.1 now uses TaxPrime-owned dataset per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0. **No synthetic-via-Claude for E4.1** (descoped per Anthropic ToS active enforcement). Eval set methodology unchanged from §11.
+
 #### E4.0 Pre-flight audit
 
-Build TaxPrime eval set (~500 prompts, gold-labeled by domain expert). Confirm corpus from E1.3 is loaded correctly. Run baseline (Medium bilingual without FT) to establish floor.
+TaxPrime team delivers `data/tax_id_corpus_v1/` per spec. Confirm acceptance gates §11.1 (training corpus) + §11.2 (eval set) ALL passed. Run baseline (Medium bilingual without FT) on eval set to establish floor pass@1.
 
-#### E4.1 Tax/legal Indonesian fine-tune
+| Task | Verification |
+|---|---|
+| E4.0.1 Dataset acceptance audit | `python scripts/verify_taxprime_dataset.py --version v1.0 --strict` exit 0; checks all §11 acceptance items |
+| E4.0.2 PII residual scan | `scripts/check_pii_redaction.py --dataset data/tax_id_corpus_v1/ --strict` exit 0 |
+| E4.0.3 Cross-contamination check | `scripts/check_train_eval_overlap.py` — 0 examples appear in both train and eval (id + content hash) |
+| E4.0.4 Baseline pass@1 (no FT) | bilingual Medium evaluated on tax eval set; result calibrates §1 item 4 threshold |
+
+#### E4.1 Tax/legal Indonesian fine-tune (v1.2 — TaxPrime real data only)
 
 | Task | Verification |
 |---|---|
 | E4.1.1 SFT recipe (LoRA r=64 + full-tune comparison) | `make finetune-tax-lora` and `make finetune-tax-full` produce checkpoints |
-| E4.1.2 Eval against TaxPrime 500-prompt set | `make eval-tax-vertical` outputs `paper/intllm/results/tax_eval.json` |
-| E4.1.3 Pass@1 ≥ 65% on tax-rule retrieval | gate per §1 item 4 |
+| E4.1.2 Eval against TaxPrime 500-prompt eval set | `make eval-tax-vertical` outputs `paper/intllm/results/tax_eval.json` |
+| E4.1.3 Pass@1 ≥ 65% on tax-rule retrieval | gate per §1 item 4 (threshold revisited post-E4.0.4 baseline) |
 | E4.1.4 Hallucination check | manual review of 50 random outputs by domain expert (TaxPrime team) |
+| E4.1.5 **(NEW v1.2)** Citation-format compliance | auto-check: model output must contain valid regulatory citation in `UU/PMK/PER-DJP/SE` format for any factual claim; pass rate ≥ 90% |
 
 #### E4.2 Optional: bilingual-instruct version (general-purpose ID+EN chat)
 
@@ -510,7 +547,9 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | **Indonesian corpus quality insufficient** (Q1 returns < 10B usable tokens) | Medium | High (forces multi-lingual or English-heavy ratio) | E0.0.1 inventory done before E1 commitment; fallback = synthetic Indonesian via translation of English subset (LoRA-translate bridge) |
-| **TaxPrime data not usable** (NDA / privacy block in E0.0.2) | Medium | Medium (kills tax-vertical wedge) | Fallback = public Indonesian tax-law corpus only; vertical accuracy lower but still differentiated |
+| ~~**TaxPrime data not usable** (NDA / privacy block in E0.0.2)~~ ✅ **RESOLVED v1.2** | ~~Medium~~ | ~~Medium~~ | TaxPrime data ownership confirmed by founder; spec v1.0 committed; risk class downgraded |
+| **Synthetic generator legal blocker** (E1.5 + E4.2) | Low–Medium | Medium | E0.0.10 review pre-emptive; fallback to most-permissive open-source generator (Qwen2.5 Apache 2.0) or no-synthetic |
+| **Anthropic ToS challenge** (regulator or Anthropic claims dataset uses Claude output) | Low | High (could force model retraction) | §14 explicit policy + annotator FAQ in TaxPrime spec §14 + monthly literature sweep monitors enforcement actions |
 | **Bilingual catastrophic interference at ternary precision** (Phase E3 Mini fails coherence gate) | Medium | High | E2.4 combined ablation includes bilingual mini run; if interference shows, add language-conditioned LayerNorm or per-language adapter |
 | **Stretch GPU cost overrun** (cloud burst > $1000) | Low–Medium | Medium | E0.0.4 sets explicit cap; abort criterion in `FJQ_PHASE_E_E3_STRETCH_LAUNCH.md` |
 | **Training interruption in E3 Stretch (multi-day cloud run)** | Medium (cloud preemption + network blips) | Medium | Track B 6-layer (ckpt_every / --resume / StepWatchdog / HF retry / test-train-watchdog) — already in place from Phase D |
@@ -836,7 +875,71 @@ All four bench artifacts checked into `paper/intllm/bench/` and verified by `ver
 
 ---
 
-*Plan version: 1.1 (2026-04-25). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
-*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. v1.0→v1.1 closed 8 substantive gaps via empirical verification.*
+## 14. Synthetic data hygiene policy (NEW v1.2 — 3-lapis hybrid)
+
+Phase E synthetic-data strategy locked. Decision matrix below is the contract; deviations require v1.3 plan bump.
+
+### 14.1 Three lapis hierarchy
+
+| Lapis | Use case | Generator allowed | ToS-clean? | Why |
+|---|---|---|---|---|
+| **Lapis 1** | Pretrain core (E1+E3) | **NONE — real data only** | N/A | E0.0.1 confirmed 25–54 B post-dedup ID tokens available; no synthetic needed |
+| **Lapis 2** | Pretrain augmentation (E1.5) | Open-source: **Mixtral-8x7B (Apache 2.0)**, **Qwen2.5-72B (Apache 2.0)**, Llama-3.3-70B (Llama Community License — verify no-compete clause via E0.0.10) | ✅ yes | own-host, repro-pin, no third-party API ToS issue |
+| **Lapis 3a** | Vertical FT — Tax (E4.1) | **NONE — TaxPrime real data only per spec v1.0** | N/A | Tier 3 wedge is the differentiator; real proprietary > synthetic always; ToS-clean by construction |
+| **Lapis 3b** | Vertical FT — Instruct (E4.2) | Open-source generator OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
+| **Lapis 3c** | Eval / LLM-as-judge (§11) | Claude / GPT-4 / open — any judge is OK because **judging ≠ training** | ✅ yes (judging is not derivative-model creation) | standard practice in lm-eval ecosystem |
+
+### 14.2 Hard rules
+
+1. **R1 — Synthetic ratio cap:** Lapis 2 synthetic tokens ≤ 25% of total pretrain mix. Pre-commit hook `verify-synthetic-mix` enforces.
+2. **R2 — No Claude API output as TRAINING data.** Confirmed by Anthropic Usage Policy update + active enforcement (VentureBeat 2026 — xAI/Cursor restricted). Applies to E1.5, E4.1, E4.2 — exception only Lapis 3c (judge).
+3. **R3 — Generator pinning:** every synthetic token must be reproducible via committed generator-weights hash + prompt template. `FJQ_PHASE_E_E1_5_SYNTHETIC.md` records generator, version, prompt corpus.
+4. **R4 — Quality filter mandatory:** LLM-as-judge filters bottom 20% of generated content per "How to Synthesize Without Model Collapse" (arxiv 2412.14689).
+5. **R5 — No recursive bootstrapping:** never train Phase E IntLLM on Phase E IntLLM's own output. Per "The Curse of Recursion" (Shumailov+ 2023). Applies even at SFT.
+6. **R6 — Cost ceiling:** synthetic generation cost ≤ 5% of total Phase E cloud GPU budget. Default: ≤ $40 of ~$800 total.
+7. **R7 — Annotator FAQ enforced:** TaxPrime spec §14 already has "DO NOT use ChatGPT/Claude to draft training data" rule; reinforced here at plan level.
+
+### 14.3 Per-use-case decision rules
+
+```
+For any new training-data ask:
+  Q1: Is the dataset for pretrain or fine-tune of an LLM?
+    → If yes, third-party Claude/GPT API output is FORBIDDEN as data source.
+    → If no (eval, judge, classifier, retrieval), Claude/GPT is ALLOWED.
+  Q2: Is the use case Tier 3 vertical (tax/legal)?
+    → TaxPrime real data only. Proprietary supremacy.
+  Q3: Is open-source generator legally available for the corpus license target?
+    → Check E0.0.10 matrix. Default Mixtral or Qwen2.5 (Apache 2.0).
+  Q4: Will the synthetic mix exceed 25% of pretrain tokens?
+    → REJECT. R1 violation.
+```
+
+### 14.4 Reference papers (cited in §10 literature review)
+
+- *The Curse of Recursion* (Shumailov+ 2023) — model collapse foundational
+- *How to Synthesize Without Model Collapse* (arxiv 2412.14689, 2024) — quality filter recipes
+- *Demystifying Synthetic Data in LLM Pre-training* (arxiv 2510.01631, 2025) — scaling laws
+- *Phi-4 Technical Report* (Microsoft 2024) — multi-agent + self-revision recipes (Microsoft owned generator, not subject to third-party ToS)
+- *Cosmopedia* (HuggingFace 2024) — Mixtral-generated 25 B token open-source pretrain dataset (canonical Lapis 2 reference)
+- *BeyondWeb: Lessons from Scaling Synthetic Data for Trillion-scale Pretraining* (DatologyAI 2026)
+- *Anthropic Usage Policy update* (anthropic.com/news/usage-policy-update) — ToS basis for R2
+
+### 14.5 Cost reality check
+
+| Approach | 30 B tokens cost | Reproducible? | ToS-clean? | Verdict |
+|---|---|---|---|---|
+| Claude Opus 4.7 API | **~$450,000** | No (model versions drift) | No (R2 violation) | ❌ catastrophic |
+| GPT-5 API | ~$300–500K | No | No (similar OpenAI ToS) | ❌ catastrophic |
+| Self-host Mixtral-8x7B on cloud H100 | **~$300–600** | Yes (pin weights) | Yes (Apache 2.0) | ✅ Lapis 2 default |
+| Self-host Qwen2.5-72B on cloud H100 | ~$500–1000 | Yes | Yes (Apache 2.0) | ✅ alternative if Mixtral quality insufficient |
+| No synthetic (real corpus only) | $0 | Trivially | Yes | ✅ Lapis 1 default |
+
+**Cost arithmetic confirms:** open-source self-host is **1000× cheaper** than API approach. Reproducibility + legal cleanliness are bonuses on top.
+
+---
+
+*Plan version: 1.2 (2026-04-25). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companion: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 (NEW v1.2).*
+*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy (§14 NEW).*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
 *Subject to revision per phase findings; major scope changes require new Plan version (v1.x → v2.0).*
