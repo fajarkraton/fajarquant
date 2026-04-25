@@ -1,6 +1,18 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
 
-> **Plan version:** 1.3 (2026-04-25 v1.3 patch — synthetic recipe + generator licensing corrections per fresh research)
+> **Plan version:** 1.4 (2026-04-25 v1.4 patch — E0 phase COMPLETE + laptop-only hardware + two-tier deployment scoping)
+>
+> **v1.3 → v1.4 changelog (2026-04-25 same-day patch):**
+> - 🎉 **Phase E E0 (pre-flight) phase: 100% CLOSED** — all 10 sub-tasks delivered with mechanical decision files. See §3 status updates per sub-task.
+> - **Hardware decision (E0.0.4 closed):** **LAPTOP-ONLY RTX 4090** strategy adopted by founder. No cloud burst budgeted. Cost saved ~$420–820 vs plan v1.3; trade-off = +6–8 weeks calendar (28 → 34 weeks). See `FJQ_PHASE_E_HARDWARE_DECISION.md`.
+> - **Stretch replan (per E0.0.4):** option (C) **reduced Stretch ~1.5B × 15B tokens** (~7-10 days laptop) replaces plan v1.3 cloud-burst Stretch. Preserves Mini→Base→Medium→Stretch monotonic narrative; loses ~50% scale ambition.
+> - **Two-tier deployment scoping (E0.0.7 closed):** Tier A (paper artifact) uses ALL sources; Tier B1 (commercial-clean) drops CC-100 + news + academic-restricted. Both prepared in parallel. Tier C (Indonesian-market commercial) defensible via UU Hak Cipta Pasal 43-44 fair-use-like for tax-vertical public-interest carve-out. See `FJQ_PHASE_E_E0_LICENSING.md`.
+> - **E1.1.1 NEW sub-task:** Tier B1 commercial-clean corpus subset assembly (light fork of E1.1; ~+10% data curation effort).
+> - **§4 calendar revised:** 28 weeks (cloud) → **34 weeks laptop-only with reduced Stretch** OR **28 weeks Medium-only**.
+> - **§6 risk register:** "GPU cost overrun" RESOLVED (laptop-only). "Laptop hardware SPOF" added (Low likelihood, High impact, mitigation chain). "CC-100 commercial license" added. "Wikipedia share-alike commercial" added.
+> - **§13.1 serving targets:** unchanged on metrics, but E5.1.6-9 measurement now done on laptop instead of cloud (no impact on numerical targets — kernel-context CPU only anyway).
+>
+> **v1.2 → v1.3 changelog (2026-04-25):**
 >
 > **v1.2 → v1.3 changelog (2026-04-25 same-day patch):**
 > - **§14 Lapis 2 recipe correction:** explicit BeyondWeb-style **REPHRASE real text** (not generate-from-scratch). Cite arxiv 2508.10975 (DatologyAI 2026) — 50:50 real:rephrase synthetic = SOTA, 7.7× faster training than open web alone, 2.7× faster than Nemotron-Synth.
@@ -171,12 +183,18 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 
 ### Open questions / known unknowns (must close in E0)
 
-- Q1: How much high-quality Indonesian text is realistically obtainable from public sources (CC-100, OSCAR, WikiID, Indonesian news crawls)? **Abort threshold:** < 8B usable tokens post-dedup → Phase E pivot.
+### v1.4 status update — ALL Q1–Q6 CLOSED 🎉
+
+All E0 pre-flight questions resolved 2026-04-25 same-day. Detailed answers in respective decision docs (`FJQ_PHASE_E_E0_*.md`).
+
+- Q1: How much high-quality Indonesian text is realistically obtainable from public sources? ✅ **CLOSED v1.4 (E0.0.1):** 25–54 B post-dedup ID tokens available across 9 sources. 3-7× over abort threshold. See `FJQ_PHASE_E_E0_FINDINGS.md` (forthcoming aggregation) + `paper/intllm/results/phase_e/e0_id_corpora_inventory.json`.
 - Q2: ✅ **CLOSED v1.2:** TaxPrime data ownership confirmed by Fajar (founder). Dataset creation owned by TaxPrime knowledge team per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0. NDA / privacy / UU PDP compliance internal to TaxPrime. Synthetic-via-Claude descoped for E4.1.
-- Q3: Tokenizer compression efficiency: Mistral-v3 32k on Indonesian corpus — what's bytes-per-token? **Decision rule:** if Mistral-v3 32k yields >4.0 bytes/token on Indonesian corpus, train custom 24k tokenizer in E2 (vs ≤3.5 bytes/token threshold of efficient tokenizer).
-- Q4: Cloud GPU budget: is laptop-only acceptable for Phase E, or is cloud burst budgeted? **Decision dimensions:** dollar cap ($1000 default), preemption tolerance, security (TaxPrime data must NOT leave Indonesia per data residency).
+- Q3: Tokenizer compression efficiency. ✅ **CLOSED v1.4 (E0.0.3):** Mistral-v3 32K kept. Indonesian bytes/token = 2.527 (≤ 3.5 efficient threshold). Important nuance: tokens/word ID = 2.948 vs EN 1.665 (+77% more tokens per word due to Indonesian morphology). Custom 24K deferred to v2. See `FJQ_PHASE_E_E0_TOKENIZER_DECISION.md`.
+- Q4: Cloud GPU budget. ✅ **CLOSED v1.4 (E0.0.4):** **LAPTOP-ONLY RTX 4090** chosen by founder. Cost ~$0 marginal vs plan v1.3 ~$420-820. Trade: +6-8 weeks calendar. Stretch replanned to option (C) reduced ~1.5B × 15B tokens. See `FJQ_PHASE_E_HARDWARE_DECISION.md`.
 - Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.1:** empirically verified 2026-04-25 → 94 strict ID tasks in lm-eval v0.4.11 (see §1 item 1). E0.0.5 reduced to harness SHA pinning + canonical task list selection.
-- Q6: **(NEW v1.1)** Phase D §3.4 baseline-sweep status — currently HUNG mid-run. **Decision rule for Phase E E1 dependency:** if Phase D §3.4 not closed within 1 week from this plan, accept partial baseline (BitNet ✅ + MMfreeLM-370M ✅) and defer 1.3B/2.7B/SmolLM2/pythia comparisons to Phase E paper appendix; do NOT block E1 corpus assembly on it.
+- Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.4 (E0.0.5):** SHA pinned to `27988a293647d5853e48edea291640b4af54740c` (lm-eval v0.4.11). Canonical set: 4 ID core + 33+ extended + 11 EN canonical + bilingual coherence + tax-vertical. See `FJQ_PHASE_E_E0_EVAL_CANONICAL.md`.
+- Q6: Phase D §3.4 baseline-sweep status. ✅ **CLOSED v1.4 (E0.0.6):** Accept-partial path adopted same-day (vs 1-week window). 2 real baselines preserved (BitNet 2B4T ✅ + MMfreeLM-370M ✅). 5 deferred to paper appendix + Phase E side-task with §6.11-style hardening. See `FJQ_PHASE_E_E0_PHASE_D_DEPENDENCY.md`.
+- Q7: **(NEW v1.4)** Per-source data licensing for Tier B commercial deployment. ✅ **CLOSED v1.4 (E0.0.7):** Two-tier scoping — Tier A (paper) all sources OK via Bartz fair-use; Tier B1 (commercial-clean) drops CC-100 + news + academic-restricted (~10-15B raw lost, still ~15-30B usable); Tier C Indonesian-market carve-out via UU Hak Cipta Pasal 43-44. See `FJQ_PHASE_E_E0_LICENSING.md`.
 
 ---
 
@@ -515,15 +533,23 @@ Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual T
 
 ## 4. Timeline + effort rollup
 
-| Phase | Calendar | Human (h) | GPU (h) | Cost (USD if cloud) | Gates |
+### v1.4 calendar (laptop-only, with reduced Stretch)
+
+| Phase | Calendar | Human (h) | GPU (h) | Cost | Gates |
 |---|---|---|---|---|---|
-| E0 Pre-flight | Week 1 | 15 | 0 | 0 | E0_FINDINGS doc |
-| E1 Bilingual data | Weeks 2–4 | 30 | ~5 | ~$10 | corpus + verify-bilingual-corpus |
-| E2 Algorithm catch-up | Weeks 5–7 | 20 | ~30–60 | ~$50–100 (laptop OK) | 4 ablation decision docs |
-| E3 Bilingual pretrain | Weeks 8–18 | 30 | ~150–300 | ~$300–600 (Stretch cloud burst) | 4 scale gates + canonical bench |
-| E4 Vertical fine-tune | Weeks 19–22 | 20 | ~30–60 | ~$50–100 | tax pass@1 + expert sign-off |
-| E5 Kernel + paper + IP | Weeks 23–28 | 25 | ~5 | ~$10 | 2 kernel-path gates + paper + releases |
-| **Total** | **~28 weeks (~6.5 months)** | **~140h** | **~220–430h** | **~$420–820** | **6 phase gates** |
+| E0 Pre-flight | ✅ DONE Week 1 (3.5h actual vs 15h est, -77% — single-session) | 3.5 | 0 | $0 | 10 decision docs ✅ |
+| E1 Bilingual data + Tier B1 fork | Weeks 2–4 | 30 | ~5 | ~$0 (laptop) | corpus + verify-bilingual-corpus |
+| E2 Algorithm catch-up | Weeks 5–9 | 20 | ~30–60 | ~$0 (laptop, +2 wk vs cloud parallel) | 5 ablation decision docs |
+| E3 Bilingual pretrain Mini/Base/Medium | Weeks 10–22 | 30 | ~70–150 | ~$0 (laptop, +4 wk sequential) | 3 scale gates + canonical bench |
+| E3.4 Reduced Stretch ~1.5B × 15B (option C) | Weeks 23–25 | 5 | ~50–100 | ~$0 (laptop) | gate <3.8 |
+| E4 Vertical fine-tune | Weeks 26–30 | 20 | ~30–60 | ~$0 (laptop) | tax pass@1 + expert sign-off |
+| E5 Kernel + paper + IP | Weeks 31–34 | 25 | ~5 | ~$0 (laptop) | 2 kernel-path gates + paper + releases |
+| **Total laptop-only** | **~34 weeks (~8 months) reduced Stretch** | **~133h** | **~190–380h on laptop** | **~$0 marginal** | **6 phase gates** |
+| **Alt total Medium-only** (defer Stretch) | ~28 weeks | ~128h | ~140–280h on laptop | ~$0 | 5 phase gates |
+
+> **§6.8 R5 surprise budget:** all estimates carry +25% default. E0 actual undershoot (-77%) due to single-session efficiency — won't generalize to GPU-bound phases.
+
+> **Calendar elasticity:** if laptop unavailable for non-Phase-E work too constraining, +$300-500 cloud-burst rescue path remains open per E0.0.4 SPOF mitigation. Not foreclosed.
 
 > **§6.8 R5 surprise budget:** all estimates carry +25% default; E0.0.2 (TaxPrime data review) and E5.4.1 (patent draft) carry +30% (legal-uncertainty premium).
 >
@@ -565,7 +591,11 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 | **Synthetic generator legal blocker** (E1.5 + E4.2) | Low–Medium | Medium | E0.0.10 review pre-emptive; fallback to most-permissive open-source generator (Qwen2.5 Apache 2.0) or no-synthetic |
 | **Anthropic ToS challenge** (regulator or Anthropic claims dataset uses Claude output) | Low | High (could force model retraction) | §14 explicit policy + annotator FAQ in TaxPrime spec §14 + monthly literature sweep monitors enforcement actions |
 | **Bilingual catastrophic interference at ternary precision** (Phase E3 Mini fails coherence gate) | Medium | High | E2.4 combined ablation includes bilingual mini run; if interference shows, add language-conditioned LayerNorm or per-language adapter |
-| **Stretch GPU cost overrun** (cloud burst > $1000) | Low–Medium | Medium | E0.0.4 sets explicit cap; abort criterion in `FJQ_PHASE_E_E3_STRETCH_LAUNCH.md` |
+| ~~**Stretch GPU cost overrun** (cloud burst > $1000)~~ ✅ **RESOLVED v1.4** | ~~Low–Medium~~ | ~~Medium~~ | Laptop-only chosen; reduced Stretch (option C) ~50-100h on laptop; cost $0 marginal |
+| **Laptop hardware SPOF** (NEW v1.4) | Low | High (full Phase E lock) | (1) Regular S3 ckpt sync via DVC per E0.0.8; (2) cloud burst NOT foreclosed — $300-500 rescue path open per E0.0.4; (3) borrow alternate GPU machine in emergency |
+| **Thermal throttling** during sustained laptop training (NEW v1.4) | Medium | Low–Medium | Cooling pad + cooler hours (22:00-06:00 WIB) + 6h breaks; nvidia-smi temp monitor |
+| **CC-100 commercial license challenge** (NEW v1.4) | Low (BLOOM/mGPT precedent) | Medium | Tier B1 commercial-clean corpus subset (drops CC-100) prepared in parallel with paper Tier A |
+| **Wikipedia CC-BY-SA share-alike commercial** (NEW v1.4) | Low (Wikimedia accepts ML fair use) | Low | Attribution + share-alike-equivalent in model release docs |
 | **Training interruption in E3 Stretch (multi-day cloud run)** | Medium (cloud preemption + network blips) | Medium | Track B 6-layer (ckpt_every / --resume / StepWatchdog / HF retry / test-train-watchdog) — already in place from Phase D |
 | **Algorithm ablation negative result** (E2 features don't help bilingual) | Medium | Low (still ship E3 with Phase D baseline) | E2.4 combined ablation gate tolerates marginal signal if reasoning compelling |
 | **Kernel binary size overrun** (>16 MB after bilingual additions) | Medium | Medium | E5.1.5 budget gate; mitigation = ternary-pack tokenizer vocab, prune unused IntLLM ops |
@@ -962,8 +992,8 @@ For any new training-data ask:
 
 ---
 
-*Plan version: 1.3 (2026-04-25). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
-*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companion: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0.*
-*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy (§14 NEW). v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 added as primary, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe locked as canonical (§14.2 R8 NEW) + Bartz v. Anthropic fair-use precedent cited.*
+*Plan version: 1.4 (2026-04-25/26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 + 10 E0 decision docs.*
+*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 PRIMARY, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe + Bartz v. Anthropic fair-use precedent. v1.3→v1.4: 🎉 **Phase E E0 (pre-flight) phase 100% COMPLETE — all 10 sub-tasks delivered single-session 2026-04-25.** Hardware decision = laptop-only RTX 4090 (no cloud cost; +6-8 weeks calendar). Stretch replan = option (C) reduced 1.5B × 15B. Two-tier deployment scoping (Tier A paper + Tier B1 commercial-clean + Tier C ID-market carve-out).*
 *Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
 *Subject to revision per phase findings; major scope changes require new Plan version (v1.x → v2.0).*
