@@ -30,6 +30,9 @@ help:
 	@echo "  dedup-corpus-id            Phase E1.4 — MinHash LSH full ID-corpus dedup (resumable)"
 	@echo "  test-dedup-resume          Phase E1.4.1 — resume-state smoke gate (synthetic, ~3s)"
 	@echo "  audit-dedup-sweep          Phase E1.4.2 — post-sweep read-only audit"
+	@echo "  dedup-corpus-id-exact-dryrun Phase E1.4.3 — sha256 exact-hash dry-run on 10K ID-corpus"
+	@echo "  dedup-corpus-id-exact      Phase E1.4.3 — sha256 exact-hash full ID-corpus dedup (resumable)"
+	@echo "  test-dedup-exact           Phase E1.4.3 — exact-hash resume-state smoke gate (synthetic, ~3s)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -317,3 +320,39 @@ test-dedup-resume:
 .PHONY: audit-dedup-sweep
 audit-dedup-sweep:
 	@$(PYTHON) $(PHASE_E)/scripts/audit_dedup_sweep.py
+
+# ─── Phase E1.4.3 ─── Exact-string sha256 dedup ──────────────────────
+#
+# Drop-in replacement for the LSH variant after it OOM-killed at 5.96M
+# / 10M FineWeb-2 ID docs (LSH index hit 30 GB on a 31 GB box,
+# 2026-04-26). Empirical dedup_rate from the LSH partial was 0.0093%
+# (552 dupes / 5.96M docs) — at this rate, MinHash near-dup is overkill.
+# sha256 over normalized text catches >99% at constant ~1 GB memory.
+# See `memory/project_phase_e_e1_4_oom_remediation.md` Option A.
+#
+# `dedup-corpus-id-exact-dryrun` is the §6.8 R2 verification gate. Caps
+# input at 10K docs, no shards written. Should finish in well under a
+# minute on the ID corpus (≈22 GB raw text across 145+ shards).
+#
+# `dedup-corpus-id-exact` is the full ~10.67M-doc production sweep.
+# Output goes to `data/phase_e/corpus_id_dedup_exact/` so the existing
+# 84-shard LSH partial (`corpus_id_dedup/`) stays put for forensics
+# until the exact-hash run is verified per the resume protocol.
+.PHONY: dedup-corpus-id-exact-dryrun
+dedup-corpus-id-exact-dryrun:
+	@$(PYTHON) $(PHASE_E)/scripts/dedup_corpus_exact.py \
+		--source all --max-docs 10000 --dry-run --progress-every 1000
+
+.PHONY: dedup-corpus-id-exact
+dedup-corpus-id-exact:
+	@$(PYTHON) $(PHASE_E)/scripts/dedup_corpus_exact.py \
+		--source all --resume --progress-every 100000
+
+# Smoke gate (V31.E1.4.3): synthetic 12-doc corpus across 2 shards
+# exercises state save → kill → resume → cross-run dedup detection →
+# reference-vs-resume parity → dry-run side-effect-freeness → NFKC +
+# lowercase + whitespace-collapse normalization. Pre-push hook target
+# for any change to dedup_corpus_exact.py per CLAUDE §6.8 R3.
+.PHONY: test-dedup-exact
+test-dedup-exact:
+	@$(PYTHON) $(PHASE_E)/scripts/test_dedup_exact.py

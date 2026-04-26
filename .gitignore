@@ -54,6 +54,14 @@ data/phase_e/corpus_id_dedup/**/shard_*.parquet
 data/phase_e/corpus_id_dedup/**/shard_*.parquet.tmp
 data/phase_e/corpus_id_dedup/.progress/
 
+# Phase E E1.4.3 — exact-string sha256 dedup output (regeneratable via
+# python/phase_e/scripts/dedup_corpus_exact.py). Same policy as the LSH
+# variant above: per-source _manifest.json IS kept, shards + .progress/
+# are not.
+data/phase_e/corpus_id_dedup_exact/**/shard_*.parquet
+data/phase_e/corpus_id_dedup_exact/**/shard_*.parquet.tmp
+data/phase_e/corpus_id_dedup_exact/.progress/
+
 # Local HF token (defensive — should live in $HOME, never in repo)
 .huggingface_env
 
