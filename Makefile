@@ -34,6 +34,7 @@ help:
 	@echo "  dedup-corpus-id-exact      Phase E1.4.3 — sha256 exact-hash full ID-corpus dedup (resumable)"
 	@echo "  test-dedup-exact           Phase E1.4.3 — exact-hash resume-state smoke gate (synthetic, ~3s)"
 	@echo "  test-intllm-en             Phase E1.2 — EN corpus shim smoke gate (constants + math, ~1s)"
+	@echo "  verify-bilingual-corpus    Phase E1.6 — bilingual corpus packaging gate (spec ↔ manifests, ~1s)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -370,3 +371,19 @@ test-dedup-exact:
 .PHONY: test-intllm-en
 test-intllm-en:
 	@$(PYTHON) $(PHASE_E)/scripts/test_intllm_en.py
+
+# ─── Phase E1.6 ─── Bilingual corpus packaging gate ───────────────────
+#
+# Asserts `docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` stays consistent
+# with on-disk evidence: ID dedup manifests + EN config shim
+# (intllm_en.py) + tokenizer measurement file. 8 invariants:
+#   1-2 ID manifests exist + bytes_text_kept ≈ spec
+#   3-4 docs_kept exact + dedup_rate ≈ spec
+#   5-6 EN cap from shim + Stretch repo selection at 60:40
+#   7   synthetic_mix_ratio = 0% (E1.5 deferred per plan v1.7)
+#   8   license attribution covers all sources actually used
+# Per §6.8 R3 prevention layer for E1.6 packaging. Pre-commit hook
+# wiring in follow-up E1.6.1 sub-task.
+.PHONY: verify-bilingual-corpus
+verify-bilingual-corpus:
+	@$(PYTHON) $(PHASE_E)/scripts/verify_bilingual_corpus.py
