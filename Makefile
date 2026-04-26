@@ -33,6 +33,7 @@ help:
 	@echo "  dedup-corpus-id-exact-dryrun Phase E1.4.3 — sha256 exact-hash dry-run on 10K ID-corpus"
 	@echo "  dedup-corpus-id-exact      Phase E1.4.3 — sha256 exact-hash full ID-corpus dedup (resumable)"
 	@echo "  test-dedup-exact           Phase E1.4.3 — exact-hash resume-state smoke gate (synthetic, ~3s)"
+	@echo "  test-intllm-en             Phase E1.2 — EN corpus shim smoke gate (constants + math, ~1s)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -356,3 +357,16 @@ dedup-corpus-id-exact:
 .PHONY: test-dedup-exact
 test-dedup-exact:
 	@$(PYTHON) $(PHASE_E)/scripts/test_dedup_exact.py
+
+# ─── Phase E1.2 ─── EN corpus shim smoke gate ─────────────────────────
+#
+# `python/phase_e/intllm_en.py` is a constants + helpers module that
+# records the bilingual mix design (ID:EN ratio, repo selection,
+# tokenizer rates) without importing torch/transformers/datasets. This
+# gate validates the constants stay in sync with the E0 tokenizer
+# measurement file + E1.4 manifests, and that the math helpers behave
+# correctly across 60:40 / 50:50 / 80:20 ratios. Per §6.8 R3 prevention
+# layer for any change to intllm_en.py. Runtime ~1 s.
+.PHONY: test-intllm-en
+test-intllm-en:
+	@$(PYTHON) $(PHASE_E)/scripts/test_intllm_en.py
