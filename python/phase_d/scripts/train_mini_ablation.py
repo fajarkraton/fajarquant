@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""
+Phase E E2.1.0 — Mini-scale ablation harness.
+
+Per plan v1.8 §3 PHASE E2 + Phase E E2.0 findings v1.0+Q4 closure: this
+driver produces `paper/intllm/ablations/mini_<TAG>.json` artifacts that
+all 5 E2.x.3 ablation rows reference and that `verify_paper_tables.py`
+asserts against. Without this harness, NO E2.x.3 row produces JSON, so
+this is a hard prerequisite ahead of any feature work.
+
+Driver pattern: thin shim around `intllm.train.train_loop` with feature
+toggles. Mirrors `train_mini.py` (Phase D) closely so behavior is
+predictable; only adds ablation-specific TAG + feature flags + ablation
+JSON output.
+
+Currently no E2.x feature is implemented. Toggling any flag emits a
+clear warning and proceeds with baseline behavior so the harness wiring
+(driver -> JSON -> verify_paper_tables) is testable BEFORE feature code
+lands. As each E2.x feature ships, the corresponding flag in this
+driver is wired to the real implementation in intllm.{quant,qat,model}.
+
+Smoke (no GPU required, ~30 s on CPU with --dry-run):
+
+    cd python/phase_d
+    PYTHONPATH=. ../../.venv/bin/python scripts/train_mini_ablation.py \
+        --tag baseline --dry-run
+
+Proof-of-life (200 steps, ~3-5 min on RTX 4090):
+
+    PYTHONPATH=. ../../.venv/bin/python scripts/train_mini_ablation.py \
+        --tag baseline --proof-of-life
+
+Full (~1 h on RTX 4090, baseline equivalent to Phase D Mini v2):
+
+    PYTHONPATH=. ../../.venv/bin/python scripts/train_mini_ablation.py \
+        --tag baseline
+
+Real ablation (once features land, e.g. E2.4 BilingualCalibrationSampler):
+
+    PYTHONPATH=. ../../.venv/bin/python scripts/train_mini_ablation.py \
+        --tag balanced_calib --balanced-calib
+
+JSON schema written to `paper/intllm/ablations/mini_<TAG>.json`:
+
+    {
+      "tag": "<TAG>",
+      "phase": "E2.x",
+      "features_active": [...],   # list of feature names ON
+      "features_requested": [...], # list of feature flags requested by caller
+      "n_steps": int,
+      "val_loss": float,           # NaN if --proof-of-life or --dry-run
+      "ppl": float,                # NaN if --proof-of-life or --dry-run
+      "gate_pass": bool | null,    # null if val skipped
+      "training_seconds": float,
+      "initial_loss": float,
+      "final_loss": float,
+      "model_params": int,
+      "timestamp": str (ISO 8601),
+      "_schema_version": "1.0"
+    }
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
+from pathlib import Path
+
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+# Force line-buffering for nohup-friendly logs (memory/feedback_nohup_python_buffering.md).
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+REPO_ROOT = ROOT.parent.parent  # python/phase_d → python → fajarquant root
+ABLATIONS_DIR = REPO_ROOT / "paper" / "intllm" / "ablations"
+
+# Mini gate per FJQ_PHASE_D_GATE_CALIBRATION.md (calibrated 2026-04-21).
+MINI_VAL_LOSS_GATE = 4.5
+
+# E2.x feature flag → human-readable name mapping. The driver only
+# RECORDS these in JSON; feature implementation lands in intllm.* as
+# E2.x sub-tasks complete and replaces the corresponding stub block.
+E2_FEATURE_FLAGS = {
+    "hadamard": "E2.1 Hadamard rotation (QuaRot/SpinQuant) on attn.o_proj + lm_head",
+    "fp8_lmhead": "E2.2 FP8 (E4M3) for lm_head + attn.o_proj",
+    "distill": "E2.3 FP16 distillation from Phase D Medium c.1 teacher",
+    "balanced_calib": "E2.4 BilingualCalibrationSampler (60:40 ID:EN)",
+    "lang_cond_a": "E2.5 (a) Per-language RMSNorm γ params",
+    "lang_cond_b": "E2.5 (b) Per-language LoRA adapter",
+    "lang_cond_c": "E2.5 (c) Language-aware routing (MoE-light)",
+}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _write_ablation_json(
+    out_path: Path,
+    tag: str,
+    *,
+    features_active: list[str],
+    features_requested: list[str],
+    n_steps: int,
+    val_loss: float,
+    initial_loss: float,
+    final_loss: float,
+    training_seconds: float,
+    model_params: int,
+    proof_of_life: bool,
+    dry_run: bool,
+) -> None:
+    """Write the ablation result JSON. Schema v1.0 per docstring above."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    val_skipped = proof_of_life or dry_run or math.isnan(val_loss)
+    payload = {
+        "_schema_version": "1.0",
+        "tag": tag,
+        "phase": "E2.x",
+        "features_active": features_active,
+        "features_requested": features_requested,
+        "n_steps": n_steps,
+        "val_loss": val_loss,
+        "ppl": math.exp(val_loss) if not val_skipped else float("nan"),
+        "gate_pass": (val_loss < MINI_VAL_LOSS_GATE) if not val_skipped else None,
+        "gate_threshold": MINI_VAL_LOSS_GATE,
+        "training_seconds": training_seconds,
+        "initial_loss": initial_loss,
+        "final_loss": final_loss,
+        "model_params": model_params,
+        "proof_of_life": proof_of_life,
+        "dry_run": dry_run,
+        "timestamp": _now_iso(),
+    }
+    tmp = out_path.with_suffix(".json.tmp")
+    with tmp.open("w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    os.replace(tmp, out_path)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(
+        description="Phase E E2 Mini-scale ablation harness (E2.1.0 scaffold).",
+    )
+    p.add_argument(
+        "--tag",
+        required=True,
+        help="Ablation tag — output goes to paper/intllm/ablations/mini_<TAG>.json. "
+        "Standard tags: baseline, hadamard, fp8_lmhead, distill, balanced_calib, "
+        "lang_cond_{a,b,c}, combined.",
+    )
+    p.add_argument(
+        "--proof-of-life",
+        action="store_true",
+        help="Cap at 200 steps, skip val eval, do not save model checkpoint. "
+        "Used for E2.1.0 harness smoke + per-feature wiring sanity.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build model + write placeholder JSON without any training. "
+        "Validates JSON schema + Makefile wiring with no GPU.",
+    )
+    p.add_argument(
+        "--n-steps",
+        type=int,
+        default=None,
+        help="Override training steps (e.g. 10000 for ~45 min intermediate).",
+    )
+    p.add_argument(
+        "--val-steps",
+        type=int,
+        default=50,
+        help="Number of batches to compute val_loss over (default 50).",
+    )
+    p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini_ablations")
+    p.add_argument("--device", default=None)
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Override output JSON path. Default: paper/intllm/ablations/mini_<TAG>.json",
+    )
+
+    # E2.x feature flags — currently stubs. Each toggles a placeholder
+    # warning and a "features_active" entry in the JSON. Wire to real
+    # impl as the corresponding E2.x sub-task lands.
+    p.add_argument("--hadamard", action="store_true", help=E2_FEATURE_FLAGS["hadamard"])
+    p.add_argument("--fp8-lmhead", action="store_true", help=E2_FEATURE_FLAGS["fp8_lmhead"])
+    p.add_argument("--distill", action="store_true", help=E2_FEATURE_FLAGS["distill"])
+    p.add_argument("--balanced-calib", action="store_true", help=E2_FEATURE_FLAGS["balanced_calib"])
+    p.add_argument(
+        "--lang-cond",
+        choices=["a", "b", "c"],
+        default=None,
+        help="E2.5 language-conditioned design option. (a) per-lang RMSNorm γ "
+        "(preliminary recommendation per E2.0 findings Q2), (b) per-lang LoRA, "
+        "(c) language-aware routing.",
+    )
+
+    args = p.parse_args()
+
+    if args.dry_run and args.proof_of_life:
+        p.error("--dry-run and --proof-of-life are mutually exclusive")
+
+    out_path = args.out or (ABLATIONS_DIR / f"mini_{args.tag}.json")
+
+    # Collect requested features (from CLI flags) before any stub-warning.
+    features_requested: list[str] = []
+    if args.hadamard:
+        features_requested.append("hadamard")
+    if args.fp8_lmhead:
+        features_requested.append("fp8_lmhead")
+    if args.distill:
+        features_requested.append("distill")
+    if args.balanced_calib:
+        features_requested.append("balanced_calib")
+    if args.lang_cond is not None:
+        features_requested.append(f"lang_cond_{args.lang_cond}")
+
+    # Currently NO feature has a real implementation in intllm.*; flags
+    # toggle a warning + record the request, but the underlying training
+    # is baseline behavior. As each E2.x sub-task ships, the relevant
+    # block in this driver is replaced with a real wire-up to
+    # intllm.{quant,qat,model} and the feature moves to features_active.
+    features_active: list[str] = []
+    for feat in features_requested:
+        print(
+            f"  [WARN] feature '{feat}' requested but NOT YET IMPLEMENTED — "
+            f"falling through to baseline behavior. "
+            f"This will be wired when the corresponding E2.x sub-task ships.",
+            file=sys.stderr,
+        )
+
+    # ── DRY RUN: build model briefly, write JSON with placeholder values ──
+    if args.dry_run:
+        # Lazy imports — keep dry-run fast even if torch isn't fully loaded.
+        import torch  # noqa: F401
+        from configs.mini import MiniArchConfig
+        from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
+
+        arch = MiniArchConfig()
+        cfg = HGRNBitConfig(
+            vocab_size=arch.vocab_size,
+            hidden_size=arch.hidden_size,
+            num_hidden_layers=arch.num_hidden_layers,
+            max_position_embeddings=arch.max_position_embeddings,
+        )
+        model = HGRNBitForCausalLM(cfg)
+        n_params = sum(p.numel() for p in model.parameters())
+
+        _write_ablation_json(
+            out_path,
+            args.tag,
+            features_active=features_active,
+            features_requested=features_requested,
+            n_steps=0,
+            val_loss=float("nan"),
+            initial_loss=float("nan"),
+            final_loss=float("nan"),
+            training_seconds=0.0,
+            model_params=n_params,
+            proof_of_life=False,
+            dry_run=True,
+        )
+        print(f"\n  [DRY-RUN] wrote placeholder ablation JSON: {out_path}")
+        print(f"  [DRY-RUN] model_params: {n_params:,}")
+        return 0
+
+    # ── REAL TRAINING PATH (proof-of-life or full) ──
+    import torch  # noqa: E402
+    from configs.mini import MiniArchConfig, MiniTrainConfig  # noqa: E402
+    from intllm.data import slimpajama_stream  # noqa: E402
+    from intllm.eval import run_held_out_loss  # noqa: E402
+    from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
+    from intllm.tokenizer import get_tokenizer  # noqa: E402
+    from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402  # noqa: F401
+
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    arch = MiniArchConfig()
+    train_hp = MiniTrainConfig()
+    if args.proof_of_life:
+        train_hp = replace(train_hp, n_steps=200, log_every=25)
+    elif args.n_steps is not None:
+        train_hp = replace(train_hp, n_steps=args.n_steps)
+
+    print(f"[1/4] config: arch={asdict(arch)}")
+    print(f"      train: {asdict(train_hp)}")
+    print(f"      device: {device}")
+    print(f"      tag: {args.tag}")
+    print(f"      features_requested: {features_requested or '(baseline only)'}")
+
+    print("[2/4] tokenizer + data stream")
+    tok = get_tokenizer()
+    batches = slimpajama_stream(
+        tokenizer=tok,
+        seq_len=train_hp.seq_len,
+        batch_size=train_hp.batch_size,
+        device=device,
+        seed=0,
+    )
+
+    print("[3/4] model")
+    cfg = HGRNBitConfig(
+        vocab_size=arch.vocab_size,
+        hidden_size=arch.hidden_size,
+        num_hidden_layers=arch.num_hidden_layers,
+        max_position_embeddings=arch.max_position_embeddings,
+    )
+    model = HGRNBitForCausalLM(cfg).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"      params: {n_params:,}")
+
+    print(f"[4/4] training {train_hp.n_steps} steps (tag={args.tag})")
+
+    def capped_batches():
+        for i, b in enumerate(batches):
+            if i >= train_hp.n_steps:
+                break
+            yield b
+
+    t0 = time.time()
+    if args.proof_of_life:
+        warmup, total = 0, 0
+    else:
+        warmup, total = train_hp.warmup_steps, train_hp.n_steps
+    ckpt_every = 0 if args.proof_of_life else train_hp.ckpt_every
+
+    result = train_loop(
+        model,
+        capped_batches(),
+        config=TrainConfig(
+            lr=train_hp.lr,
+            weight_decay=train_hp.weight_decay,
+            grad_clip_norm=train_hp.grad_clip_norm,
+            log_every=train_hp.log_every,
+            warmup_steps=warmup,
+            total_steps=total,
+            min_lr_ratio=0.1,
+            ckpt_every=ckpt_every,
+            ckpt_dir=str(args.ckpt_dir / args.tag) if ckpt_every > 0 else None,
+            keep_last_n_ckpts=3,
+            watchdog_idle_seconds=0 if args.proof_of_life else 1800,
+        ),
+    )
+    elapsed = time.time() - t0
+    print(f"\n  elapsed       : {elapsed:.1f} s ({elapsed / 60:.1f} min)")
+    print(f"  initial loss  : {result.initial_loss:.4f}")
+    print(f"  final loss    : {result.final_loss:.4f}")
+
+    val_loss = float("nan")
+    if not args.proof_of_life:
+        print(f"\n  measuring val_loss over {args.val_steps} batches ...")
+        val_stream = slimpajama_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            device=device,
+            seed=999,
+        )
+        val_loss = run_held_out_loss(
+            model, batches=val_stream, n_steps=args.val_steps, device=device,
+        )
+        print(f"  val_loss      : {val_loss:.4f}  (PPL {math.exp(val_loss):,.1f})")
+        print(
+            f"  Mini gate     : val_loss < {MINI_VAL_LOSS_GATE} -> "
+            f"{'PASS ✓' if val_loss < MINI_VAL_LOSS_GATE else 'FAIL ✗'}"
+        )
+
+    _write_ablation_json(
+        out_path,
+        args.tag,
+        features_active=features_active,
+        features_requested=features_requested,
+        n_steps=result.steps,
+        val_loss=val_loss,
+        initial_loss=result.initial_loss,
+        final_loss=result.final_loss,
+        training_seconds=elapsed,
+        model_params=n_params,
+        proof_of_life=args.proof_of_life,
+        dry_run=False,
+    )
+    print(f"\n  ablation JSON : {out_path}")
+
+    # Explicit teardown
+    del model
+    del tok
+    if args.proof_of_life:
+        return 0  # POL is harness-wiring sanity, not a gate
+    return 0 if val_loss < MINI_VAL_LOSS_GATE else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

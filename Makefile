@@ -35,6 +35,7 @@ help:
 	@echo "  test-dedup-exact           Phase E1.4.3 — exact-hash resume-state smoke gate (synthetic, ~3s)"
 	@echo "  test-intllm-en             Phase E1.2 — EN corpus shim smoke gate (constants + math, ~1s)"
 	@echo "  verify-bilingual-corpus    Phase E1.6 — bilingual corpus packaging gate (spec ↔ manifests, ~1s)"
+	@echo "  train-mini-ablation TAG=X  Phase E2.1.0 — Mini-scale ablation harness (TAG=baseline|hadamard|fp8_lmhead|distill|balanced_calib|lang_cond_a|combined; --proof-of-life or --dry-run for fast wiring sanity)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -371,6 +372,39 @@ test-dedup-exact:
 .PHONY: test-intllm-en
 test-intllm-en:
 	@$(PYTHON) $(PHASE_E)/scripts/test_intllm_en.py
+
+# ─── Phase E2.1.0 ─── Mini-scale ablation harness (E2.x.3 prerequisite) ─
+#
+# Per FJQ_PHASE_E_E2_FINDINGS.md v1.0+Q4 closure: the harness produces
+# `paper/intllm/ablations/mini_<TAG>.json` artifacts that all 5 E2.x.3
+# rows reference and that verify_paper_tables.py asserts against. This
+# is a hard prerequisite ahead of any E2.x feature work — without it,
+# ablation rows have no JSON to assert.
+#
+# Currently no E2.x feature is implemented; toggling a feature flag
+# emits a warning + records the request in JSON but proceeds with
+# baseline behavior. Real wiring lands per E2.x sub-task as features
+# ship in intllm.{quant,qat,model}.
+#
+# Usage:
+#   make train-mini-ablation TAG=baseline DRYRUN=1     # fast schema sanity, no GPU
+#   make train-mini-ablation TAG=baseline POL=1        # ~3-5 min POL on RTX 4090
+#   make train-mini-ablation TAG=baseline              # full ~1 h Mini run
+#
+# Once E2.4 BilingualCalibrationSampler ships:
+#   make train-mini-ablation TAG=balanced_calib FLAGS="--balanced-calib"
+.PHONY: train-mini-ablation
+train-mini-ablation:
+	@if [ -z "$(TAG)" ]; then \
+		echo "usage: make train-mini-ablation TAG=<name> [DRYRUN=1] [POL=1] [FLAGS=\"--feat ...\"]"; \
+		echo "  standard tags: baseline, hadamard, fp8_lmhead, distill, balanced_calib, lang_cond_{a,b,c}, combined"; \
+		exit 2; \
+	fi
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/train_mini_ablation.py \
+		--tag $(TAG) \
+		$(if $(DRYRUN),--dry-run,) \
+		$(if $(POL),--proof-of-life,) \
+		$(FLAGS)
 
 # ─── Phase E1.6 ─── Bilingual corpus packaging gate ───────────────────
 #

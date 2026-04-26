@@ -62,6 +62,13 @@ data/phase_e/corpus_id_dedup_exact/**/shard_*.parquet
 data/phase_e/corpus_id_dedup_exact/**/shard_*.parquet.tmp
 data/phase_e/corpus_id_dedup_exact/.progress/
 
+# Phase E E2 — Mini-scale ablation JSONs (regeneratable via
+# `make train-mini-ablation TAG=X`). Dry-run + proof-of-life outputs
+# are placeholders; full ablation results land in commits explicitly
+# (only when feature is real, val_loss measured, schema validated).
+paper/intllm/ablations/mini_*.json
+!paper/intllm/ablations/.gitkeep
+
 # Local HF token (defensive — should live in $HOME, never in repo)
 .huggingface_env
 
