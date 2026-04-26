@@ -29,6 +29,7 @@ help:
 	@echo "  dedup-corpus-id-dryrun     Phase E1.4 — MinHash LSH dry-run on 10K ID-corpus sample"
 	@echo "  dedup-corpus-id            Phase E1.4 — MinHash LSH full ID-corpus dedup (resumable)"
 	@echo "  test-dedup-resume          Phase E1.4.1 — resume-state smoke gate (synthetic, ~3s)"
+	@echo "  audit-dedup-sweep          Phase E1.4.2 — post-sweep read-only audit"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -307,3 +308,12 @@ dedup-corpus-id:
 .PHONY: test-dedup-resume
 test-dedup-resume:
 	@$(PYTHON) $(PHASE_E)/scripts/test_dedup_resume.py
+
+# Post-sweep audit (V31.E1.4.2): read-only summarizer of dedup-corpus-id
+# state. Reports running/exited, manifest stats per source, disk usage,
+# token-budget verification, and a proposed FJQ_PHASE_E_E1_FINDINGS.md
+# v1.1 splice block. NEVER modifies files or commits anything — pure
+# read + print.
+.PHONY: audit-dedup-sweep
+audit-dedup-sweep:
+	@$(PYTHON) $(PHASE_E)/scripts/audit_dedup_sweep.py

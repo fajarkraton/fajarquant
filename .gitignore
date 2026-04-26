@@ -46,6 +46,14 @@ data/kv_cache/dryrun_*/
 data/phase_e/corpus_id/**/shard_*.parquet
 data/phase_e/corpus_id/**/shard_*.parquet.tmp
 
+# Phase E E1.4 — post-dedup output shards (regeneratable via
+# python/phase_e/scripts/dedup_corpus.py from corpus_id/). Per-source
+# _manifest.json IS kept (small, post-dedup stats verifiable from repo).
+# .progress/ holds the resume state pickle — large, re-derivable.
+data/phase_e/corpus_id_dedup/**/shard_*.parquet
+data/phase_e/corpus_id_dedup/**/shard_*.parquet.tmp
+data/phase_e/corpus_id_dedup/.progress/
+
 # Local HF token (defensive — should live in $HOME, never in repo)
 .huggingface_env
 
