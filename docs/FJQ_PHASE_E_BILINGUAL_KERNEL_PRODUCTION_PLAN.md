@@ -1,6 +1,31 @@
-# FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Blue-Ocean Bar)
+# FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Production Bar, Tier 1+2 Scope)
 
-> **Plan version:** 1.7 (2026-04-26 v1.7 patch — Option B aggressive $0 minimalism)
+> **Plan version:** 1.8 (2026-04-26 v1.8 patch — Tier 3 tax-vertical DEFERRED to Phase F; Tier 1+2 only)
+>
+> **v1.7 → v1.8 changelog (2026-04-26 same-session, post-E1.4+E1.2 closure):**
+> - **🎯 Strategic re-scope: Tier 3 tax-vertical (TaxPrime) DEFERRED to Phase F.** Phase E v1.8 commits to **Tier 1 (kernel-context LLM) + Tier 2 (Indonesian + English bilingual ternary) ONLY**. Three drivers:
+>   - (1) **Founder bandwidth honesty** — solo execution + day-job + V31.E1 in flight. Tier 3 was 190-270 person-hours of TaxPrime archive ingest + dataset assembly + eval set construction; deferring frees calendar for clean bilingual base ship.
+>   - (2) **Cleaner research narrative for first paper** — "Bilingual ID+EN ternary LLM in kernel context" stands alone as MLSys-2027-grade contribution; tax-vertical was the third leg of the three-tier story but adds NDA dependency + single-rater methodology caveat. Drop strengthens reproducibility (all-public-corpus) and external validity (no proprietary archive).
+>   - (3) **De-risk first artifact** — E1.3 TaxPrime archive ingest was founder-blocked (NDA review pending). E4 entire phase (4 weeks) blocked on E1.3. Deferring removes the largest dependency risk in the calendar.
+> - **Tier 3 work PRESERVED** as Phase F roadmap, not deleted:
+>   - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` NEW (v1.8) — pointer document tying together preserved companion specs.
+>   - `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 retained as authoritative spec for Phase F (header updated to reflect deferral).
+>   - §11 Tax-vertical eval methodology preserved in this plan with "DEFERRED — Phase F" header (not deleted; future-self can lift verbatim).
+> - **Calendar reduction:** 52-65 weeks (12-15 months solo per v1.6) → **36-44 weeks (8-10 months solo)**. Drops:
+>   - Phase E4 (Vertical fine-tune, 4 weeks) — entire phase deferred.
+>   - E1.3 TaxPrime ingest in Phase E1 (~5h human) — deferred.
+>   - Tax-vertical paper claims + tax patent prep in E5 (~8-12 weeks calendar overhead) — deferred.
+> - **Production bar (§1):** 32 items → **~26 items**. Stripped: item 4 (vertical eval pass@1), item 11 (test-tax-vertical-kernel-path), tax claims in items 24+30. Renumbering preserved with audit-trail "(deferred to Phase F)" tags.
+> - **Phase E1 sync to v1.8 status (closed via separate commits):**
+>   - E1.1 ID first slice CLOSED (`47a8892` chain) — 10.67M docs / 38.92 GB raw.
+>   - E1.2 EN reuse CLOSED (`f912054`+`e82b1c4`) — `intllm_en.py` shim, 60:40 ratio, Stretch repo.
+>   - E1.4 dedup CLOSED (`4ebb437`+`8dc4fab`) — exact-hash sha256, 15.40 B post-dedup tokens (1.92× over §2 abort threshold).
+>   - E1.3 DEFERRED (this plan revision).
+>   - E1.5 DEFERRED (carried over from v1.7).
+>   - E1.6 packaging scope reduced: bilingual base attribution + license file only (no tax-vertical attribution path).
+> - **Risk register (§6) updated:** TaxPrime-related risks → RESOLVED via Phase F deferral. New risk: "Tier 3 deferral cannibalizes paper differentiator vs SEA-LION / Sahabat-AI" (Med likelihood, Med impact, mitigated by kernel-context Tier 1 differentiator + ternary bilingual being unique combo).
+> - **Companion docs:** TaxPrime dataset spec header updated to "Phase F roadmap" framing; body unchanged.
+> - **Self-check (§6.8 R7 artifact sync):** README badges + GitHub Releases unaffected (Phase E hasn't released yet); MEMORY.md resume protocol updated separate commit; FJQ_PHASE_E_E1_FINDINGS.md v1.2 already references E1.3 deferred.
 >
 > **v1.6 → v1.7 changelog (2026-04-26 same-day):**
 > - **🎯 Cash budget zero:** Phase E total external cash cost = **$0**. Founder self-funds all compute (laptop) + self-reviews privacy (founder is qualified counsel SH., MH.) + skips DVC/S3 cloud (plain local filesystem).
@@ -101,19 +126,22 @@ Competitive-landscape audit (CLAUDE.md §6.9 R2 literature review, 2026-04-25):
 - **Userspace on-device LLM** (Apple Foundation Models, Gemini Nano via AICore, Qualcomm AI Hub INT4 NPU) — **RED OCEAN.** Hyperscalers own this with massive distribution.
 - **Pan-SEA multilingual** (SEA-LION 8B/9B, Sahabat-AI 50B-token CPT, Komodo-7B) — **RED OCEAN.** AI Singapore + GoTo + Indosat have telco-scale data + distribution.
 
-**Three uncontested niches identified (BLUE OCEAN):**
+**Two uncontested niches in Phase E v1.8 scope (BLUE OCEAN):**
 
 1. **Tier 1 — Kernel-context LLM with formal isolation.** No other stack can run an LLM inside an OS kernel with compiler-enforced `@kernel`/`@device` separation + SMEP/SMAP/NX security triple. Use cases: automotive ECU AI, aerospace, medical device, industrial control.
 2. **Tier 2 — Indonesian + English bilingual ternary embedded.** Three orthogonal axes (ID, ternary, embedded) — no current player covers all three. SEA-LION etc. are all FP16-and-CPT, none ternary, none target embedded.
-3. **Tier 3 — Vertical AI (tax/legal Indonesian) with audit-trail-proof provenance.** TaxPrime native expertise + Phase D reproducibility chain (Track B watchdog/ckpt/resume + verify_paper_tables --strict).
 
-This plan ships all three concurrently, with shared substrate. **ID+EN bilingual scope confirmed** (vs pan-SEA): ~50–60% smaller corpus, 3–5× simpler eval suite, cleaner ternary quantization, and ortho-positioning vs SEA-LION.
+**Phase F roadmap (deferred from Phase E v1.8 per 2026-04-26 pivot):**
+
+3. **Tier 3 — Vertical AI (tax/legal Indonesian) with audit-trail-proof provenance.** TaxPrime native expertise + Phase D reproducibility chain. **DEFERRED:** preserved as Phase F roadmap (`docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` + `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 + §11 below). Activation gated on Phase E base success + founder-bandwidth re-check.
+
+This plan ships **Tier 1+2** concurrently, with shared substrate. **ID+EN bilingual scope confirmed** (vs pan-SEA): ~50–60% smaller corpus, 3–5× simpler eval suite, cleaner ternary quantization, and ortho-positioning vs SEA-LION. Tier 3 follows as natural Phase F extension once Tier 1+2 are validated, not a co-dependency.
 
 ---
 
-## 1. Production-readiness bar (32 items)
+## 1. Production-readiness bar (~26 active items, v1.8 — Tier 3 items deferred to Phase F)
 
-Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added items 25–32** for serving targets, abort criteria, monthly literature sweep, security review.
+Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added items 25–32** for serving targets, abort criteria, monthly literature sweep, security review. **v1.8 marks items 4, 11, 24-tax, 30-tax as `[DEFERRED — Phase F]`**: numbering preserved (audit-trail integrity per §6.8 R7), bar count drops 32 → ~26 active. Strikethrough'd items remain visible for forensic reference; they are NOT counted toward Phase E v1.8 ship gates.
 
 ### A. Benchmark claims (CLAUDE §6.9 R1, R6)
 
@@ -123,8 +151,8 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
    - Pin: lm-eval `0.4.11` (full 40-char SHA recorded in `eval/HARNESS_SHA` per Phase D pattern)
 2. **English eval parity (canonical, same harness SHA):** MMLU (5-shot), HellaSwag, ARC-easy/challenge, PIQA, WinoGrande, BoolQ, OpenBookQA, lambada_openai, wikitext, triviaqa.
 3. **Bilingual coherence gate:** ID and EN perplexity at Medium scale **within 1.3× of each other** (looser than v1.0's 1.2× because Indonesian web text noisier; calibrated empirically post-E3.1 results, recorded in `FJQ_PHASE_E_E3_BILINGUAL_GATE_CALIBRATION.md`).
-4. **Vertical eval (tax/legal Indonesian) — v1.6 SOLO MODE:** **100-200**-prompt gold-labeled eval set per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 (single-rater + self-consistency calibration; double-rater removed in solo-execution Option A). Pass@1 ≥ 65% target on tax-rule retrieval at Medium scale, framed in paper as *"preliminary single-expert-rated evaluation"*. Future Phase F may validate with external consultants if resources allow.
-5. **Canonical baselines re-run on bilingual axis:** BitNet-2B4T, MMfreeLM-1.3B/2.7B, SEA-LION-8B-IT, Sahabat-AI-8B-Llama3-CPT, Komodo-7B-Instruct (all on ID core set + EN canonical set + tax-vertical set, same harness SHA).
+4. **`[DEFERRED — Phase F]` Vertical eval (tax/legal Indonesian).** ~~**100-200**-prompt gold-labeled eval set per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1...~~ Methodology preserved in §11 below + Phase F roadmap; not a Phase E v1.8 ship gate.
+5. **Canonical baselines re-run on bilingual axis:** BitNet-2B4T, MMfreeLM-1.3B/2.7B, SEA-LION-8B-IT, Sahabat-AI-8B-Llama3-CPT, Komodo-7B-Instruct (all on ID core set + EN canonical set, same harness SHA). ~~tax-vertical set~~ deferred with item 4.
 
 ### B. Baseline parity (CLAUDE §6.9 R3)
 
@@ -136,7 +164,7 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 ### C. Kernel deployment gates (research-OS bare-metal pattern)
 
 10. **`make test-bilingual-kernel-path`** — FajarOS Nova boots, loads bilingual IntLLM Medium, runs both ID and EN inference inside `@kernel` context, 4 invariants (ID-PPL ≤ threshold, EN-PPL ≤ threshold, no `@device` calls in kernel path, security triple still on).
-11. **`make test-tax-vertical-kernel-path`** — same as above but for vertical fine-tuned model, plus 1 invariant: pass@1 on TaxPrime smoke set inside `@kernel`.
+11. **`[DEFERRED — Phase F]` `make test-tax-vertical-kernel-path`.** ~~Same as item 10 but for vertical fine-tuned model, plus 1 invariant: pass@1 on TaxPrime smoke set inside `@kernel`.~~ Reactivated in Phase F after vertical FT lands.
 12. **Kernel binary size budget** ≤ 16 MB (current Nova v3.9.0 + IntLLM = 14 MB, headroom ≤ 2 MB for bilingual additions).
 13. **Boot-to-`nova>` reliability:** 50 consecutive QEMU boots green, no triple-faults, no kernel panics. CI gate.
 
@@ -158,7 +186,7 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 ### F. IP / publication artifact
 
 23. **White paper:** *"Kernel-Context Inference for Safety-Critical Embedded AI"* — claims the kernel-LLM execution-model category before competitors, formal stating of `@kernel`/`@device` semantics, ablation tables, repro chain. Cited prior art per **§10 literature review**.
-24. **Patent prep filing draft** for kernel-context LLM execution model (TBD legal partner — TaxPrime IP team or external counsel).
+24. **Patent prep filing draft** for kernel-context LLM execution model (TBD legal partner — external counsel; ~~TaxPrime IP team option~~ deferred with Phase F since Tier 3 was the natural TaxPrime IP-team engagement vector).
 
 ### G. Serving targets (Tier 1 quantitative differentiators — NEW v1.1 §13 spec)
 
@@ -170,7 +198,7 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 ### H. Abort criteria (NEW v1.1 — §6.8 R6 mechanical FAIL paths)
 
 29. **Per-phase abort gate:** every phase has explicit FAIL conditions (§5 table updated). Failing a gate triggers `FJQ_PHASE_E_E*_ABORT.md` decision doc + rollback / pivot path, NOT silent extension.
-30. **Phase E global kill switch:** if Q1 Indonesian corpus < 8B usable tokens AND TaxPrime data fully blocked AND bilingual coherence catastrophic at Mini scale → pause Phase E, write `FJQ_PHASE_E_PIVOT.md`, return to fundamental scope decision.
+30. **Phase E global kill switch (v1.8):** if Q1 Indonesian corpus < 8B usable tokens AND bilingual coherence catastrophic at Mini scale → pause Phase E, write `FJQ_PHASE_E_PIVOT.md`, return to fundamental scope decision. ~~AND TaxPrime data fully blocked~~ removed v1.8: Tier 3 already deferred to Phase F, no longer a Phase E gating condition.
 
 ### I. Continuous validation (NEW v1.1)
 
@@ -230,11 +258,11 @@ Borrowed pattern from Phase D §1, expanded for Phase E scope. **v1.1 added item
 All E0 pre-flight questions resolved 2026-04-25 same-day. Detailed answers in respective decision docs (`FJQ_PHASE_E_E0_*.md`).
 
 - Q1: How much high-quality Indonesian text is realistically obtainable from public sources? ✅ **CLOSED v1.4 (E0.0.1):** 25–54 B post-dedup ID tokens available across 9 sources. 3-7× over abort threshold. See `FJQ_PHASE_E_E0_FINDINGS.md` (forthcoming aggregation) + `paper/intllm/results/phase_e/e0_id_corpora_inventory.json`.
-- Q2: ✅ **CLOSED v1.2:** TaxPrime data ownership confirmed by Fajar (founder). Dataset creation owned by TaxPrime knowledge team per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0. NDA / privacy / UU PDP compliance internal to TaxPrime. Synthetic-via-Claude descoped for E4.1.
+- Q2: ✅ **CLOSED v1.2 → DEFERRED Phase F per v1.8.** TaxPrime data ownership confirmed by Fajar (founder); dataset creation per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.2 (header marks Phase F roadmap). v1.8 strategic re-scope: Tier 3 entirely deferred; Q2 is no longer a Phase E gating concern.
 - Q3: Tokenizer compression efficiency. ✅ **CLOSED v1.4 (E0.0.3):** Mistral-v3 32K kept. Indonesian bytes/token = 2.527 (≤ 3.5 efficient threshold). Important nuance: tokens/word ID = 2.948 vs EN 1.665 (+77% more tokens per word due to Indonesian morphology). Custom 24K deferred to v2. See `FJQ_PHASE_E_E0_TOKENIZER_DECISION.md`.
 - Q4: Cloud GPU budget. ✅ **CLOSED v1.4 (E0.0.4):** **LAPTOP-ONLY RTX 4090** chosen by founder. Cost ~$0 marginal vs plan v1.3 ~$420-820. Trade: +6-8 weeks calendar. Stretch replanned to option (C) reduced ~1.5B × 15B tokens. See `FJQ_PHASE_E_HARDWARE_DECISION.md`.
 - Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.1:** empirically verified 2026-04-25 → 94 strict ID tasks in lm-eval v0.4.11 (see §1 item 1). E0.0.5 reduced to harness SHA pinning + canonical task list selection.
-- Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.4 (E0.0.5):** SHA pinned to `27988a293647d5853e48edea291640b4af54740c` (lm-eval v0.4.11). Canonical set: 4 ID core + 33+ extended + 11 EN canonical + bilingual coherence + tax-vertical. See `FJQ_PHASE_E_E0_EVAL_CANONICAL.md`.
+- Q5: Indonesian eval suite freshness. ✅ **CLOSED v1.4 (E0.0.5):** SHA pinned to `27988a293647d5853e48edea291640b4af54740c` (lm-eval v0.4.11). v1.8 canonical set (Tier 1+2): 4 ID core + 33+ extended + 11 EN canonical + bilingual coherence. ~~tax-vertical~~ deferred to Phase F per v1.8. See `FJQ_PHASE_E_E0_EVAL_CANONICAL.md`.
 - Q6: Phase D §3.4 baseline-sweep status. ✅ **CLOSED v1.4 (E0.0.6):** Accept-partial path adopted same-day (vs 1-week window). 2 real baselines preserved (BitNet 2B4T ✅ + MMfreeLM-370M ✅). 5 deferred to paper appendix + Phase E side-task with §6.11-style hardening. See `FJQ_PHASE_E_E0_PHASE_D_DEPENDENCY.md`.
 - Q7: **(NEW v1.4)** Per-source data licensing for Tier B commercial deployment. ✅ **CLOSED v1.4 (E0.0.7):** Two-tier scoping — Tier A (paper) all sources OK via Bartz fair-use; Tier B1 (commercial-clean) drops CC-100 + news + academic-restricted (~10-15B raw lost, still ~15-30B usable); Tier C Indonesian-market carve-out via UU Hak Cipta Pasal 43-44. See `FJQ_PHASE_E_E0_LICENSING.md`.
 
@@ -255,7 +283,7 @@ Deliverable: `docs/FJQ_PHASE_E_E0_FINDINGS.md` with hands-on answers to Q1–Q5 
 | Task | Verification command | Surprise budget | FAIL path |
 |---|---|---|---|
 | E0.0.1 Inventory ID corpora | `python scripts/audit_id_corpora.py --strict` exits 0 with summary table | +25% | < 8B usable post-dedup → `FJQ_PHASE_E_PIVOT.md` (synthetic translation fallback or scope cut) |
-| E0.0.2 TaxPrime data review | `docs/FJQ_PHASE_E_TAXPRIME_DATA_REVIEW.md` checked in (privacy/NDA notes) | +30% (legal review uncertainty) | 100% blocked → public-only tax corpus, Tier 3 narrative weakened |
+| ~~E0.0.2 TaxPrime data review~~ **[DEFERRED — Phase F per v1.8]** | Originally: `docs/FJQ_PHASE_E_TAXPRIME_DATA_REVIEW.md` checked in (privacy/NDA notes). Tier 3 deferred ⇒ no Phase E v1.8 closure required. | n/a | n/a — Phase F prerequisite |
 | E0.0.3 Tokenizer compression measure | `python scripts/measure_tokenizer.py --tokenizer mistral-v3-32k --corpus id_corpus_sample.txt` outputs bytes-per-token in JSON | +25% | bytes/token >4.0 → custom 24k tokenizer mandatory in E2 |
 | E0.0.4 Cloud GPU decision | `docs/FJQ_PHASE_E_HARDWARE_DECISION.md` checked in: laptop-only vs cloud burst budget | +25% | budget cap exceeded mid-flight → pause Stretch, ship Medium-only paper |
 | E0.0.5 Indonesian eval suite SHA pin + canonical-set selection | `eval/HARNESS_SHA` updated with full 40-char SHA + `docs/FJQ_PHASE_E_E0_EVAL_CANONICAL.md` lists chosen 4 core + 30+ extended tasks | +20% (was +25%; reduced because §1 item 1 already empirically verified v1.1) | task SHA drift in lm-eval upstream → re-pin and re-baseline |
@@ -275,49 +303,58 @@ Deliverable: `docs/FJQ_PHASE_E_E0_FINDINGS.md` with hands-on answers to Q1–Q5 
 
 ---
 
-### PHASE E1: Bilingual data curation (Weeks 2–4, ~30h human, ~5h GPU [tokenization + dedup])
+### PHASE E1: Bilingual data curation (Weeks 2–4, ~30h human, ~5h GPU)
+
+> **v1.8 status (2026-04-26 same-session as v1.8 plan revision):** E1.1 + E1.2 + E1.4 **CLOSED**. E1.3 + E1.5 + E1.6 status updated below. Detailed measurements + recipe pivots in `docs/FJQ_PHASE_E_E1_FINDINGS.md` v1.2.
 
 #### E1.0 Pre-flight audit
 
-Deliverable: `docs/FJQ_PHASE_E_E1_FINDINGS.md` — corpus stats per source, dedup rate, language-detection accuracy.
+Deliverable: `docs/FJQ_PHASE_E_E1_FINDINGS.md` — corpus stats per source, dedup rate, language-detection accuracy. ✅ **CLOSED v1.0 (2026-04-26).** Updated to v1.2 with E1.2 + E1.4 closure measurements.
 
-#### E1.1 Indonesian corpus assembly
+#### E1.1 Indonesian corpus assembly — ✅ **CLOSED v1.8**
 
-| Source | Approx. tokens (raw) | Quality tier | Notes |
+**Measured outcome (post-E1.4 dedup):** 10,665,621 docs / 38.92 GB / **15.40 B tokens** (Mistral v3 32K, 2.527 byte/tok). Sources actually used in v1 slice:
+
+| Source | Docs | Raw text | ~Tokens | Status |
+|---|---:|---:|---:|---|
+| Wikipedia ID (`wikimedia/wikipedia/20231101.id`) | 665,621 | 1.06 GB | 0.42 B | ✅ FULL |
+| FineWeb-2 ID (`HuggingFaceFW/fineweb-2/ind_Latn`) | 10,000,000 | 37.86 GB | ~15.0 B | ✅ SLICE 1 |
+| **Subtotal v1 slice** | **10,665,621** | **38.92 GB** | **~15.4 B** | — |
+
+**Original aspirational sources (CC-100, OSCAR, MADLAD, Indonesian news crawls, OCR books, academic) DEFERRED** — not required for §E1.1 budget per v1.8 (15.40 B easily clears >8 B abort threshold). See `FJQ_PHASE_E_E1_FINDINGS.md` v1.2 §3 for blocker status if user wants to revisit.
+
+**Verification:** `python python/phase_e/scripts/build_id_corpus.py --source <name> --dry-run` + `python python/phase_e/scripts/audit_id_corpora.py`.
+
+#### E1.2 English subset selection — ✅ **CLOSED v1.8**
+
+**Decision:** Reuse Phase D's `intllm.data.slimpajama_stream` (no on-disk parquet for EN — laptop $0 storage budget). Bilingual mix locked at **60:40 ID:EN**, EN cap **10.27 B tokens**. Repo: `gmongaras/SlimPajama-627B_Reupload` (Stretch — EN cap exceeds 6 B threshold of `DKYoon/SlimPajama-6B`). Constants + helpers in `python/phase_e/intllm_en.py` (commit `f912054`).
+
+**FineWeb-Edu add-on DEFERRED** — re-evaluate at E5/E6 if Mini-scale ablation shows EN coverage bottleneck.
+
+**Verification:** `make test-intllm-en` (6/6 invariants, <1 s).
+
+#### E1.3 Vertical fine-tune corpus (tax/legal Indonesian) — **`[DEFERRED — Phase F per v1.8]`**
+
+Originally: `data/tax_id_corpus_v1.parquet` from TaxPrime archives (post-NDA review per E0.0.2). DEFERRED per v1.8 strategic re-scope (Tier 3 → Phase F).
+
+| Source | Approx. size | Quality | v1.8 status |
 |---|---|---|---|
-| CC-100 ID | ~10–15B | medium | web crawl, needs heavy dedup |
-| OSCAR ID v23 | ~5–8B | medium | language-detected, dedup'd |
-| Wikipedia ID | ~700K articles ≈ 0.5–1B tokens | high | curated |
-| Indonesian news crawls (Detik, Kompas, Tempo public archives) | ~3–5B | high | needs licensing review |
-| Indonesian books OCR (public domain via gutenberg-id, archive.org-id) | ~0.5–1B | high | OCR quality variable |
-| Indonesian academic / `id-research` (arXiv ID papers if any, ITB / UI / UGM theses if obtainable) | ~0.2–0.5B | high | small but high signal |
-| **Subtotal Indonesian** | **~20–30B raw → ~12–18B post-dedup** | — | — |
+| Indonesian tax law (UU, PMK, PER-DJP, SE) public PDFs | ~50–200 MB text | high (regulatory) | Phase F |
+| TaxPrime internal memos / advisories (sanitized) | TBD per E0.0.2 | very high | Phase F |
+| Indonesian tax court rulings (Pengadilan Pajak public decisions) | ~100–500 MB text | high | Phase F |
+| Bilingual tax glossary | ~5 MB | very high | Phase F |
 
-**Verification:** `python scripts/build_id_corpus.py --output data/id_corpus_v1.parquet --report data/id_corpus_v1_report.json` and `verify_id_corpus.py --strict`.
+Companion spec `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 retained as authoritative Phase F roadmap (header updated to reflect deferral).
 
-#### E1.2 English subset selection
+#### E1.4 Dedup + language-detect + filter — ✅ **CLOSED v1.8 via exact-hash sha256**
 
-Reuse Phase D English corpus (SlimPajama subset already streaming-ready), trim to ~30–50B tokens to keep ratio ID:EN ≈ 60:40 or 50:50 (decide in E0).
+**Recipe pivot (LSH → exact-hash):** original Falcon-Edge / RedPajama MinHash LSH (threshold 0.85, 128 perm, 5-gram word shingles) OOM-killed at 5.96M/10M docs (LSH index hit 30 GB on 31 GB box, 2026-04-26). Pivoted to exact-string sha256 over NFKC+lowercase+ws-collapse normalized text. Justification: LSH partial measured dedup_rate 0.0093% — at this rate, MinHash near-dup is overkill.
 
-| Source | Tokens | Notes |
-|---|---|---|
-| Phase D SlimPajama subset | ~50B available | reuse `intllm.data.slimpajama_stream` |
-| FineWeb-Edu (high-quality EN filtered) | ~20B subset | optional add-on for code/technical |
+**Measured outcome:** 2,710 dupes / 10,665,621 docs = **0.0254%** (4.9× more catches per doc than LSH partial — Wikipedia stub-page templates that LSH refused to register). Memory ~1 GB constant. Wall time **20 min** (vs LSH 6+ h projected).
 
-#### E1.3 Vertical fine-tune corpus (tax/legal Indonesian)
+**Language-detect DEFERRED** — only needed if §E1.6 packaging audit flags non-ID content above threshold. Optional E1.4.x: `fasttext` lid.176 pass on 10.66M kept docs.
 
-Deliverable: `data/tax_id_corpus_v1.parquet` from TaxPrime archives (post-NDA review per E0.0.2).
-
-| Source | Approx. size | Quality |
-|---|---|---|
-| Indonesian tax law (UU, PMK, PER-DJP, SE) public PDFs | ~50–200 MB text | high (regulatory) |
-| TaxPrime internal memos / advisories (sanitized) | TBD per E0.0.2 | very high |
-| Indonesian tax court rulings (Pengadilan Pajak public decisions) | ~100–500 MB text | high |
-| Bilingual tax glossary | ~5 MB | very high |
-
-#### E1.4 Dedup + language-detect + filter
-
-`python scripts/dedup_bilingual.py --inputs id_corpus_v1.parquet en_subset.parquet --output bilingual_v1.parquet --threshold 0.85` (MinHash LSH per Falcon-Edge / RedPajama recipe).
+**Verification:** `make test-dedup-exact` (5/5) + `make dedup-corpus-id-exact-dryrun` (4 s) + per-source `_manifest.json` files.
 
 #### E1.5 Synthetic pretrain augmentation (v1.3 — BeyondWeb recipe, REPHRASE-of-real)
 
@@ -471,42 +508,26 @@ Re-run §3.2 Phase D `bench-canonical-real` for ID+EN coverage. Add IndoMMLU + I
 
 ---
 
-### PHASE E4: Vertical fine-tune (Weeks 19–22, ~20h human, ~30–60h GPU)
+### PHASE E4: Vertical fine-tune (~~Weeks 19–22, ~20h human, ~30–60h GPU~~) — **`[DEFERRED — Phase F per v1.8]`**
 
-> **v1.2 update:** E4.1 now uses TaxPrime-owned dataset per `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.0. **No synthetic-via-Claude for E4.1** (descoped per Anthropic ToS active enforcement). Eval set methodology unchanged from §11.
-
-#### E4.0 Pre-flight audit
-
-TaxPrime team delivers `data/tax_id_corpus_v1/` per spec. Confirm acceptance gates §11.1 (training corpus) + §11.2 (eval set) ALL passed. Run baseline (Medium bilingual without FT) on eval set to establish floor pass@1.
-
-| Task | Verification |
-|---|---|
-| E4.0.1 Dataset acceptance audit | `python scripts/verify_taxprime_dataset.py --version v1.0 --strict` exit 0; checks all §11 acceptance items |
-| E4.0.2 PII residual scan | `scripts/check_pii_redaction.py --dataset data/tax_id_corpus_v1/ --strict` exit 0 |
-| E4.0.3 Cross-contamination check | `scripts/check_train_eval_overlap.py` — 0 examples appear in both train and eval (id + content hash) |
-| E4.0.4 Baseline pass@1 (no FT) | bilingual Medium evaluated on tax eval set; result calibrates §1 item 4 threshold |
-
-#### E4.1 Tax/legal Indonesian fine-tune (v1.2 — TaxPrime real data only)
-
-| Task | Verification |
-|---|---|
-| E4.1.1 SFT recipe (LoRA r=64 + full-tune comparison) | `make finetune-tax-lora` and `make finetune-tax-full` produce checkpoints |
-| E4.1.2 Eval against TaxPrime 500-prompt eval set | `make eval-tax-vertical` outputs `paper/intllm/results/tax_eval.json` |
-| E4.1.3 Pass@1 ≥ 65% on tax-rule retrieval | gate per §1 item 4 (threshold revisited post-E4.0.4 baseline) |
-| E4.1.4 Hallucination check | manual review of 50 random outputs by domain expert (TaxPrime team) |
-| E4.1.5 **(NEW v1.2)** Citation-format compliance | auto-check: model output must contain valid regulatory citation in `UU/PMK/PER-DJP/SE` format for any factual claim; pass rate ≥ 90% |
-
-#### E4.2 Optional: bilingual-instruct version (general-purpose ID+EN chat)
-
-| Task | Verification |
-|---|---|
-| E4.2.1 Instruct dataset assembly (Indonesian Alpaca-style) | corpus checked in |
-| E4.2.2 SFT run | checkpoint produced |
-| E4.2.3 Eval on IndoBench instruction-following | results committed |
-
-**Prevention layer:** `verify_paper_tables.py` row for tax-vertical pass@1 — drift triggers red CI.
-
-**Gate E4:** tax-vertical eval ≥65% AND domain expert sign-off committed in `docs/FJQ_PHASE_E_E4_TAX_VERTICAL_SIGNOFF.md`.
+> **v1.8 PIVOT (2026-04-26):** ENTIRE PHASE E4 deferred to Phase F. Phase E v1.8 ships Tier 1+2 (kernel + bilingual base) only; tax-vertical fine-tune (Tier 3) becomes Phase F deliverable, gated on Phase E success + founder-bandwidth re-check. Calendar saved: ~4 weeks human + 30-60 h GPU.
+>
+> **What's preserved as Phase F roadmap (NOT deleted):**
+> - Companion spec `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 — authoritative dataset spec (header updated to reflect deferral; body unchanged).
+> - §11 below — Tax-vertical eval methodology spec (DEFERRED header added; body preserved verbatim).
+> - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` (NEW v1.8) — pointer document summarizing what Phase F will lift from this plan.
+> - Original E4.0 / E4.1 / E4.2 sub-task tables: SEE `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` (lifted verbatim there to keep this plan focused).
+>
+> **What Phase F will deliver (summary, full plan in roadmap doc):**
+> - E4.0 Pre-flight: dataset acceptance audit + PII residual scan + cross-contamination check + baseline pass@1 floor measurement
+> - E4.1 Tax/legal Indonesian fine-tune (LoRA + full-tune comparison; Pass@1 ≥ 65% gate; hallucination check; citation-format compliance)
+> - E4.2 Optional bilingual-instruct general-purpose ID+EN chat
+> - Prevention layer: `verify_paper_tables.py` row for tax-vertical pass@1 (Phase F)
+> - Gate F4: tax-vertical eval ≥65% + domain expert sign-off
+>
+> **Why deferred (audit-trail per §6.8 R6):** founder solo-execution + day-job + V31.E1 in flight. Tier 3 was 190-270 person-hours of TaxPrime archive ingest + dataset assembly. E1.3 archive ingest was founder-blocked on NDA review. Cleaner first paper without Tier 3 entanglement (all-public-corpus = stronger external validity).
+>
+> **E4.2 bilingual-instruct caveat:** general bilingual instruct (Alpaca-style ID+EN chat) is Tier 2-relevant, not Tier 3 — could in principle stay in Phase E v1.8. Deferred WITH E4.0+E4.1 because: (i) requires pretrain checkpoint that won't exist until E3 ships, (ii) instruct tuning is downstream of base-model paper claims, (iii) cleaner E5 packaging without instruct row.
 
 ---
 
@@ -541,17 +562,15 @@ Kernel-LLM is a NEW attack surface — unprecedented at this scale. Before any p
 | E5.1.8 **(NEW)** Memory footprint at inference | `make bench-kernel-mem` reports peak RSS; gate ≤512 MB Medium |
 | E5.1.9 **(NEW)** Power budget (embedded ARM64 target — Radxa Q6A) | `make bench-radxa-power` with external watt-meter; gate ≤5 W average |
 
-#### E5.2 Tax-vertical kernel path
+#### E5.2 Tax-vertical kernel path — **`[DEFERRED — Phase F per v1.8]`**
 
-| Task | Verification |
-|---|---|
-| E5.2.1 Port tax-vertical FT checkpoint to `.fjm` | export script ran |
-| E5.2.2 `make test-tax-vertical-kernel-path` (5 invariants incl. tax-pass@1) | green in CI |
-| E5.2.3 Demo shell command in Nova: `nova> tax-query "Apa tarif PPh badan tahun 2026?"` returns coherent answer | manual smoke test |
+> Originally: port tax-vertical FT checkpoint to `.fjm`, `make test-tax-vertical-kernel-path` 5-invariant gate including pass@1 inside `@kernel`, Nova shell demo `nova> tax-query "..."`. ENTIRE SUB-PHASE deferred with E4 — no tax-vertical FT checkpoint exists in Phase E v1.8 to port. Reactivated in Phase F after E4-equivalent fine-tune lands.
 
 #### E5.3 White paper
 
 Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual Ternary LLM in an OS Kernel."*
+
+> **v1.8 paper scope:** Tier 1 (kernel-context execution model) + Tier 2 (Indonesian + English bilingual ternary). Tax-vertical paper claims removed from this artifact; future Phase F paper extends with vertical fine-tune results. Title intentionally unchanged — bilingual base alone supports the title's claim.
 
 | Task | Verification |
 |---|---|
@@ -565,7 +584,7 @@ Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual T
 
 | Task | Verification |
 |---|---|
-| E5.4.1 Patent draft for kernel-context LLM execution model | drafted by legal counsel (TaxPrime team or external); committed under `docs/legal/PATENT_DRAFT_KERNEL_LLM_V1.md` (note: keep confidential pre-filing) |
+| E5.4.1 Patent draft for kernel-context LLM execution model | drafted by legal counsel (~~TaxPrime team option~~ deferred with Phase F; external counsel for v1.8); committed under `docs/legal/PATENT_DRAFT_KERNEL_LLM_V1.md` (note: keep confidential pre-filing) |
 | E5.4.2 Open-weights / proprietary-deployment licensing decision | `docs/LICENSING_PHASE_E.md` clarifies what's Apache 2.0 (FajarQuant + IntLLM + FajarOS userspace) vs commercial-licensed (FajarOS kernel-LLM integration if pursued) |
 | E5.4.3 GitHub Releases for fajar-lang v32, fajaros-x86 v4.0, fajarquant v0.5 | releases cut, topics refreshed, descriptions updated per §6.8 R7 |
 
@@ -577,37 +596,43 @@ Title: *"Kernel-Context Inference for Safety-Critical Embedded AI: A Bilingual T
 
 ## 4. Timeline + effort rollup
 
-### v1.7 calendar (Option B aggressive $0 — laptop-only, reduced Stretch, scoped-down Tier 3, NO synthetic Lapis 2)
+### v1.8 calendar (Tier 1+2 only; Tier 3 deferred to Phase F)
 
-Realistic timeline for founder solo execution at ~10h/week part-time. Total external cash cost: **$0**.
+Realistic timeline for founder solo execution at ~10h/week part-time. Total external cash cost: **$0** (laptop-only, no DVC/S3, founder self-reviews legal).
 
-| Phase | Calendar (solo, ~10h/wk) | Human (h) | GPU (h) | Cost | Gates |
+| Phase | Calendar (solo, ~10h/wk) | Human (h) | GPU (h) | Cost | Status |
 |---|---|---|---|---|---|
-| E0 Pre-flight | ✅ DONE Week 1 (3.5h actual, single-session) | 3.5 | 0 | $0 | 10 decision docs ✅ |
-| E1 Bilingual data + Tier B1 fork (NO Lapis 2 per v1.7) | Weeks 2–5 (~4 wk, simpler than v1.6 — Lapis 2 dropped) | 25 | ~5 | $0 | corpus + verify-bilingual-corpus |
-| E2 Algorithm catch-up | Weeks 6–13 (~8 wk) | 25 | ~30–60 | $0 | 5 ablation decision docs (E2.4 BilingualCalibrationSampler retained for real-corpus calibration) |
-| E3 Bilingual pretrain Mini/Base/Medium | Weeks 14–31 (~18 wk, sequential laptop) | 35 | ~70–150 | $0 | 3 scale gates + canonical bench |
-| E3.4 Reduced Stretch ~1.5B × 15B | Weeks 32–36 (~5 wk) | 8 | ~50–100 | $0 | gate <3.8 |
-| E4 Tax-vertical solo (founder self-review, no external counsel) | Weeks 37–47 (~11 wk solo) | 40 | ~30–60 | **$0** (was $300-700 in v1.6) | tax pass@1 + self-consistency calibration + founder UU-PDP self-review |
-| E5 Kernel + paper + IP | Weeks 48–57 (~10 wk, solo paper writing) | 35 | ~5 | $0 | 2 kernel-path gates + paper + releases |
-| **Total v1.7 solo Option B** | **~57 weeks (~13 months) realistic** | **~171.5h** | **~190–380h on laptop** | **$0** | **6 phase gates** |
-| **Alt: skip Tier 3 entirely → Phase F** | ~35 weeks (~8 months) | ~125h | ~140–280h | $0 | 5 phase gates (no E4) |
-| **v1.6 (still listed for reference)** | ~58 weeks | ~176.5h | ~190–380h | ~$300-700 | 6 gates |
-| **v1.5 with-team assumption (DEPRECATED)** | ~34 weeks | ~140h | ~220–430h | ~$420-820 | 6 phase gates |
+| E0 Pre-flight | ✅ DONE Week 1 (3.5h actual) | 3.5 | 0 | $0 | 10 decision docs (E0.0.2 deferred) |
+| E1 Bilingual data (NO Lapis 2 per v1.7; NO E1.3 per v1.8) | ✅ E1.1+E1.2+E1.4 DONE Weeks 2-3 (~12h actual, exact-hash dedup pivot saved 4-6h) | ~12 actual | ~0.5 | $0 | corpus 15.40 B ID + EN streaming config |
+| E1.6 packaging (bilingual base only) | Week 4 (~1 wk) | 5 | 0 | $0 | `FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` + `verify-bilingual-corpus` |
+| E2 Algorithm catch-up | Weeks 5–12 (~8 wk) | 25 | ~30–60 | $0 | 5 ablation decision docs |
+| E3 Bilingual pretrain Mini/Base/Medium | Weeks 13–30 (~18 wk, sequential laptop) | 35 | ~70–150 | $0 | 3 scale gates + canonical bench |
+| E3.4 Reduced Stretch ~1.5B × 15B (optional) | Weeks 31–35 (~5 wk) | 8 | ~50–100 | $0 | gate <3.8; OPTIONAL — ship Medium-only paper if skipped |
+| ~~E4 Tax-vertical~~ | **`[DEFERRED — Phase F]`** | — | — | — | Calendar saved: ~11 wk + 30-60 h GPU |
+| E5 Kernel + paper + IP (Tier 1+2 scope) | Weeks 36–43 (~8 wk, simpler than v1.7 — no E5.2 tax kernel-path, no tax-vertical paper rows) | 28 | ~5 | $0 | 1 kernel-path gate (bilingual) + paper + releases |
+| **Total v1.8 solo Tier 1+2** | **~43 weeks (~10 months)** | **~116.5h** | **~150–315h on laptop** | **$0** | **5 active gates (E0/E1/E2/E3/E5)** |
 
-**v1.6 takeaway:** solo realistic = **13.5 months** vs v1.5 with-team **8 months**. +5.5 months reflects (a) +5 wk per major phase for solo bandwidth, (b) Tier 3 work fully on founder.
+**Comparison to v1.7:**
 
-> **§6.8 R5 surprise budget:** all estimates carry +25% default. Solo-mode entries carry +30% (single-point-of-execution risk). Realistic worst-case: ~17 months if day-job intensifies.
+| Metric | v1.7 (Tier 1+2+3) | v1.8 (Tier 1+2) | Δ |
+|---|---|---|---|
+| Total weeks | ~57 | ~43 | -14 wk (-25%) |
+| Human hours | ~171.5 | ~116.5 | -55h (-32%) |
+| GPU hours | ~190-380 | ~150-315 | -40-65h (-17 to -21%) |
+| Active gates | 6 | 5 | -1 (E4 removed) |
+| External cost | $0 | $0 | unchanged |
+| Calendar (months solo, 10h/wk) | ~13 | **~10** | **-3 mo** |
 
-> **Calendar elasticity:** if mid-flight resources allow (revenue → freelance consultant hire, or partner joins), can re-scope Tier 3 back to v1.5 double-rater methodology. Plan optionality preserved.
+**v1.8 takeaway:** Tier 3 deferral saves ~3 months calendar + ~32% human-hours. Phase F roadmap preserved as natural extension; E1.3+E4+E5.2 can re-activate in ~11 wk Phase F window (Weeks 44-54) once founder bandwidth + Phase E base success allow.
 
-> **§6.8 R5 surprise budget:** all estimates carry +25% default. E0 actual undershoot (-77%) due to single-session efficiency — won't generalize to GPU-bound phases.
+> **§6.8 R5 surprise budget:** all estimates carry +25% default. Solo-mode entries +30% (single-point-of-execution risk). Realistic worst-case v1.8: ~13 months if day-job intensifies. Phase F adds 3-4 months on top → ~16-18 months for full Tier 1+2+3.
 
-> **Calendar elasticity:** if laptop unavailable for non-Phase-E work too constraining, +$300-500 cloud-burst rescue path remains open per E0.0.4 SPOF mitigation. Not foreclosed.
+> **Calendar elasticity (v1.8):** Phase F deferral is the primary safety valve. If E2/E3 GPU time overruns, Phase F slip-by-default doesn't impact Phase E paper artifact ship. Conversely, if Phase E lands faster than estimated, Phase F can be re-prioritized into the Q4 2026 / Q1 2027 window.
 
-> **§6.8 R5 surprise budget:** all estimates carry +25% default; E0.0.2 (TaxPrime data review) and E5.4.1 (patent draft) carry +30% (legal-uncertainty premium).
->
-> Calendar can compress to ~4 months with full-time human + cloud-only GPU; this rollup assumes part-time engineering + laptop-primary GPU with cloud only for Stretch.
+> **Phase D historical reference (still listed):**
+> - v1.7: ~57 weeks ($0 with Tier 3 in scope)
+> - v1.6: ~58 weeks ($300-700 with Tier 3)
+> - v1.5: ~34 weeks (with-team, deprecated)
 
 ---
 
@@ -617,16 +642,16 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 
 | Phase | PASS produces | FAIL path | Blocks |
 |---|---|---|---|
-| E0 | `FJQ_PHASE_E_E0_FINDINGS.md` + `_HARDWARE_DECISION.md` + `_TAXPRIME_DATA_REVIEW.md` + `_LICENSING.md` + `_DATA_VERSIONING.md` + `_CI_GPU_PLAN.md` + `_PHASE_D_DEPENDENCY.md` + `_EVAL_CANONICAL.md` (all 8 sub-decisions) | any sub-FAIL → corresponding `*_ABORT.md` or `_PIVOT.md` written, escalate to user | E1 corpus assembly |
+| E0 | `FJQ_PHASE_E_E0_FINDINGS.md` + `_HARDWARE_DECISION.md` + ~~`_TAXPRIME_DATA_REVIEW.md`~~ (deferred Phase F) + `_LICENSING.md` + `_DATA_VERSIONING.md` + `_CI_GPU_PLAN.md` + `_PHASE_D_DEPENDENCY.md` + `_EVAL_CANONICAL.md` (7 sub-decisions active in v1.8) | any sub-FAIL → corresponding `*_ABORT.md` or `_PIVOT.md` written, escalate to user | E1 corpus assembly |
 | E1 | `FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` + `verify-bilingual-corpus` exit 0 | <8B tokens → `FJQ_PHASE_E_PIVOT.md` (synthetic translation OR scope cut) | E2 (need real corpus) |
 | E2 | 5 `*_DECISION.md` (Hadamard, FP8, distillation, balanced calib, lang-cond) + combined ≥+0.10 nat | aggregate <0 nat → `FJQ_PHASE_E_E2_ABORT.md`, fall back to Phase D config + balanced calib only | E3 |
 | E3.1 | `FJQ_PHASE_E_E3_MINI_GATE.md` (PASS) + bilingual coherence ≤1.5× | val_loss > calibrated threshold → `_E3_MINI_FAIL.md` + diagnostic; retry once with hyperparam tweak; second fail → escalate | E3.2 |
 | E3.2 | `FJQ_PHASE_E_E3_BASE_GATE.md` (PASS) | same retry-once protocol | E3.3 |
 | E3.3 | `FJQ_PHASE_E_E3_MEDIUM_GATE.md` (PASS) | same; second fail → ship Mini+Base only as paper artifact | E3.4 + E4 + E5 |
 | E3.4 | `FJQ_PHASE_E_E3_STRETCH_GATE.md` (PASS) | optional anyway; FAIL → ship Medium-only paper | paper Table 2 Stretch row only |
-| E4 | `FJQ_PHASE_E_E4_TAX_VERTICAL_SIGNOFF.md` (≥65% pass@1 + expert OK) | <50% pass@1 → `_E4_ABORT.md`, ship bilingual-only paper without tax wedge; <65% but ≥50% → ship as "preliminary tax-vertical evaluation" | E5.2 |
+| ~~E4~~ | **`[DEFERRED — Phase F per v1.8]`** | n/a — gate becomes Phase F entry condition (Phase E success first) | n/a |
 | E5.0.5 | `FJQ_PHASE_E_SECURITY_REVIEW.md` + fuzz green + external review ack | any kernel panic in fuzz → block patent + paper publication, fix-and-retry | E5.3, E5.4 |
-| E5.1/E5.2 | `make test-{bilingual,tax-vertical}-kernel-path` green + 4 serving-target gates green | any serving target miss → soft FAIL: ship paper with measured numbers + acknowledge gap; do NOT relax target retroactively | E5.3 paper Tier 1 quantitative claims |
+| E5.1 | `make test-bilingual-kernel-path` green + 4 serving-target gates green (~~E5.2 tax-vertical kernel-path deferred~~) | any serving target miss → soft FAIL: ship paper with measured numbers + acknowledge gap; do NOT relax target retroactively | E5.3 paper Tier 1 quantitative claims |
 | E5.3 | `verify_phase_e_tables.py --strict` exit 0 | claim-row mismatch → block release announcement, fix script or claim, repeat | release announcements |
 
 **Pre-commit hook additions (extends Phase D hook):**
@@ -640,12 +665,13 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| **Indonesian corpus quality insufficient** (Q1 returns < 10B usable tokens) | Medium | High (forces multi-lingual or English-heavy ratio) | E0.0.1 inventory done before E1 commitment; fallback = synthetic Indonesian via translation of English subset (LoRA-translate bridge) |
-| ~~**TaxPrime data not usable** (NDA / privacy block in E0.0.2)~~ ✅ **RESOLVED v1.2** | ~~Medium~~ | ~~Medium~~ | TaxPrime data ownership confirmed by founder; spec v1.0 committed; risk class downgraded |
-| ~~**TaxPrime team unavailable** (parallel work blocked)~~ ✅ **RESOLVED v1.6** | ~~Med~~ | ~~Med~~ | Founder solo-execution mode adopted; Tier 3 scoped-down per Option A; spec v1.1 |
-| **Founder bandwidth burnout** (v1.6 → v1.7 mitigation chain shortened) | Medium | High (Phase E lock + day-job impact) | (1) Realistic 13-month calendar at 10h/wk; (2) Phase F deferral always-available pivot if month-on-month progress slips; (3) ~~cloud burst rescue~~ REMOVED v1.7 (no cloud budget); (4) explicit decision-point review at end of E1, E2, E3, E4 — re-scope vs continue (4-week review scheduled `trig_01MdWsiy1MnM9PCkwsEZ9vdo` for E1) |
-| **Single-rater eval validity** (NEW v1.6 Option A) | Medium | Medium (paper claim weaker) | Self-consistency calibration runs (rate same example 3× over 1-week intervals, expect ≥80% rating consistency); paper transparently frames as "preliminary single-expert-rated"; explicit Phase F future-work note for external validation |
-| **Day-job conflict** (TaxPrime business demands during E3 multi-week training) | Medium | Medium | Track B 6-layer interruption-safety covers laptop suspend; sequential per-scale training allows pause-resume |
+| **Indonesian corpus quality insufficient** (Q1 returns < 10B usable tokens) | ~~Medium~~ ✅ **RESOLVED v1.8** | ~~High~~ | E1.4 measured 15.40 B post-dedup — 1.92× over §2 abort threshold. Risk closed via empirical verification. |
+| ~~**TaxPrime data not usable** (NDA / privacy block in E0.0.2)~~ ✅ **RESOLVED v1.2 → DEFERRED v1.8** | ~~Medium~~ | ~~Medium~~ | v1.2: ownership confirmed. v1.8: Tier 3 deferred to Phase F; risk irrelevant for Phase E v1.8. |
+| ~~**TaxPrime team unavailable** (parallel work blocked)~~ ✅ **RESOLVED v1.6 → DEFERRED v1.8** | ~~Med~~ | ~~Med~~ | v1.6: solo-mode adopted. v1.8: Tier 3 deferred entirely; not a Phase E risk anymore. |
+| **Founder bandwidth burnout** (v1.6 → v1.7 mitigation chain shortened → v1.8 scope reduced) | ~~Medium~~ **Low–Medium (v1.8)** | High (Phase E lock + day-job impact) | (1) v1.8 calendar reduced ~13 mo → ~10 mo via Tier 3 deferral; (2) Phase F deferral is the burnout safety valve; (3) decision-point reviews at end of E1, E2, E3 — re-scope vs continue (E1 review scheduled `trig_01MdWsiy1MnM9PCkwsEZ9vdo`); (4) Phase E v1.8 ship target = first paper artifact (clean stopping point), Phase F is opt-in extension. |
+| ~~**Single-rater eval validity** (NEW v1.6 Option A)~~ ✅ **DEFERRED v1.8 with Tier 3** | ~~Medium~~ | ~~Medium~~ | Tax-vertical eval methodology preserved in §11 + Phase F roadmap; single-rater concern only relevant when tax-eval activates in Phase F. Phase E v1.8 paper has no single-rater claim. |
+| **Day-job conflict** (TaxPrime business demands during E3 multi-week training) | Medium | Medium | Track B 6-layer interruption-safety covers laptop suspend; sequential per-scale training allows pause-resume. v1.8: TaxPrime founder day-job conflict reduced to compute-time-availability only (no Tier 3 dataset assembly demand on top). |
+| **`[NEW v1.8]` Tier 3 deferral cannibalizes paper differentiator** (vs SEA-LION, Sahabat-AI, Komodo on bilingual axis only) | Medium | Medium (paper less unique without tax wedge) | (1) Tier 1 (kernel-context LLM) remains unique differentiator — no other player runs LLM in `@kernel` with formal isolation. Title and methodology framing emphasize Tier 1 as primary contribution. (2) Tier 2 ternary + bilingual + embedded combo still novel (SEA-LION etc. are FP16, no embedded target). (3) Phase F roadmap visible in paper future-work — signals Tier 3 coming. (4) Worst case: paper accepted on Tier 1 alone; Tier 2 supports as secondary contribution. |
 | **Synthetic generator legal blocker** (E1.5 + E4.2) | Low–Medium | Medium | E0.0.10 review pre-emptive; fallback to most-permissive open-source generator (Qwen2.5 Apache 2.0) or no-synthetic |
 | **Anthropic ToS challenge** (regulator or Anthropic claims dataset uses Claude output) | Low | High (could force model retraction) | §14 explicit policy + annotator FAQ in TaxPrime spec §14 + monthly literature sweep monitors enforcement actions |
 | **Bilingual catastrophic interference at ternary precision** (Phase E3 Mini fails coherence gate) | Medium | High | E2.4 combined ablation includes bilingual mini run; if interference shows, add language-conditioned LayerNorm or per-language adapter |
@@ -790,18 +816,19 @@ Each gate produces a committed file checked by pre-commit / commit-msg hooks. Do
 
 ---
 
-## 8. What this document commits to (v1.1)
+## 8. What this document commits to (v1.8 — Tier 1+2 only)
 
 This plan, when accepted, commits the following:
 
-1. **Strategic positioning:** FajarQuant + FajarOS Nova + Fajar Lang as a unified blue-ocean play in kernel-context LLM + Indonesian bilingual + tax-vertical. Phase E formally pivots away from "FajarQuant the algorithm" framing.
-2. **Scope:** ID + EN bilingual ONLY. Pan-SEA explicitly excluded as red ocean.
+1. **Strategic positioning (v1.8):** FajarQuant + FajarOS Nova + Fajar Lang as a unified blue-ocean play in kernel-context LLM + Indonesian-English bilingual ternary embedded. ~~+ tax-vertical~~ deferred to Phase F per v1.8. Phase E formally pivots away from "FajarQuant the algorithm" framing.
+2. **Scope:** ID + EN bilingual ONLY (Tier 2). Pan-SEA explicitly excluded as red ocean. Tier 3 (tax-vertical) deferred to Phase F.
 3. **Algorithm catch-up baseline:** 5 features (Hadamard outlier rotation + FP8 LM head + FP16 distillation + bilingual calibration balance + language-conditioned design) evaluated at Mini scale; adopted iff combined ablation ≥+0.10 nat AND coherence ratio ≤1.5×. Data decides; FAIL path = fall back to Phase D Mini config + balanced calibration only.
-4. **Production bar (v1.1):** 32 items in §1 (was 24 in v1.0), 10 phase gates in §5 with explicit FAIL paths (NEW), 25 self-check rules in §7 (HONEST: 18 YES + 3 SCHEDULED + 0 NO + 4 N/A). No "we'll harden later" exceptions — §6.8 R3 prevention layer required per phase.
-5. **Reproducibility:** every ML claim backed by `verify_phase_e_tables.py --strict` (pre-commit + CI). Indonesian eval suite empirically verified (94 tasks in lm-eval v0.4.11 per §1 item 1). No protocol artifacts (per §6.9 lessons).
+4. **Production bar (v1.8):** ~26 active items in §1 (was 32 in v1.7; 6 deferred to Phase F: items 4, 11, 24-tax, 30-tax + supporting). 9 active phase gates in §5 with explicit FAIL paths (E4 gate deferred). 25 self-check rules in §7 (HONEST: 18 YES + 3 SCHEDULED + 0 NO + 4 N/A). No "we'll harden later" exceptions — §6.8 R3 prevention layer required per phase.
+5. **Reproducibility:** every ML claim backed by `verify_phase_e_tables.py --strict` (pre-commit + CI). Indonesian eval suite empirically verified (94 tasks in lm-eval v0.4.11 per §1 item 1). No protocol artifacts (per §6.9 lessons). v1.8 reproducibility advantage: all-public-corpus, no proprietary archive dependency.
 6. **IP path:** patent draft + open-weights/proprietary-deployment split decided in E5.4 — explicit in `LICENSING_PHASE_E.md`. Pre-publication security review required (§1 item 32, E5.0.5 NEW).
-7. **Kernel-LLM serving targets quantified (NEW v1.1):** tok/s, TTFT, RSS, power — full spec in §13. These are the Tier 1 quantitative differentiators for paper.
-8. **Continuous validation (NEW v1.1):** monthly literature sweep cadence; competitive-blindside escalation rule (7-day SLA if Microsoft/AI-Singapore/etc. ships overlap).
+7. **Kernel-LLM serving targets quantified (v1.1):** tok/s, TTFT, RSS, power — full spec in §13. These are the Tier 1 quantitative differentiators for paper.
+8. **Continuous validation (v1.1):** monthly literature sweep cadence; competitive-blindside escalation rule (7-day SLA if Microsoft/AI-Singapore/etc. ships overlap).
+9. **Phase F deferral commitment (NEW v1.8):** Tier 3 work preserved as Phase F roadmap (`FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` + spec v1.2 + §11 + §F). Activation gated on Phase E success + bandwidth re-check; not a Phase E ship blocker.
 
 This plan does NOT commit to:
 - Pan-SEA expansion (deferred indefinitely; orthogonal vs SEA-LION)
@@ -855,7 +882,7 @@ Compiled 2026-04-25 via 4 WebSearch queries (sub-4-bit quant SOTA, on-device LLM
 | 12 | Komodo-7B (Owen+ 2024, arxiv 2403.09362) — Indonesian + 11 regional languages | Indonesian incumbent FP16 | Compare on Indonesian eval |
 | 13 | *Challenges and Opportunities for Unikernels in Machine Learning Inference* (IEEE 2021) | Closest prior art for kernel-mode ML; pre-LLM era | **Cite as nearest prior art** in Tier 1 paper claim |
 | 14 | Zephyr + TinyML (Edge Impulse, Conexio Stratus 2024-2026) | Closest prior art for RTOS + ML; tiny models only (CNN/RNN), not LLM | **Cite to differentiate**: Phase E targets 140M-3B, not TinyML scale |
-| 15 | BitLoRA (2026, ScienceDirect) — federated on-device ternary LoRA | Interesting for Tier 3 vertical fine-tune via LoRA | Reference; consider for E4.1 LoRA recipe |
+| 15 | BitLoRA (2026, ScienceDirect) — federated on-device ternary LoRA | **`[Phase F ref]`** Interesting for Tier 3 vertical fine-tune via LoRA | Reference; consider for E4.1 LoRA recipe (Phase F deferral per v1.8) |
 
 **Tier 1 prior-art claim defensibility (gap #2 closure):** searched arxiv + IEEE Xplore + Google Scholar for "kernel-mode LLM inference" / "kernel-context LLM" / "OS kernel large language model" — found tiny-ML in RTOS (Zephyr+Edge Impulse, but only CNN/RNN scale), unikernel-ML (paper 13, pre-LLM era), but **no published research on running LLM inference inside an OS kernel context with formal isolation guarantees as of 2026-04-25.** Claim defensible; framed honestly in paper as "we are not aware of prior work on..." rather than absolute "first."
 
@@ -863,7 +890,17 @@ Compiled 2026-04-25 via 4 WebSearch queries (sub-4-bit quant SOTA, on-device LLM
 
 ---
 
-## 11. Tax-vertical eval methodology spec (NEW v1.1 — gap #5 closure)
+## 11. Tax-vertical eval methodology spec (NEW v1.1 — gap #5 closure) — **`[DEFERRED — Phase F per v1.8]`**
+
+> **STATUS (v1.8, 2026-04-26):** ENTIRE SECTION preserved verbatim as Phase F roadmap. Tier 3 tax-vertical work deferred from Phase E v1.8; the methodology below activates when Phase F (vertical fine-tune) kicks off, gated on Phase E base success + founder bandwidth re-check.
+>
+> **Why preserved (not deleted):** the spec is well-designed and forward-compatible. Future-Fajar can lift verbatim into Phase F plan. Per §6.8 R7 audit-trail, removing methodology that took effort to design = bad practice; freezing it as roadmap = good practice.
+>
+> **Companion docs (Phase F):**
+> - `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 — authoritative dataset spec (header to be updated to "Phase F roadmap" per task #16 in this revision)
+> - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` (NEW v1.8) — pointer doc tying together this §11 + the dataset spec + lifted E4 sub-task tables from former §3 E4
+>
+> **No Phase E v1.8 commitment** to any §11 sub-section. Reader should treat §11 as **future-state spec, not current-phase deliverable**. Body unchanged below.
 
 ### 11.1 Eval set construction
 
@@ -906,14 +943,14 @@ Phase E touches 3 repos. Explicit who-owns-what to prevent dropped balls.
 
 | Phase | fajarquant (primary) | fajar-lang | fajaros-x86 |
 |---|---|---|---|
-| E0 Pre-flight | E0.0.1–9 all owned here | — | — |
-| E1 Bilingual data | corpus + dedup + tokenizer measure | — | — |
+| E0 Pre-flight | E0.0.1–9 all owned here (E0.0.2 deferred) | — | — |
+| E1 Bilingual data | corpus + dedup + tokenizer measure (E1.3 deferred) | — | — |
 | E2 Algorithm catch-up | all 5 ablations | — | — |
 | E3 Bilingual pretrain | training + canonical bench | — | — |
-| E4 Vertical fine-tune | SFT + tax eval set | — | — |
+| ~~E4 Vertical fine-tune~~ | **`[DEFERRED — Phase F]`** | — | — |
 | E5.1 Bilingual kernel-path | .fjm export script + serving benches | maybe @kernel feature additions if FJM v10 spec needed | `kernel/compute/bilingual_medium.fjm` integration + Makefile gate |
-| E5.2 Tax-vertical kernel-path | .fjm export | — | shell command `tax-query` + Makefile gate |
-| E5.3 Paper | results tables + verify script | — | kernel-path artifact + reproducibility |
+| ~~E5.2 Tax-vertical kernel-path~~ | **`[DEFERRED — Phase F]`** | — | — |
+| E5.3 Paper | results tables + verify script (Tier 1+2 only; no tax-vertical row) | — | kernel-path artifact + reproducibility |
 | E5.4 IP / releases | fajarquant v0.5 release | fajar-lang v32 release | fajaros-x86 v4.0 release |
 
 ---
@@ -987,8 +1024,8 @@ Phase E synthetic-data strategy locked. Decision matrix below is the contract; d
 |---|---|---|---|---|
 | **Lapis 1** | Pretrain core (E1+E3) | **NONE — real data only** | N/A | E0.0.1 confirmed 25–54 B post-dedup ID tokens available; no synthetic needed. **PRIMARY PATH v1.7.** |
 | ~~**Lapis 2**~~ | ~~Pretrain augmentation (E1.5) — REPHRASE real text per BeyondWeb recipe~~ | **DEFERRED TO PHASE F per v1.7 Option B.** Real corpus alone is sufficient for Phase E (Phase D Mini/Base/Medium succeeded real-only). Phase F may revisit when resources allow. | N/A | Saves ~3 months calendar + complexity. Lose BeyondWeb 7.7× speedup (acceptable for solo). LAPIS2_TEMPLATES.md preserved as Phase F future-reference. |
-| **Lapis 3a** | Vertical FT — Tax (E4.1) | **NONE — TaxPrime real data only per spec v1.0** | N/A | Tier 3 wedge is the differentiator; real proprietary > synthetic always; ToS-clean by construction |
-| **Lapis 3b** | Vertical FT — Instruct (E4.2) | Gemma 4 / Mixtral rephrase OR existing open ID-instruct datasets (Cendol, etc.) | ✅ yes | non-tax instruct is general capability; open path defensible |
+| ~~**Lapis 3a**~~ | ~~Vertical FT — Tax (E4.1)~~ | **`[DEFERRED — Phase F per v1.8]`** TaxPrime real data only per spec v1.1 | N/A | Tier 3 wedge deferred; activates when Phase F begins. |
+| ~~**Lapis 3b**~~ | ~~Vertical FT — Instruct (E4.2)~~ | **`[DEFERRED — Phase F per v1.8]`** Gemma 4 / Mixtral rephrase OR existing open ID-instruct datasets (Cendol) | N/A | Bilingual instruct deferred with E4 (downstream of pretrain checkpoint that won't ship until E3). |
 | **Lapis 2.5 (NEW v1.5)** | Synthetic-data pipeline support: filter / audit / meta-design (E1.5.0 + E1.5.5 + E1.5.6) | **Claude Opus 4.7 ALLOWED** for: (a) quality filter — rate Gemma 4 output drop bottom-N%, (b) bias/hallucination audit — read sample, flag issues, (c) prompt-template engineering — design BeyondWeb rephrase prompts. **NEVER** generate, rewrite, expand, translate, or otherwise contribute tokens that enter training corpus. | ✅ yes — categorically judging/auditing/meta-design, NOT training-data creation | Claude likely +5-15% better Indonesian-fluency discrimination than Gemma 4 self-filter; ToS-clean per "judging ≠ training" principle |
 | **Lapis 3c** | Eval / LLM-as-judge (§11) | Claude / GPT-4 / open — any judge is OK because **judging ≠ training** | ✅ yes (judging is not derivative-model creation) | standard practice in lm-eval ecosystem |
 
@@ -1022,7 +1059,7 @@ For any new training-data ask:
     → If yes, third-party Claude/GPT API output is FORBIDDEN as data source.
     → If no (eval, judge, classifier, retrieval), Claude/GPT is ALLOWED.
   Q2: Is the use case Tier 3 vertical (tax/legal)?
-    → TaxPrime real data only. Proprietary supremacy.
+    → DEFERRED to Phase F per v1.8. When activated: TaxPrime real data only. Proprietary supremacy.
   Q3: Is open-source generator legally available for the corpus license target?
     → Check E0.0.10 matrix. Default Mixtral or Qwen2.5 (Apache 2.0).
   Q4: Will the synthetic mix exceed 25% of pretrain tokens?
@@ -1098,9 +1135,72 @@ Still **dramatically cheaper** than full-Claude-synthetic path ($1.25-3.4M). Cla
 
 ---
 
-*Plan version: 1.7 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
-*v1.7 patch: Option B aggressive $0 minimalism — Lapis 2 deferred to Phase F + DVC/S3 dropped + external counsel dropped + cloud rescue dropped. Total Phase E cash: $0.*
-*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.0 + 10 E0 decision docs.*
-*v1.0→v1.1 closed 8 substantive gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + synthetic-data 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing (Gemma 4 PRIMARY, Llama 3.3 dropped, Qwen2.5 caveated) + BeyondWeb rephrase recipe + Bartz v. Anthropic fair-use precedent. v1.3→v1.4: 🎉 **Phase E E0 (pre-flight) phase 100% COMPLETE — all 10 sub-tasks delivered single-session 2026-04-25.** Hardware decision = laptop-only RTX 4090 (no cloud cost; +6-8 weeks calendar). Stretch replan = option (C) reduced 1.5B × 15B. Two-tier deployment scoping (Tier A paper + Tier B1 commercial-clean + Tier C ID-market carve-out).*
-*Cross-repo coordination required: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
+## §F. Phase F — Tax-Vertical Fine-Tune (Deferred from Phase E v1.8)
+
+> **Status (v1.8, 2026-04-26):** ROADMAP. No commitment to start. Activation gated on Phase E v1.8 success (all of E0+E1+E2+E3+E5 closed) AND founder bandwidth re-check.
+
+### F.0 Why Phase F exists
+
+Tier 3 (tax/legal Indonesian vertical AI with audit-trail-proof provenance) is the third blue-ocean wedge identified in §0 above. It was originally scoped into Phase E v1.7 as E1.3 (corpus) + E4 (vertical fine-tune) + E5.2 (kernel-path). The v1.8 pivot deferred all three to Phase F to:
+
+1. **Unblock Phase E ship** — E1.3 was founder-blocked on TaxPrime NDA review; E4+E5.2 downstream of E1.3.
+2. **Cleaner first paper** — bilingual base + kernel-context contributions stand alone for MLSys 2027; Tier 3 wedge becomes follow-up paper.
+3. **Founder bandwidth honesty** — solo execution + day-job + V31.E1 in flight cannot sustainably absorb 190-270 person-hours of Tier 3 work concurrent with Phase E.
+
+### F.1 What Phase F lifts from Phase E v1.8
+
+All preserved verbatim — Phase F kickoff is mostly "lift these forward + add a new plan doc":
+
+| Preserved artifact | Location | Reactivation note |
+|---|---|---|
+| Tax-vertical eval methodology spec | §11 of THIS plan (DEFERRED header) | Lift verbatim into Phase F plan §3 |
+| TaxPrime dataset spec v1.1 | `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` | Lift verbatim; bump to v1.2 with Phase F header |
+| E4.0 Pre-flight (dataset audit, PII scan, cross-contamination check, baseline pass@1) | summary in §3 PHASE E4 above | Lift sub-task table into Phase F E4.0 |
+| E4.1 SFT recipe (LoRA r=64 + full-tune, citation-format compliance) | summary in §3 PHASE E4 above | Lift into Phase F E4.1 |
+| E4.2 bilingual instruct (general ID+EN chat) | summary in §3 PHASE E4 above | Lift into Phase F E4.2 |
+| E5.2 tax-vertical kernel-path | summary in §3 PHASE E5 above | Lift into Phase F E5.2 |
+| Lapis 3a tax-data policy | §14.1 above (DEFERRED row) | Lift; remains "TaxPrime real data only" |
+| Single-rater eval methodology | spec v1.1 §11.2 | Lift; founder + self-consistency calibration |
+| Patent prep "TaxPrime IP team option" | §1 item 24 above | Re-enable as Phase F option |
+
+### F.2 Phase F prerequisites (entry conditions)
+
+1. ✅ **Phase E v1.8 base model shipped** (Tier 1+2 paper artifact + verify_phase_e_tables.py --strict exit 0). The bilingual Medium checkpoint is the SFT base for Phase F E4.1.
+2. ✅ **Founder bandwidth re-check** committed in `docs/FJQ_PHASE_F_BANDWIDTH_CHECK.md` — explicit yes/no on whether 190-270 person-hours over 11 weeks is sustainable given concurrent commitments.
+3. ✅ **TaxPrime archive access cleared** — E0.0.2 deferred sub-task (`docs/FJQ_PHASE_E_TAXPRIME_DATA_REVIEW.md`) reactivated and committed before E1.3 ingest begins.
+4. ✅ **Phase E paper accepted or arXiv-posted** (de-risks F as standalone follow-up paper rather than holding co-publication dependency on Phase E review cycles).
+
+If any prerequisite fails, Phase F holds at "ROADMAP" status; no abort doc required (this is opt-in, not gated by FAIL paths).
+
+### F.3 Estimated Phase F effort
+
+| Sub-phase | Calendar (solo, ~10h/wk) | Human (h) | GPU (h) | Cost |
+|---|---|---|---|---|
+| F0 Pre-flight (TaxPrime data review reactivate + bandwidth check) | 1 wk | 5 | 0 | $0 |
+| F1 Vertical corpus assembly (E1.3 lift) | 2 wk | 10 | ~1 | $0 |
+| F2 SFT recipes + eval (E4.0 + E4.1) | 4 wk | 25 | ~30-60 | $0 |
+| F2.x Bilingual instruct (E4.2) | 2 wk | 10 | ~10-20 | $0 |
+| F3 Tax-vertical kernel-path (E5.2 lift) | 1 wk | 5 | ~1 | $0 |
+| F4 Phase F paper + IP (vertical extension) | 3 wk | 15 | 0 | $0 |
+| **Total Phase F solo** | **~13 weeks (~3 months)** | **~70 h** | **~42-82 h** | **$0** |
+
+Phase E v1.8 (~10 mo) + Phase F (~3 mo) = ~13 mo total Tier 1+2+3 — unchanged from v1.7's ~13 mo estimate, but **distributed sequentially** with a clean first-paper landing pad in between.
+
+### F.4 Companion docs (preserved for Phase F)
+
+- `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.1 — authoritative dataset spec (header to be updated 2026-04-26 to mark Phase F deferral)
+- `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` (NEW v1.8) — pointer document with E4 sub-task tables lifted from former §3 E4
+- §11 of this plan — eval methodology (DEFERRED header)
+
+### F.5 Decision artifact
+
+When Phase F kicks off (or is decided NOT to kick off), update this plan footer + create `docs/FJQ_PHASE_F_KICKOFF_DECISION.md` with the decision + rationale. Don't leave §F as ambiguous "someday" forever — schedule a yes/no review at Phase E paper acceptance + 2 weeks.
+
+---
+
+*Plan version: 1.8 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*v1.8 patch: Tier 3 tax-vertical DEFERRED to Phase F. Phase E v1.8 ships Tier 1 (kernel-context LLM) + Tier 2 (Indonesian + English bilingual ternary) only. Calendar reduced ~13 mo → ~10 mo. Total Phase E cash: $0.*
+*Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.1 (Phase F roadmap) + FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md (NEW v1.8) + 10 E0 decision docs (E0.0.2 deferred).*
+*v1.0→v1.1 closed 8 gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing + BeyondWeb recipe + Bartz fair-use precedent. v1.3→v1.4: Phase E E0 100% COMPLETE; laptop-only adopted. v1.4→v1.5 added Lapis 2.5 (Claude filter/audit/meta-design). v1.5→v1.6: founder solo-execution mode; Tier 3 scope-down. v1.6→v1.7: Option B $0 minimalism (Lapis 2 deferred to Phase F; DVC/S3 dropped). **v1.7→v1.8 (this version): Tier 3 (tax-vertical) entirely deferred to Phase F; Phase E ships clean bilingual base + kernel paper.***
+*Cross-repo coordination: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
 *Subject to revision per phase findings; major scope changes require new Plan version (v1.x → v2.0).*

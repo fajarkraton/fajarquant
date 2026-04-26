@@ -1,6 +1,8 @@
-# TaxPrime Dataset Specification — Phase E Tier 3 Vertical Wedge
+# TaxPrime Dataset Specification — Tier 3 Vertical Wedge (Phase F roadmap as of 2026-04-26)
 
-> **Spec version:** 1.2 (2026-04-26 v1.2 patch — privacy counsel removed, founder self-review per plan v1.7 Option B)
+> **`[STATUS — Phase F roadmap per plan v1.8]`** Originally drafted as Phase E Tier 3 deliverable spec (v1.0 → v1.2). Phase E v1.8 strategic re-scope (2026-04-26) DEFERRED Tier 3 entirely to Phase F. **Body unchanged below** — it remains the authoritative dataset specification; only the activation phase moved. See `docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §F (Phase F roadmap section) for the deferral rationale + Phase F prerequisites.
+>
+> **Spec version:** 1.2 (2026-04-26 v1.2 patch — privacy counsel removed, founder self-review per plan v1.7 Option B). **No content changes for plan v1.8 deferral; only activation phase shifted.**
 >
 > **v1.1 → v1.2 changelog (2026-04-26):**
 > - **External privacy counsel REMOVED.** Founder is qualified Indonesian counsel (SH., MH. + 14yr TaxPrime practice). Self-reviews UU PDP 27/2022 compliance + sanitization.
