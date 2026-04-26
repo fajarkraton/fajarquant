@@ -1,0 +1,14 @@
+{
+  "source": "FineWeb-2 Indonesian (HuggingFaceFW)",
+  "started_at": "2026-04-25T18:52:28+00:00",
+  "finished_at": "2026-04-25T20:07:54+00:00",
+  "elapsed_s": 4526.464,
+  "num_docs_written": 10000000,
+  "num_docs_skipped_empty": 0,
+  "bytes_written_text": 37858141897,
+  "bytes_written_parquet": 14597053309,
+  "num_shards": 142,
+  "schema_sample": null,
+  "dry_run": false,
+  "error": null
+}
