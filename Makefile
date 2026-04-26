@@ -27,7 +27,8 @@ help:
 	@echo ""
 	@echo "FajarQuant Phase E Make targets:"
 	@echo "  dedup-corpus-id-dryrun     Phase E1.4 — MinHash LSH dry-run on 10K ID-corpus sample"
-	@echo "  dedup-corpus-id            Phase E1.4 — MinHash LSH full ID-corpus dedup (~hours)"
+	@echo "  dedup-corpus-id            Phase E1.4 — MinHash LSH full ID-corpus dedup (resumable)"
+	@echo "  test-dedup-resume          Phase E1.4.1 — resume-state smoke gate (synthetic, ~3s)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -297,4 +298,12 @@ dedup-corpus-id-dryrun:
 .PHONY: dedup-corpus-id
 dedup-corpus-id:
 	@$(PYTHON) $(PHASE_E)/scripts/dedup_corpus.py \
-		--source all --progress-every 10000
+		--source all --resume --progress-every 10000
+
+# Smoke gate (V31.E1.4.1): synthetic 11-doc corpus across 2 shards exercises
+# state save → kill → resume → cross-run dedup detection → reference-vs-resume
+# parity → dry-run side-effect-freeness. ~3s wall-clock; pre-push hook target
+# for any change to dedup_corpus.py per CLAUDE §6.8 R3.
+.PHONY: test-dedup-resume
+test-dedup-resume:
+	@$(PYTHON) $(PHASE_E)/scripts/test_dedup_resume.py

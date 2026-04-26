@@ -20,11 +20,13 @@ Verify (runnable, per CLAUDE §6.8 R2):
     .venv/bin/python python/phase_e/scripts/dedup_corpus.py \
         --source wikipedia_id --max-docs 10000 --dry-run
 
-Notes on §6.11 cross-repo training-script rule (resilience):
-    Long full-corpus runs (10.67M docs, ~hours) should checkpoint dedup state
-    every K docs to allow --resume. V31.E1.4.0 ships the dry-run path only;
-    full-run resilience layers (atomic per-shard output + .progress journal +
-    --resume-auto) are scoped to E1.4.1 once dry-run is validated.
+Resilience (V31.E1.4.1, per CLAUDE §6.11 spirit):
+    --resume enables shard-boundary checkpoints written atomically to
+    `<output_root>/.progress/<source>/state.pkl`. State carries pickled
+    MinHashLSH index + report counters + output-shard buffer. On the next
+    `--resume` invocation, completed input shards are skipped and the LSH
+    index is reloaded, so a SIGTERM mid-shard loses at most one input
+    shard's compute (~10 minutes at full-sweep throughput).
 """
 
 from __future__ import annotations
@@ -32,13 +34,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pickle
 import re
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_INPUT_ROOT = REPO_ROOT / "data" / "phase_e" / "corpus_id"
@@ -49,6 +52,10 @@ SHARD_TARGET_BYTES = 256 * 1024 * 1024  # match build_id_corpus.py
 DEFAULT_NUM_PERM = 128
 DEFAULT_THRESHOLD = 0.85
 DEFAULT_SHINGLE_SIZE = 5  # word 5-grams
+
+# Resume state layout: <output_root>/.progress/<source_dir_name>/state.pkl
+PROGRESS_DIR_NAME = ".progress"
+STATE_FILE_NAME = "state.pkl"
 
 # Whitespace tokenization with Unicode-aware splitting. Lowercase upstream of
 # shingle extraction so casing differences don't inflate Jaccard distance.
@@ -115,10 +122,81 @@ def _iter_docs_in_shard(shard_path: Path) -> Iterator[tuple[str, str]]:
             yield t, s
 
 
+def _config_fingerprint(threshold: float, num_perm: int, shingle_size: int) -> str:
+    """Stable string identity for the dedup config — guards resume across changes."""
+    return f"thr={threshold}|np={num_perm}|sh={shingle_size}"
+
+
+def _state_path(output_root: Path, source_dir_name: str) -> Path:
+    return output_root / PROGRESS_DIR_NAME / source_dir_name / STATE_FILE_NAME
+
+
+@dataclass
+class _DedupState:
+    """On-disk checkpoint for `--resume`. Pickled atomically at shard boundaries."""
+
+    config_fingerprint: str
+    saved_at: str
+    completed_input_shards: int
+    shard_index_out: int
+    buffer: list[dict]
+    buffer_bytes: int
+    report_dict: dict
+    lsh_pickle: bytes
+
+
+def _save_state(
+    state_path: Path,
+    lsh,
+    report: "DedupReport",
+    buffer: list[dict],
+    buffer_bytes: int,
+    shard_index_out: int,
+    completed_input_shards: int,
+    config_fingerprint: str,
+) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state = _DedupState(
+        config_fingerprint=config_fingerprint,
+        saved_at=_now_iso(),
+        completed_input_shards=completed_input_shards,
+        shard_index_out=shard_index_out,
+        buffer=list(buffer),
+        buffer_bytes=buffer_bytes,
+        report_dict=dict(report.__dict__),
+        lsh_pickle=pickle.dumps(lsh),
+    )
+    tmp = state_path.with_suffix(".pkl.tmp")
+    with open(tmp, "wb") as f:
+        pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, state_path)
+
+
+def _load_state(state_path: Path) -> _DedupState | None:
+    if not state_path.is_file():
+        return None
+    with open(state_path, "rb") as f:
+        return pickle.load(f)
+
+
+def _shard_row_count(shard_path: Path) -> int:
+    """O(1) row count from parquet footer — distinguishes max-docs-mid-shard
+    from max-docs-exactly-at-end-of-shard for the checkpoint decision."""
+    import pyarrow.parquet as pq
+
+    return pq.ParquetFile(shard_path).metadata.num_rows
+
+
 def _list_source_dirs(input_root: Path, source_filter: str | None) -> list[Path]:
     if not input_root.is_dir():
         return []
-    dirs = sorted([p for p in input_root.iterdir() if p.is_dir()])
+    dirs = sorted(
+        [
+            p
+            for p in input_root.iterdir()
+            if p.is_dir() and not p.name.startswith(".")  # skip .progress/
+        ]
+    )
     if source_filter == "all" or source_filter is None:
         return dirs
     # Match by directory name == "<owner>__<dataset>" or by suffix substring.
@@ -150,6 +228,7 @@ def dedup_source(
     shingle_size: int,
     dry_run: bool,
     progress_every: int,
+    resume: bool = False,
 ) -> DedupReport:
     from datasketch import MinHash, MinHashLSH
 
@@ -165,6 +244,10 @@ def dedup_source(
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
 
+    config_fp = _config_fingerprint(threshold, num_perm, shingle_size)
+    state_path = _state_path(output_root, source_dir.name)
+    can_checkpoint = resume and not dry_run
+
     t_start = time.time()
     try:
         lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
@@ -174,9 +257,45 @@ def dedup_source(
         buffer: list[dict] = []
         buffer_bytes = 0
         shard_index = 0
+        skip_n = 0
 
-        for shard in shards:
+        # Resume state load (real-mode only).
+        if can_checkpoint:
+            loaded = _load_state(state_path)
+            if loaded is not None:
+                if loaded.config_fingerprint != config_fp:
+                    raise RuntimeError(
+                        f"resume config mismatch at {state_path}: "
+                        f"saved={loaded.config_fingerprint!r} vs "
+                        f"current={config_fp!r}. Delete the .progress dir to "
+                        f"start fresh, or rerun with the same config."
+                    )
+                # Restore counters into report (preserve started_at as-is).
+                for k, v in loaded.report_dict.items():
+                    if k in {"started_at", "finished_at", "elapsed_s"}:
+                        continue
+                    if hasattr(report, k):
+                        setattr(report, k, v)
+                lsh = pickle.loads(loaded.lsh_pickle)
+                buffer = list(loaded.buffer)
+                buffer_bytes = loaded.buffer_bytes
+                shard_index = loaded.shard_index_out
+                skip_n = loaded.completed_input_shards
+                print(
+                    f"  [resume] {state_path.name}: "
+                    f"{report.docs_in} docs in / {report.docs_kept} kept, "
+                    f"skipping {skip_n}/{report.shards_in} input shards",
+                    flush=True,
+                )
+
+        completed_input_shards = skip_n
+        for shard_idx in range(skip_n, len(shards)):
+            shard = shards[shard_idx]
+            shard_total = _shard_row_count(shard)
+            shard_processed = 0
+
             for text, source_name in _iter_docs_in_shard(shard):
+                shard_processed += 1
                 report.docs_in += 1
                 report.bytes_text_in += len(text.encode("utf-8"))
 
@@ -197,22 +316,20 @@ def dedup_source(
                                 "preview": text[:160],
                             }
                         )
-                    continue
+                else:
+                    lsh.insert(key, m)
+                    report.docs_kept += 1
+                    report.bytes_text_kept += len(text.encode("utf-8"))
 
-                lsh.insert(key, m)
-                report.docs_kept += 1
-                report.bytes_text_kept += len(text.encode("utf-8"))
-
-                if not dry_run:
-                    row = {"text": text, "source": source_name}
-                    buffer.append(row)
-                    buffer_bytes += len(text.encode("utf-8"))
-                    if buffer_bytes >= SHARD_TARGET_BYTES:
-                        _, _ = _write_shard_atomic(out_dir, shard_index, buffer)
-                        report.shards_out += 1
-                        shard_index += 1
-                        buffer = []
-                        buffer_bytes = 0
+                    if not dry_run:
+                        buffer.append({"text": text, "source": source_name})
+                        buffer_bytes += len(text.encode("utf-8"))
+                        if buffer_bytes >= SHARD_TARGET_BYTES:
+                            _, _ = _write_shard_atomic(out_dir, shard_index, buffer)
+                            report.shards_out += 1
+                            shard_index += 1
+                            buffer = []
+                            buffer_bytes = 0
 
                 if progress_every and report.docs_in % progress_every == 0:
                     elapsed = time.time() - t_start
@@ -227,12 +344,38 @@ def dedup_source(
 
                 if max_docs is not None and report.docs_in >= max_docs:
                     break
-            if max_docs is not None and report.docs_in >= max_docs:
+
+            shard_complete = shard_processed >= shard_total
+            if shard_complete:
+                completed_input_shards = shard_idx + 1
+                if can_checkpoint:
+                    _save_state(
+                        state_path, lsh, report, buffer, buffer_bytes,
+                        shard_index, completed_input_shards, config_fp,
+                    )
+                # Shard ended cleanly (possibly because max-docs landed at
+                # end-of-shard). Stop the outer loop if the cap is hit too.
+                if max_docs is not None and report.docs_in >= max_docs:
+                    break
+            else:
+                # Partial shard (max_docs hit mid-shard) — do NOT checkpoint;
+                # next --resume re-processes this shard from scratch, and the
+                # in-memory partial-shard inserts to LSH are discarded with
+                # the process. Acceptable: at most one shard's worth of work.
                 break
 
         if not dry_run and buffer:
             _, _ = _write_shard_atomic(out_dir, shard_index, buffer)
             report.shards_out += 1
+            shard_index += 1
+            buffer = []
+            buffer_bytes = 0
+        # Final state save reflects the trailing-buffer flush.
+        if can_checkpoint:
+            _save_state(
+                state_path, lsh, report, buffer, buffer_bytes,
+                shard_index, completed_input_shards, config_fp,
+            )
 
     except Exception as exc:  # noqa: BLE001 — top-level orchestration
         report.error = f"{type(exc).__name__}: {exc}"
@@ -279,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Word n-gram shingle size. Default: {DEFAULT_SHINGLE_SIZE}")
     parser.add_argument("--dry-run", action="store_true",
                         help="Do not write output shards; report stats only.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Save shard-boundary state to <output_root>/.progress/"
+                        "<source>/state.pkl and load existing state if present. "
+                        "No effect with --dry-run.")
     parser.add_argument("--progress-every", type=int, default=1000,
                         help="Print progress every N docs. 0 disables. Default: 1000")
     args = parser.parse_args(argv)
@@ -308,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
             shingle_size=args.shingle_size,
             dry_run=args.dry_run,
             progress_every=args.progress_every,
+            resume=args.resume,
         )
         print(report.to_json())
         if report.error:
