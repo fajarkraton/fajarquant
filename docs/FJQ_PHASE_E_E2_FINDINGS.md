@@ -6,7 +6,7 @@
 >
 > **Predecessor:** Phase E1 FULLY CLOSED 2026-04-27 (`FJQ_PHASE_E_E1_FINDINGS.md` v1.3 sign-off). Bilingual corpus v1.0 ready: 25.67 B tokens at 60:40 ID:EN.
 >
-> **Last updated:** 2026-04-27 (Phase E v1.8, E2.0 first pre-flight audit).
+> **Last updated:** 2026-04-27 (Phase E v1.8, E2.0 audit + Q1 closure — 1/5 blockers down).
 
 ---
 
@@ -163,7 +163,7 @@ Per CLAUDE §6.9 R3 (port full features, no strawman) + §6.8 R5 (surprise budge
 
 | # | Question | Why it matters | Owner / next step |
 |---|---|---|---|
-| **Q1** | Where exactly does `HGRNBitAttention` expose its output projection? Need attribute path for E2.1 + E2.2 hooks. | E2.1.2 verification ("Apply to attention.W_o") and E2.2.1 ("FP8 for attn.W_o") both need a stable attribute name. Upstream HGRN-Bit may name it differently from BitNet/Llama. | Read `_upstream/mmfreelm/models/hgrn_bit/modeling_hgrn_bit.py` HGRNBitAttention class fully; commit a one-line attribute mapping note in this findings doc as v1.1. |
+| ~~Q1~~ ✅ **CLOSED v1.0+Q1** | Where exactly does `HGRNBitAttention` expose its output projection? Need attribute path for E2.1 + E2.2 hooks. | E2.1.2 verification ("Apply to attention.W_o") and E2.2.1 ("FP8 for attn.W_o") both need a stable attribute name. | **Answer:** `HGRNBitAttention` exposes 4 BitLinear instances per block (`mmfreelm/layers/hgrn_bit.py:56-70`): `i_proj` (input), `f_proj` (forget-gate), `g_proj` (gating), and **`o_proj` (output, line 70)**. The "attn.W_o" target in plan §3 PHASE E2 = `block.attn.o_proj`. **Per-block BitLinear total: 6** (4 attention + `mlp.gate_proj` + `mlp.down_proj`), plus 1 top-level `lm_head` BitLinear. Matches `export.py` "6 BitLinears per layer" spec-correction note. **Implication for E2.1:** Hadamard rotation per QuaRot/SpinQuant rotates only `o_proj` (input/forget/gate are HGRN's gated-linear-recurrence projections, structurally distinct from QKV; rotating them is not part of canonical recipe). **Implication for E2.2:** FP8 mass = `num_layers × 1 (per-block o_proj) + 1 (lm_head)`; do NOT FP8-cast i/f/g_proj or MLP projections. |
 | **Q2** | Is V28.5 forensic data still available, and what does it say about ID-EN coherence drift? | E2.5 option selection (a/b/c) requires this evidence. Plan v1.8 §3 PHASE E2 says "decided in E2.0 based on V28.5 forensics". | Locate `memory/project_v27_5_compiler_prep.md` (mentioned in MEMORY.md Earlier History) + any V28.5 commits in git log. Summarize findings here as v1.1. |
 | **Q3** | Is Phase D Medium c.1 checkpoint (`medium_final.pt`) FP16 or already-quantized? | E2.3 distillation needs an FP16 teacher. If Medium c.1 is post-QAT ternary, Option A is moot. | Inspect checkpoint: `python -c "import torch; ckpt = torch.load('paper/intllm/results/.../medium_final.pt'); print({k: v.dtype for k, v in ckpt['model'].items() if hasattr(v, 'dtype')})"`. |
 | **Q4** | Does the Phase D Mini ablation harness (`make train-mini-ablation`) exist as a Makefile target? | E2.x.3 verification rows all reference this. If not present, scaffolding is part of E2.1.0 prerequisites. | `grep "train-mini-ablation" Makefile` — confirm or add as E2.0.x sub-task. |
@@ -180,7 +180,7 @@ Q1–Q5 are blocker-class (must close before E2.1 commit). Q6–Q8 can close in-
 
 This findings doc is v1.0 (audit + plan only). Promotion to v1.1 (E2.0 CLOSED) requires:
 
-- [ ] Q1 attribute mapping for `HGRNBitAttention` output projection committed
+- [x] Q1 attribute mapping for `HGRNBitAttention` output projection committed (closed in §4 above; `block.attn.o_proj`)
 - [ ] Q2 V28.5 forensic summary + E2.5 option (a/b/c) preliminary recommendation
 - [ ] Q3 Phase D Medium checkpoint dtype confirmed (FP16 vs ternary)
 - [ ] Q4 `make train-mini-ablation TAG=...` target present (or scaffolded)
