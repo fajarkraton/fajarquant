@@ -24,9 +24,14 @@ help:
 	@echo "  bench-baselines-one REPO=X Phase 3.4  — scaffold a single baseline repo"
 	@echo "  bench-baselines-real REPO=X Phase 3.4 — real lm-eval on one HF baseline (GPU)"
 	@echo "  bench-baselines-real-all   Phase 3.4  — real lm-eval sweep (~13 GPU-hours)"
+	@echo ""
+	@echo "FajarQuant Phase E Make targets:"
+	@echo "  dedup-corpus-id-dryrun     Phase E1.4 — MinHash LSH dry-run on 10K ID-corpus sample"
+	@echo "  dedup-corpus-id            Phase E1.4 — MinHash LSH full ID-corpus dedup (~hours)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
+PHASE_E := python/phase_e
 PYTHONPATH_PD := PYTHONPATH=$(PHASE_D)
 
 # ─── Phase 4.3 ─── verify-intllm-tables ──────────────────────────────
@@ -268,3 +273,28 @@ bench-baselines-real-all:
 			--repo $$repo --strict || exit $$?; \
 		cd ../..; \
 	done
+
+# ─── Phase E1.4 ─── MinHash LSH near-duplicate dedup ──────────────────
+#
+# RedPajama / Falcon-Edge recipe: 5-gram word shingles, 128 MinHash
+# permutations, Jaccard threshold 0.85, first-seen wins. See
+# FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md §E1.4.
+#
+# `dedup-corpus-id-dryrun` is the §6.8 R2 verification gate. Caps input
+# at 10K docs, no shards written, prints stats only. Should finish in
+# under a minute and validates: scan/shingle/hash/LSH-insert plumbing
+# end-to-end before committing to the multi-hour full run.
+#
+# `dedup-corpus-id` is the full 10.67M-doc production sweep. Resilience
+# layers (atomic per-shard output + .progress journal + --resume-auto)
+# land in E1.4.1 once dry-run is validated; do NOT launch the full run
+# without first reviewing the dry-run report.
+.PHONY: dedup-corpus-id-dryrun
+dedup-corpus-id-dryrun:
+	@$(PYTHON) $(PHASE_E)/scripts/dedup_corpus.py \
+		--source all --max-docs 10000 --dry-run --progress-every 1000
+
+.PHONY: dedup-corpus-id
+dedup-corpus-id:
+	@$(PYTHON) $(PHASE_E)/scripts/dedup_corpus.py \
+		--source all --progress-every 10000
