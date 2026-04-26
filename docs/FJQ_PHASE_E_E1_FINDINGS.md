@@ -1,13 +1,15 @@
 # Phase E E1 — Bilingual Corpus Findings (Indonesian + English halves)
 
-> **Status (v1.2):** PARTIAL — E1.1 ID corpus assembly LANDED + **E1.2 EN reuse LANDED** + **E1.4 dedup LANDED**; E1.3 tax/legal pending; E1.5 synthetic DEFERRED to Phase F per plan v1.7.
-> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.7 §3 E1.0–E1.6
-> **Last updated:** 2026-04-26 (v1.2 splice — E1.2 EN config shim landed)
+> **Status (v1.3):** ✅ **PHASE E1 FULLY CLOSED.** E1.1 ID corpus + E1.2 EN reuse + E1.4 dedup + **E1.6 packaging** ALL LANDED. E1.3 (tax/legal) + E1.5 (synthetic) DEFERRED to Phase F per plan v1.8 + v1.7 respectively. Next active sub-phase: **Phase E2 algorithm catch-up**.
+> **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §3 E1.0–E1.6
+> **Last updated:** 2026-04-27 (v1.3 splice — E1.6 packaging closed; Phase E1 fully closed)
 > **Origin commits (E1.1.0–E1.1.3):** `ef7dab8` → `3ba0d41` → `bda7e1c` → `47a8892`
 > **Origin commits (E1.4.0–E1.4.3):** `991078f` (LSH scaffold) → `35d13e7` (LSH --resume) → `c83f1bd` (audit) → `4ebb437` (exact-hash sha256 scaffold) → `8dc4fab` (exact-hash full sweep + cleanup + findings v1.1)
-> **Origin commits (E1.2.0):** `f912054` (EN config shim + smoke gate)
+> **Origin commits (E1.2.0–E1.2.1):** `f912054` (EN config shim + smoke gate) → `e82b1c4` (findings v1.2)
+> **Origin commits (E1.6.0–E1.6.3):** `86f059a` (spec + verify gate) → `3550839` (tracked git-hooks + Layer 4) → `98d41e4` (NOTICE file) → this commit (findings v1.3 + E1.6 closure)
+> **Plan revision:** `7b8949e` (v1.7 → v1.8 — Tier 3 deferred to Phase F)
 
-This doc is incrementally updated as each E1.x sub-task completes. Initial version closes E1.0 pre-flight + records E1.1 first slice (Wikipedia ID + FineWeb-2 ID). v1.1 splice records E1.4 dedup completion via exact-hash sha256 (LSH variant pivoted after OOM). v1.2 splice records E1.2 EN reuse via Phase D `intllm.data.slimpajama_stream` shim with bilingual ratio + repo selection helpers.
+This doc is incrementally updated as each E1.x sub-task completes. Initial version closes E1.0 pre-flight + records E1.1 first slice (Wikipedia ID + FineWeb-2 ID). v1.1 splice records E1.4 dedup completion via exact-hash sha256 (LSH variant pivoted after OOM). v1.2 splice records E1.2 EN reuse via Phase D `intllm.data.slimpajama_stream` shim with bilingual ratio + repo selection helpers. **v1.3 splice closes Phase E1 entirely** — E1.6 final corpus packaging shipped (spec + verify gate + tracked hooks + NOTICE).
 
 ---
 
@@ -169,7 +171,73 @@ for r in (0.5, 0.6, 0.7, 0.72, 0.8):
 "
 ```
 
-## 6. Schema coverage (ID corpus)
+## 6. Final corpus packaging — E1.6 LANDED (v1.3)
+
+E1.6 closes Phase E1 with a 4-artifact packaging deliverable: spec doc + cross-validation gate + reproducible git-hooks installation + NOTICE file for downstream model release.
+
+### 6.1 Artifacts shipped (4 sub-tasks)
+
+| Sub-task | Commit | Artifact | Lines |
+|---|---|---|---|
+| E1.6.0 scaffold | `86f059a` | `docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` (spec) + `python/phase_e/scripts/verify_bilingual_corpus.py` (verify) + Makefile target `verify-bilingual-corpus` | 175 + 145 + 16 |
+| E1.6.1 hook wiring | `3550839` | `scripts/git-hooks/pre-commit` (V3 with Layer 4) + `scripts/git-hooks/install-hooks.sh` (idempotent installer) | 64 + 50 |
+| E1.6.2 NOTICE file | `98d41e4` | `NOTICE_BILINGUAL_CORPUS_V1` at repo root (per-source attribution + reproducibility surface + use-case scope) | 132 |
+| E1.6.3 findings v1.3 | this commit | This doc bumped v1.2 → v1.3; spec doc §6 tracker updated; Phase E1 sign-off "ALL E1.x sub-phases closed" | — |
+
+### 6.2 Spec ↔ manifests ↔ shim consistency (8 invariants enforced)
+
+`make verify-bilingual-corpus` runs <1 s and asserts:
+
+1. Both ID manifests exist + parseable
+2. ID `bytes_text_kept` aggregate within ±0.5 GB of spec §1.3 (38.92 GB)
+3. ID `docs_kept` aggregate matches spec §1.3 exactly (10,662,911)
+4. ID `dedup_rate` within ±0.005% of spec §1.3 (0.0254%)
+5. EN cap from `intllm_en.bilingual_mix_summary()` matches spec §1.2 (10.27 B at 60:40 default ± 0.05 B)
+6. EN repo selected = `gmongaras/SlimPajama-627B_Reupload` (Stretch — EN cap exceeds 6 B threshold of `DKYoon/SlimPajama-6B`)
+7. `synthetic_mix_ratio == 0%` (regex-asserted on spec §1.3 + §4)
+8. License attribution covers all 3 sources actually used (regex on spec §2 — Wikipedia CC BY-SA 4.0, FineWeb-2 ODC-By 1.0, SlimPajama Apache 2.0)
+
+Pre-commit hook Layer 4 fires on any staged change to the 4 trigger paths (manifests / `intllm_en.py` / verify script / spec doc) so spec drift fails fast at commit time per CLAUDE §6.8 R3.
+
+### 6.3 Smoke output (live numbers)
+
+```
+$ make verify-bilingual-corpus
+verify-bilingual-corpus: 8/8 invariants PASS
+  ID:   10,662,911 docs / 38.919 GB / ~15.401 B tokens (0.0254% dedup)
+  EN:  cap 10.268 B at 60%:40% → gmongaras/SlimPajama-627B_Reupload
+  Mix: total 25.669 B = 15.401 ID + 10.268 EN  (synthetic 0%)
+```
+
+### 6.4 NOTICE file ready for downstream model release
+
+`NOTICE_BILINGUAL_CORPUS_V1` at repo root (132 lines) carries forward:
+
+- **Wikipedia ID (CC BY-SA 4.0):** attribution + share-alike provision per §4(b)(iv); Bartz v. Anthropic fair-use precedent cited
+- **FineWeb-2 ID (ODC-By 1.0):** attribution + indication-of-changes (our exact-hash sha256 dedup is incremental on top of upstream MinHash)
+- **SlimPajama-627B (Apache 2.0):** NOTICE provisions travel with the upstream HF dataset (streaming-only, no bytes redistributed)
+- **Reproducibility surface (4-tuple per plan v1.7 §14.5):** git SHA + HARNESS_SHA + per-source manifests + HF dataset revisions
+- **Use-case scope:** Phase E v1.8 Tier 1+2 only; Tier 3 (tax-vertical) explicitly out of scope per Phase F deferral
+
+When a Phase E-derived model ships (HF model card + paper + arXiv preprint), this NOTICE accompanies it.
+
+### 6.5 Phase E1 → Phase E2 transition
+
+With E1.6 closed, **Phase E1 is fully closed**. Per plan v1.8 §3:
+
+| Sub-phase | v1.8 status |
+|---|---|
+| E1.0 Pre-flight | ✅ CLOSED |
+| E1.1 Indonesian corpus | ✅ CLOSED — 10.66M docs / 15.40 B tokens |
+| E1.2 EN subset | ✅ CLOSED — `intllm_en.py` shim, 60:40, Stretch repo |
+| E1.3 Vertical FT corpus | ⏭️ Phase F |
+| E1.4 Dedup | ✅ CLOSED — exact-hash sha256, 99.97% retention |
+| E1.5 Synthetic | ⏭️ Phase F |
+| E1.6 Final packaging | ✅ **CLOSED (v1.3)** |
+
+**Next active sub-phase: Phase E2 algorithm catch-up** — 5 ablations on Mini scale (Hadamard outlier rotation + FP8 LM head + FP16 distillation + bilingual calibration balance + language-conditioned design). Estimated ~8 weeks human + 30-60 h GPU on laptop RTX 4090. See plan v1.8 §3 PHASE E2.
+
+## 7. Schema coverage (ID corpus)
 
 Both sources written with **two columns only**: `text` (str), `source` (str). Other source-side metadata is dropped by `build_source()` in `python/phase_e/scripts/build_id_corpus.py:128`. Specifically discarded:
 
@@ -178,7 +246,7 @@ Both sources written with **two columns only**: `text` (str), `source` (str). Ot
 
 **Trade-off accepted:** simpler downstream tokenization + smaller parquet shards vs losing per-doc dedup signal already computed by HuggingFace (`minhash_cluster_size`). E1.4 will recompute dedup ourselves anyway; URL/date provenance lost is acceptable per plan §15 attribution-at-source-level (license file in §E1.6 packaging, not per-doc).
 
-## 7. Verification commands — ID corpus (CLAUDE §6.8 R2)
+## 8. Verification commands — ID corpus (CLAUDE §6.8 R2)
 
 ```bash
 # Total docs across all checked-in sources
@@ -199,7 +267,7 @@ python python/phase_e/scripts/build_id_corpus.py --source fineweb_2_id --dry-run
 python python/phase_e/scripts/audit_id_corpora.py
 ```
 
-## 8. Decisions logged at this version
+## 9. Decisions logged at this version
 
 1. **FineWeb-2 ID capped at 10M docs** for first slice. Full ind_Latn (32 train files × 4.5 GB = 144 GB source) would extrapolate to ~50–70 B tokens, well above plan upper estimate. Cap chosen to fit laptop-only disk budget per plan v1.7 hardware lock; 15 B from one slice ALREADY meets §E1.1 target.
 2. **OSCAR / CulturaX defer to user click-through.** Not blocking corpus completion; nice-to-have for diversity.
@@ -210,14 +278,16 @@ python python/phase_e/scripts/audit_id_corpora.py
 7. **(v1.2)** **Bilingual ratio 60:40 ID:EN locked as default.** Matches §E2.4.1 `BilingualCalibrationSampler` default. Recorded in `intllm_en.BILINGUAL_RATIO_DEFAULT`; smoke gate asserts. 50:50 / 70:30 / 80:20 alternatives recoverable via `compute_en_token_cap(id_tokens, ratio_id_share)` without code changes (see §5.2 table).
 8. **(v1.2)** **EN repo at 60:40 = `gmongaras/SlimPajama-627B_Reupload` (Stretch).** EN cap of 10.27 B at the working ratio exceeds the 6 B threshold of `DKYoon/SlimPajama-6B`. The smoke gate asserts the Stretch repo is selected. If a future decision pivots to ratio ≥ 0.72 the Default 6B repo would suffice — recompute via `select_slimpajama_repo`.
 9. **(v1.2)** **EN as streaming-only, no on-disk parquet.** EN at 10–25 B tokens = 38–96 GB raw text, exceeds laptop-only $0 storage budget per plan v1.7. Phase E training drivers will import `slimpajama_stream` from Phase D and feed tokenized batches directly; no `data/phase_e/corpus_en_*` directory will exist. FineWeb-Edu add-on SKIPPED for v0; re-evaluate at E5/E6 if Mini-scale ablation flags EN coverage as a bottleneck.
+10. **(v1.3)** **Plan v1.7 → v1.8 pivot — Tier 3 tax-vertical DEFERRED to Phase F.** Phase E v1.8 ships Tier 1+2 only (kernel-context LLM + bilingual ID+EN ternary). Calendar reduced ~13 mo → ~10 mo solo. Tier 3 work preserved as Phase F roadmap (see commit `7b8949e` + `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` + `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.2). E1.3 + E1.5 are both Phase F deferrals.
+11. **(v1.3)** **E1.6 final corpus packaging closes Phase E1.** Spec doc + 8-invariant verify gate (`make verify-bilingual-corpus`) + tracked git-hooks with conditional Layer 4 firing on staged trigger paths + `NOTICE_BILINGUAL_CORPUS_V1` for downstream model release. Pre-commit hook ensures spec ↔ manifests ↔ shim consistency mechanically (CLAUDE §6.8 R3 prevention layer).
 
-## 9. Open items for E1.x continuation
+## 10. Open items for E1.x continuation
 
 - [x] **E1.2 — English subset selection: LANDED 2026-04-26 via `intllm_en.py` config shim (60:40 default, Stretch repo per ratio math, see §5).** Streaming integration deferred to E2/E3 training drivers.
-- [ ] E1.3 — Vertical fine-tune corpus (tax/legal Indonesian): requires TaxPrime archive access via founder; small total volume (~150–700 MB).
+- [x] **E1.3 — Vertical fine-tune corpus: DEFERRED to Phase F per plan v1.8** (Tier 3 strategic re-scope 2026-04-26). Companion spec preserved at `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.2 with Phase F roadmap header. NOT a Phase E v1.8 ship gate.
 - [x] **E1.4 — Dedup + filter: LANDED 2026-04-26 via exact-hash sha256 (LSH variant pivoted post-OOM, see §4).** Language-detect deferred to E1.6 packaging audit if needed.
-- [ ] E1.5 — Synthetic pretrain augmentation: **DEFERRED TO PHASE F** per plan v1.7 (Option B aggressive $0). Real corpus alone sufficient; lose BeyondWeb 7.7× speedup.
-- [ ] E1.6 — Final corpus packaging: `FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md` with attribution + license file. Pre-commit hook `verify-bilingual-corpus` to write.
+- [x] **E1.5 — Synthetic pretrain augmentation: DEFERRED to Phase F** per plan v1.7 (Option B aggressive $0). Real corpus alone sufficient; lose BeyondWeb 7.7× speedup. Templates preserved at `python/phase_e/prompts/LAPIS2_TEMPLATES.md`.
+- [x] **E1.6 — Final corpus packaging: LANDED 2026-04-27** (this v1.3 splice). 4 sub-tasks all closed: spec + verify gate + tracked hooks + NOTICE file. See §6 above.
 - [ ] OPTIONAL E1.1.x — `--skip-docs N` flag for FineWeb-2 incremental slices.
 - [ ] OPTIONAL E1.1.x — MADLAD-400 ID via `HfApi().list_repo_files` glob workaround.
 - [ ] OPTIONAL E1.1.x — CC-100 ID via statmt.org tarball mirror (lower priority due to non-commercial license).
@@ -226,4 +296,6 @@ python python/phase_e/scripts/audit_id_corpora.py
 
 ---
 
-**Sign-off this version (v1.2):** Phase E E1.0 pre-flight CLOSED. **E1.1 + E1.2 + E1.4 all LANDED.** ID corpus measured at 15.40 B tokens (1.92× over §2 abort threshold); EN side configured at 60:40 default → 10.27 B EN cap on `gmongaras/SlimPajama-627B_Reupload`. Continue with E1.3 (TaxPrime archive, blocked on founder access) or stretch-target E1.6 packaging at next session.
+**Sign-off this version (v1.3):** ✅ **PHASE E1 FULLY CLOSED 2026-04-27.** All 5 Phase E1 ship sub-phases LANDED (E1.0 + E1.1 + E1.2 + E1.4 + E1.6). 2 sub-phases DEFERRED to Phase F (E1.3 vertical FT corpus + E1.5 synthetic augmentation). ID corpus measured at 15.40 B tokens (1.92× over §2 abort threshold); EN side configured at 60:40 default → 10.27 B EN cap on `gmongaras/SlimPajama-627B_Reupload`; bilingual mix totals 25.67 B tokens, 0% synthetic. Spec ↔ manifests ↔ shim consistency enforced mechanically by `make verify-bilingual-corpus` (8/8 invariants) + pre-commit Layer 4 conditional gate + `NOTICE_BILINGUAL_CORPUS_V1` for downstream release.
+
+**Next active sub-phase: Phase E2 algorithm catch-up** (5 ablations on Mini scale per plan v1.8 §3 PHASE E2). Estimated ~8 weeks human + 30-60 h GPU on laptop RTX 4090.

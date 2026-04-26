@@ -15,7 +15,7 @@
 > make verify-bilingual-corpus
 > ```
 >
-> **Last updated:** 2026-04-27 (Phase E v1.8, E1.6.0 scaffold)
+> **Last updated:** 2026-04-27 (Phase E v1.8, E1.6.3 — all 4 sub-tasks closed; Phase E1 fully CLOSED)
 
 ---
 
@@ -156,26 +156,26 @@ triggers the verify script. Drift between spec and manifests = pre-commit fail.
 
 ---
 
-## 6. Phase E1 closure status (after E1.6 v1.0 scaffold)
+## 6. Phase E1 closure status (Phase E1 fully CLOSED 2026-04-27)
 
 | Sub-phase | Status (v1.8) | Closure artifact |
 |---|---|---|
-| E1.0 Pre-flight audit | ✅ CLOSED | `FJQ_PHASE_E_E1_FINDINGS.md` v1.2 |
+| E1.0 Pre-flight audit | ✅ CLOSED | `FJQ_PHASE_E_E1_FINDINGS.md` v1.3 |
 | E1.1 Indonesian corpus assembly | ✅ CLOSED | First slice: Wikipedia + FineWeb-2; manifests in repo |
 | E1.2 English subset selection | ✅ CLOSED | `python/phase_e/intllm_en.py` + smoke gate |
 | E1.3 Vertical FT corpus | ⏭️ Phase F | `FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.2 (Phase F roadmap header) |
 | E1.4 Dedup + filter | ✅ CLOSED | exact-hash sha256, 99.97% retention, manifests in repo |
 | E1.5 Synthetic augmentation | ⏭️ Phase F (since v1.7) | `python/phase_e/prompts/LAPIS2_TEMPLATES.md` preserved |
-| **E1.6 Final corpus packaging** | **🔄 IN PROGRESS (this doc v1.0 = scaffold)** | This doc + `verify-bilingual-corpus` Makefile target |
+| **E1.6 Final corpus packaging** | ✅ **CLOSED** | This doc + `verify-bilingual-corpus` gate + tracked git-hooks + NOTICE file + findings v1.3 |
 
-**E1.6 sub-task progress:**
+**E1.6 sub-task progress (all closed):**
 
-- [x] **E1.6.0** — scaffold spec doc + `scripts/verify_bilingual_corpus.py` + Makefile target `verify-bilingual-corpus` (this commit)
-- [ ] E1.6.1 — wire `verify-bilingual-corpus` into pre-commit hook (gates spec drift vs manifests)
-- [ ] E1.6.2 — write `NOTICE_BILINGUAL_CORPUS_V1` file + add to repo root for future model release packaging
-- [ ] E1.6.3 — Phase E1 closure commit + bump `FJQ_PHASE_E_E1_FINDINGS.md` to v1.3 with E1.6 closure block
+- [x] **E1.6.0** (commit `86f059a`) — scaffold spec doc + `scripts/verify_bilingual_corpus.py` + Makefile target `verify-bilingual-corpus`
+- [x] **E1.6.1** (commit `3550839`) — tracked git-hooks (`scripts/git-hooks/{pre-commit,install-hooks.sh}`) + Layer 4 conditional gate fires on staged changes to corpus manifests / shim / verify script / this spec
+- [x] **E1.6.2** (commit `98d41e4`) — `NOTICE_BILINGUAL_CORPUS_V1` at repo root with per-source attribution + reproducibility surface + use-case scope
+- [x] **E1.6.3** (commit pending — this revision) — Phase E1 closure commit + `FJQ_PHASE_E_E1_FINDINGS.md` v1.2 → v1.3 with E1.6 closure block + sign-off "ALL E1.x sub-phases closed"
 
-When all 4 sub-tasks land, Phase E1 is fully closed and Phase E2 (algorithm catch-up) becomes the next active sub-phase.
+**Phase E1 → Phase E2 transition:** with E1.6 closed, Phase E1 is fully closed. Phase E2 (algorithm catch-up — 5 ablations on Mini scale) is the next active sub-phase per plan v1.8 §3 PHASE E2. Estimated effort: ~8 weeks human + 30-60 h GPU on laptop RTX 4090.
 
 ---
 
