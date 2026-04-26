@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# fajarquant pre-commit hook (v3 — adds Phase E E1.6 bilingual-corpus gate).
+#
+# Source of truth for `.git/hooks/pre-commit`. Install via:
+#   ./scripts/git-hooks/install-hooks.sh
+#
+# Layers (run in order; abort on first failure):
+#   1. cargo fmt --check                                      (Rust style)
+#   2. cargo clippy --lib -- -D warnings                      (Rust lint)
+#   3. scripts/audit_unwrap.py --summary                      (no production .unwrap())
+#   4. make verify-bilingual-corpus                           (Phase E1.6 gate, conditional)
+#
+# Layer 4 only fires when staged changes touch ANY of:
+#   - data/phase_e/corpus_id_dedup_exact/*/_manifest.json
+#   - python/phase_e/intllm_en.py
+#   - python/phase_e/scripts/verify_bilingual_corpus.py
+#   - docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md
+# This keeps the hook fast for unrelated commits (~<0.1 s no-op).
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Layer 1: cargo fmt --check
+if ! cargo fmt -- --check 2>&1; then
+    echo ""
+    echo "❌ fmt drift detected. Run 'cargo fmt' and re-stage."
+    exit 1
+fi
+
+# Layer 2: cargo clippy --lib -- -D warnings
+if ! cargo clippy --lib -- -D warnings 2>&1; then
+    echo ""
+    echo "❌ clippy warnings. Fix before committing."
+    exit 1
+fi
+
+# Layer 3: production .unwrap() audit via 3-layer filter
+if [ -x scripts/audit_unwrap.py ]; then
+    UNWRAP_SUMMARY=$(python3 scripts/audit_unwrap.py --summary 2>&1)
+    UNWRAP_COUNT=$(echo "$UNWRAP_SUMMARY" | grep "Total production" | awk '{print $5}')
+    if [ -n "$UNWRAP_COUNT" ] && [ "$UNWRAP_COUNT" -gt 0 ]; then
+        echo "❌ $UNWRAP_COUNT production .unwrap() detected. Use .expect(\"reason\") or ?"
+        echo "   See V26 Plan Hygiene Rule 3 (prevention layer)."
+        echo "$UNWRAP_SUMMARY"
+        exit 1
+    fi
+fi
+
+# Layer 4: Phase E E1.6 bilingual-corpus gate (conditional on staged changes).
+# Trigger paths (any one staged ⇒ run gate):
+#   - data/phase_e/corpus_id_dedup_exact/*/_manifest.json
+#   - python/phase_e/intllm_en.py
+#   - python/phase_e/scripts/verify_bilingual_corpus.py
+#   - docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md
+STAGED=$(git diff --cached --name-only)
+TRIGGER=0
+while IFS= read -r f; do
+    case "$f" in
+        data/phase_e/corpus_id_dedup_exact/*/_manifest.json) TRIGGER=1 ;;
+        python/phase_e/intllm_en.py) TRIGGER=1 ;;
+        python/phase_e/scripts/verify_bilingual_corpus.py) TRIGGER=1 ;;
+        docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md) TRIGGER=1 ;;
+    esac
+done <<< "$STAGED"
+
+if [ "$TRIGGER" -eq 1 ]; then
+    if ! make verify-bilingual-corpus 2>&1; then
+        echo ""
+        echo "❌ verify-bilingual-corpus FAIL. Spec doc / manifests / shim drift."
+        echo "   See docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md §5 for invariants."
+        exit 1
+    fi
+    echo "✅ pre-commit OK (fmt, clippy, 0 production unwraps, bilingual-corpus 8/8)"
+else
+    echo "✅ pre-commit OK (fmt, clippy, 0 production unwraps)"
+fi
