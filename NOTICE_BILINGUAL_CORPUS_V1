@@ -1,0 +1,132 @@
+FajarQuant Phase E — Bilingual Corpus v1.0 — License Attribution NOTICE
+=========================================================================
+
+This file accompanies any model derived from training on the
+FajarQuant Phase E Bilingual Corpus v1.0 (Indonesian + English).
+It records the corpus composition, source licenses, and attribution
+requirements that carry forward to derivative models per the
+respective source licenses.
+
+Spec reference: docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md
+Plan reference: docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md v1.8
+
+-------------------------------------------------------------------------
+Corpus composition
+-------------------------------------------------------------------------
+
+This model was pretrained on a bilingual corpus comprising:
+
+  Indonesian half (on-disk parquet shards, post-exact-hash dedup):
+
+    - Wikipedia (Indonesian, snapshot 20231101)
+        HF dataset: wikimedia/wikipedia (config 20231101.id)
+        License:    Creative Commons Attribution-ShareAlike 4.0
+                    International (CC BY-SA 4.0)
+        Volume:     662,929 articles / 1.06 GB raw text / ~0.42 B tokens
+                    (Mistral v3 32K tokenizer, 2.527 byte/tok)
+
+    - FineWeb-2 (Indonesian Latin script, slice 1)
+        HF dataset: HuggingFaceFW/fineweb-2 (config ind_Latn)
+        License:    Open Data Commons Attribution License v1.0 (ODC-By 1.0)
+        Volume:     9,999,982 documents / 37.86 GB raw text / ~14.99 B tokens
+                    (10M-doc first slice; full ind_Latn config not used)
+
+    Subtotal Indonesian: 10,662,911 documents / 38.92 GB raw text /
+                         ~15.40 B tokens; 0.0254% exact-hash dedup rate
+                         (sha256 over NFKC + lowercase + whitespace-collapse
+                         normalized text).
+
+  English half (streaming, no on-disk parquet):
+
+    - SlimPajama-627B Reupload
+        HF dataset: gmongaras/SlimPajama-627B_Reupload
+        License:    Apache 2.0 (mirror of original SlimPajama; redistribution
+                    permitted)
+        Volume:     up to 10.27 B tokens at training time, capped per
+                    Phase E v1.8 60:40 ID:EN ratio against the 15.40 B
+                    Indonesian corpus
+
+  Total bilingual mix at 60:40 ID:EN default ratio:
+    25.67 B tokens (15.40 B Indonesian + 10.27 B English)
+    Synthetic-mix-ratio: 0% (Lapis 1 only — real corpus, no augmentation)
+
+-------------------------------------------------------------------------
+License attribution requirements
+-------------------------------------------------------------------------
+
+Wikipedia (CC BY-SA 4.0):
+  - Attribution: This model's training data includes content from the
+    Indonesian Wikipedia (https://id.wikipedia.org), used under the
+    Creative Commons Attribution-ShareAlike 4.0 International License.
+  - Share-alike: Per CC BY-SA 4.0 §4(b)(iv), share-alike provisions
+    apply. Any derivative work substantially derived from this model's
+    Wikipedia training data should preserve attribution and may be
+    licensed under a compatible share-alike license. ML-training is
+    "quintessentially transformative" per Bartz v. Anthropic (N.D. Cal.
+    June 2025), and Wikimedia accepts ML fair use; this NOTICE serves
+    as the attribution preservation step.
+
+FineWeb-2 (ODC-By 1.0):
+  - Attribution: This model's training data includes content from the
+    FineWeb-2 dataset (https://huggingface.co/datasets/HuggingFaceFW/fineweb-2),
+    used under the Open Data Commons Attribution License v1.0.
+  - Indication of changes: This corpus uses the ind_Latn config (slice 1,
+    10M documents) with additional exact-string sha256 deduplication on
+    NFKC-normalized text. Original FineWeb-2 deduplication via MinHash
+    is preserved; our additional dedup is incremental.
+
+SlimPajama-627B Reupload (Apache 2.0):
+  - Attribution: This model's English training tokens are streamed from
+    the SlimPajama-627B Reupload dataset
+    (https://huggingface.co/datasets/gmongaras/SlimPajama-627B_Reupload),
+    licensed under the Apache License, Version 2.0.
+  - The Apache 2.0 NOTICE provisions apply if the unmodified dataset
+    is redistributed; this corpus does not redistribute SlimPajama
+    bytes (streaming-only), so the upstream NOTICE travels with the
+    upstream HuggingFace dataset.
+
+-------------------------------------------------------------------------
+Reproducibility surface (per plan v1.7 §14.5)
+-------------------------------------------------------------------------
+
+The corpus is reproducible from public sources via:
+
+  1. git commit SHA   — fajarkraton/fajarquant repository
+  2. eval/HARNESS_SHA — lm-eval pin (currently 27988a293647d5853e48edea291640b4af54740c, v0.4.11)
+  3. Per-source manifests at:
+       data/phase_e/corpus_id_dedup_exact/HuggingFaceFW__fineweb-2/_manifest.json
+       data/phase_e/corpus_id_dedup_exact/wikimedia__wikipedia/_manifest.json
+     (committed in repo; contain bytes_text_kept, docs_kept, dedup_rate,
+     normalization scheme, sample_dropped)
+  4. HF dataset revisions — pinned via streaming default at corpus-build
+     time (Wikipedia 20231101 snapshot stable; FineWeb-2 default stable;
+     SlimPajama-627B-Reupload stable)
+
+End-to-end regenerable via:
+
+  make build-id-corpus-wikipedia-id   # ~5 min  (665K articles)
+  make build-id-corpus-fineweb-2-id   # ~75 min (10M documents)
+  make dedup-corpus-id-exact          # ~20 min (sha256 over 10.67M docs)
+  make verify-bilingual-corpus        # <1 s   (8/8 invariants)
+
+-------------------------------------------------------------------------
+Use-case scope
+-------------------------------------------------------------------------
+
+This corpus is the pretrain artifact for Phase E v1.8 Tier 1+2:
+  - Tier 1: kernel-context LLM with formal `@kernel`/`@device` isolation
+            (FajarOS Nova target)
+  - Tier 2: Indonesian + English bilingual ternary embedded LLM
+
+Tier 3 (vertical AI for tax/legal Indonesian) is deferred to Phase F per
+plan v1.8; that corpus and any TaxPrime-derived data are NOT part of
+this v1.0 release.
+
+-------------------------------------------------------------------------
+Contact + further information
+-------------------------------------------------------------------------
+
+  Repository: https://github.com/fajarkraton/fajarquant
+  Maintainer: Muhamad Fajar Putranto (PrimeCore.id / TaxPrime)
+  License (this NOTICE + corpus packaging artifacts): Apache 2.0
+  Generated:  2026-04-27 (Phase E v1.8 E1.6.2 sub-task)
