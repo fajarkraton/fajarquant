@@ -1,0 +1,45 @@
+{
+  "source": "HuggingFaceFW__fineweb-2",
+  "started_at": "2026-04-26T15:41:41+00:00",
+  "finished_at": "2026-04-26T16:01:04+00:00",
+  "elapsed_s": 1162.934,
+  "docs_in": 10000000,
+  "docs_kept": 9999982,
+  "docs_dropped": 18,
+  "bytes_text_in": 37858141897,
+  "bytes_text_kept": 37858105079,
+  "shards_in": 142,
+  "shards_out": 142,
+  "norm_scheme": "nfkc-lower-ws",
+  "hash_alg": "sha256",
+  "dry_run": false,
+  "error": null,
+  "sample_dropped": [
+    {
+      "doc_index": 847731,
+      "digest_hex": "2cc004463daa612ca77797d6ddd93eb82fed524d180da012e3f04f3b8e64b255",
+      "preview": "Kami dapat membantu anda untuk meningkatkan omset penjualan melalui strategi digital marketing / marketing campaign untuk product dan event.\nuntuk konsultasi ke"
+    },
+    {
+      "doc_index": 2273417,
+      "digest_hex": "93e51ddf72ce697c7de12c74aae1c5562e0e7e3f6e1b8d63a500da8e6cff4a83",
+      "preview": "Hingga saat ini pengumuman hasil TKD CPNS kota Pekanbaru belum jelas. Hal ini dikarenakan Pemko Pekanbaru masih menunggu keputusan Kementerian Pendayagunaan Apa"
+    },
+    {
+      "doc_index": 3764125,
+      "digest_hex": "e15bb9cd0e533a4566c7e9878f1431517f854992ab10534b242de6641798da0a",
+      "preview": "Pot Meets Pop dengan bangga mempersembahkan Pot Meets Shop #2 yang akan di selengarakan di Surabaya, melihat antusias dari pencinta Denim dan musik pada Pot Mee"
+    },
+    {
+      "doc_index": 4317047,
+      "digest_hex": "19f91f660fc3cd7e7574e1e4ff7afb3a1dd24ac53e6dc84ce5872d723eb5714a",
+      "preview": "Kartu Domino QQ – Bandar Ceme Keliling – Qiu Qiu Poker Online Indonesia Terpercaya – Agen Poker Uang Asli – Taruhan Capsa Susun – Samgong – Super10\nSitus Agen J"
+    },
+    {
+      "doc_index": 4823629,
+      "digest_hex": "f3b952aef9efb544557f9604347133b4e752c22afdbaf13b6339af294a2afd4a",
+      "preview": "Samprazaan\nHallo akang teteh, kembali bertemu lagi dengan saya ken pradipta di laporan dokumentasi tdp.\n> 12 Agustus 2016\nTitik kali ini yang dikunjungi adalah "
+    }
+  ],
+  "dedup_rate": 2e-06
+}

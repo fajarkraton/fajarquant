@@ -1,0 +1,45 @@
+{
+  "source": "wikimedia__wikipedia",
+  "started_at": "2026-04-26T16:01:05+00:00",
+  "finished_at": "2026-04-26T16:01:35+00:00",
+  "elapsed_s": 30.508,
+  "docs_in": 665621,
+  "docs_kept": 662929,
+  "docs_dropped": 2692,
+  "bytes_text_in": 1061685858,
+  "bytes_text_kept": 1061118243,
+  "shards_in": 4,
+  "shards_out": 4,
+  "norm_scheme": "nfkc-lower-ws",
+  "hash_alg": "sha256",
+  "dry_run": false,
+  "error": null,
+  "sample_dropped": [
+    {
+      "doc_index": 5176,
+      "digest_hex": "49606bcb95ae54f498521f9c22aeb8d98a39ee4d15a97a0a20f463e8bbd7c43b",
+      "preview": "\n\nKelahiran\n\nKematian\n\nPranala luar\n\n \nAbad ke-20"
+    },
+    {
+      "doc_index": 5177,
+      "digest_hex": "49606bcb95ae54f498521f9c22aeb8d98a39ee4d15a97a0a20f463e8bbd7c43b",
+      "preview": "\n\nKelahiran\n\nKematian\n\nPranala luar\n\n \nAbad ke-20"
+    },
+    {
+      "doc_index": 5180,
+      "digest_hex": "49606bcb95ae54f498521f9c22aeb8d98a39ee4d15a97a0a20f463e8bbd7c43b",
+      "preview": "\n\nKelahiran\n\nKematian\n\nPranala luar\n\n \nAbad ke-20"
+    },
+    {
+      "doc_index": 5183,
+      "digest_hex": "49606bcb95ae54f498521f9c22aeb8d98a39ee4d15a97a0a20f463e8bbd7c43b",
+      "preview": "\n\nKelahiran\n\nKematian\n\nPranala luar\n\n \nAbad ke-20"
+    },
+    {
+      "doc_index": 5652,
+      "digest_hex": "4ec55ac46f7a335f79acf73f12bf644d38de53cd6447672ae644071db04c5e10",
+      "preview": "\n\nPeristiwa\n\nKelahiran\n\nKematian\n\nPranala luar\n\n \nAbad ke-19"
+    }
+  ],
+  "dedup_rate": 0.004044
+}
