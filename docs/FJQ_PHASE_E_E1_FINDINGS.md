@@ -1,12 +1,13 @@
-# Phase E E1 — Bilingual Corpus Findings (Indonesian half, first slice)
+# Phase E E1 — Bilingual Corpus Findings (Indonesian + English halves)
 
-> **Status (v1.1):** PARTIAL — E1.1 ID corpus assembly LANDED + **E1.4 dedup LANDED**; E1.2 EN reuse pending; E1.3 tax/legal pending; E1.5 synthetic DEFERRED to Phase F per plan v1.7.
+> **Status (v1.2):** PARTIAL — E1.1 ID corpus assembly LANDED + **E1.2 EN reuse LANDED** + **E1.4 dedup LANDED**; E1.3 tax/legal pending; E1.5 synthetic DEFERRED to Phase F per plan v1.7.
 > **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.7 §3 E1.0–E1.6
-> **Last updated:** 2026-04-26 (v1.1 splice — E1.4 dedup landed)
+> **Last updated:** 2026-04-26 (v1.2 splice — E1.2 EN config shim landed)
 > **Origin commits (E1.1.0–E1.1.3):** `ef7dab8` → `3ba0d41` → `bda7e1c` → `47a8892`
-> **Origin commits (E1.4.0–E1.4.3):** `991078f` (LSH scaffold) → `35d13e7` (LSH --resume) → `c83f1bd` (audit) → `4ebb437` (exact-hash sha256 scaffold) → exact-hash full sweep landed
+> **Origin commits (E1.4.0–E1.4.3):** `991078f` (LSH scaffold) → `35d13e7` (LSH --resume) → `c83f1bd` (audit) → `4ebb437` (exact-hash sha256 scaffold) → `8dc4fab` (exact-hash full sweep + cleanup + findings v1.1)
+> **Origin commits (E1.2.0):** `f912054` (EN config shim + smoke gate)
 
-This doc is incrementally updated as each E1.x sub-task completes. Initial version closes E1.0 pre-flight + records E1.1 first slice (Wikipedia ID + FineWeb-2 ID). v1.1 splice records E1.4 dedup completion via exact-hash sha256 (LSH variant pivoted after OOM).
+This doc is incrementally updated as each E1.x sub-task completes. Initial version closes E1.0 pre-flight + records E1.1 first slice (Wikipedia ID + FineWeb-2 ID). v1.1 splice records E1.4 dedup completion via exact-hash sha256 (LSH variant pivoted after OOM). v1.2 splice records E1.2 EN reuse via Phase D `intllm.data.slimpajama_stream` shim with bilingual ratio + repo selection helpers.
 
 ---
 
@@ -95,7 +96,80 @@ cat data/phase_e/corpus_id_dedup_exact/HuggingFaceFW__fineweb-2/_manifest.json
 make dedup-corpus-id-exact-dryrun
 ```
 
-## 5. Schema coverage
+## 5. EN subset reuse — E1.2 LANDED (v1.2)
+
+Per plan §3 E1.2, the English half reuses Phase D's `intllm.data.slimpajama_stream` rather than producing its own on-disk parquet shards. EN at typical Phase E targets (10–25 B tokens) would consume 38–96 GB of raw text — too large for the laptop-only $0 storage strategy of plan v1.7.
+
+### 5.1 Configuration shim
+
+Constants and helpers committed at `python/phase_e/intllm_en.py` (commit `f912054`). Stdlib + `json` only — torch / transformers / datasets are NOT imported at module load, so the shim and its smoke gate run without GPU dependencies.
+
+| Constant | Value | Source |
+|---|---|---|
+| `ID_BYTES_PER_TOKEN` | 2.527 | E0.0.3 measurement on 1000 ID Wikipedia articles |
+| `EN_BYTES_PER_TOKEN` | 3.830 | E0.0.3 measurement on 1000 EN Wikipedia articles |
+| `BILINGUAL_RATIO_DEFAULT` | 0.6 (60:40 ID:EN) | matches §E2.4.1 `BilingualCalibrationSampler` default |
+| `ID_TOKENS_AVAILABLE` | 15.40 B | post-E1.4 exact-hash dedup, from `_manifest.json` aggregate |
+| `SLIMPAJAMA_DEFAULT_REPO` | `DKYoon/SlimPajama-6B` | Phase D Mini/Base/Medium production |
+| `SLIMPAJAMA_STRETCH_REPO` | `gmongaras/SlimPajama-627B_Reupload` | Phase D Stretch (>15 B token budgets) |
+| `SLIMPAJAMA_STRETCH_THRESHOLD_TOKENS` | 6.0e9 | repo-pivot trigger (Phase D convention) |
+
+Helpers: `compute_en_token_cap(id_tokens, ratio_id_share)`, `compute_en_byte_cap(en_tokens)`, `select_slimpajama_repo(en_token_target)`, `id_tokens_from_e1_4_manifests(repo_root)`, `bilingual_mix_summary(...)`. Doctests embedded in each.
+
+### 5.2 Repo-selection arithmetic at the chosen ratio
+
+At the working default of 60:40 ID:EN with the measured 15.40 B ID corpus:
+
+| Quantity | Value | Source |
+|---|---:|---|
+| Target total tokens | 25.67 B | `id_tokens / ratio_id_share` = 15.40 / 0.6 |
+| EN token cap | **10.27 B** | total − ID = 25.67 − 15.40 |
+| EN bytes implied | 39.33 GB | EN cap × 3.830 byte/tok |
+| Slimpajama repo selected | `gmongaras/SlimPajama-627B_Reupload` | EN cap > 6 B threshold → Stretch pivot |
+
+The EN cap (10.27 B) **exceeds the 6 B threshold** of `DKYoon/SlimPajama-6B`, so `select_slimpajama_repo(10.27e9)` returns the 627B Stretch repo. Earlier project commentary that defaulted to "SlimPajama-6B" was insufficient for the chosen ratio at Phase E's actual ID corpus size; the shim makes this explicit and the smoke gate asserts the Stretch repo is selected for the default config (v1.2 audit-trail item).
+
+Alternative ratio reference points (recompute via `compute_en_token_cap`):
+
+| Ratio (ID share) | EN cap | Repo |
+|---:|---:|---|
+| 0.5 (50:50) | 15.40 B | Stretch (627B) |
+| 0.6 (60:40, **default**) | 10.27 B | Stretch (627B) |
+| 0.7 (70:30) | 6.60 B | Stretch (627B), barely over threshold |
+| 0.72 (~71.9:28.1) | 6.00 B | exactly at threshold |
+| 0.8 (80:20) | 3.85 B | Default (6B), comfortable single-epoch |
+
+If a future decision pivots to ratio ≥ 0.72 to keep EN within `DKYoon/SlimPajama-6B`, the helper will auto-select the smaller repo without code changes.
+
+### 5.3 No streaming code in this shim — by design
+
+`slimpajama_stream` itself stays in `python/phase_d/intllm/data.py` (Phase D production, hardened by Track B step 4 with 60s read timeout + retry per CLAUDE §6.11). Phase E training drivers (E2/E3 phases) will `import` it directly when training begins, parameterised by `repo` and an EN-side cap derived from `bilingual_mix_summary()`. Keeping the shim torch-free preserves <1 s smoke-gate runtime and lets the constants survive heavyweight dependency churn.
+
+### 5.4 Verification commands (CLAUDE §6.8 R2)
+
+```bash
+# Smoke gate — 6/6 invariants in <1 s
+make test-intllm-en
+
+# Inspect mix summary at default 60:40
+.venv/bin/python -c "
+import sys; sys.path.insert(0, 'python/phase_e')
+import intllm_en, json
+print(json.dumps(intllm_en.bilingual_mix_summary(), indent=2, default=str))
+"
+
+# Inspect alternative ratios
+.venv/bin/python -c "
+import sys; sys.path.insert(0, 'python/phase_e')
+import intllm_en
+for r in (0.5, 0.6, 0.7, 0.72, 0.8):
+    en = intllm_en.compute_en_token_cap(15.40e9, r) / 1e9
+    repo = intllm_en.select_slimpajama_repo(en * 1e9).split('/')[-1]
+    print(f'  ratio={r}  EN={en:5.2f}B  repo={repo}')
+"
+```
+
+## 6. Schema coverage (ID corpus)
 
 Both sources written with **two columns only**: `text` (str), `source` (str). Other source-side metadata is dropped by `build_source()` in `python/phase_e/scripts/build_id_corpus.py:128`. Specifically discarded:
 
@@ -104,7 +178,7 @@ Both sources written with **two columns only**: `text` (str), `source` (str). Ot
 
 **Trade-off accepted:** simpler downstream tokenization + smaller parquet shards vs losing per-doc dedup signal already computed by HuggingFace (`minhash_cluster_size`). E1.4 will recompute dedup ourselves anyway; URL/date provenance lost is acceptable per plan §15 attribution-at-source-level (license file in §E1.6 packaging, not per-doc).
 
-## 6. Verification commands (CLAUDE §6.8 R2)
+## 7. Verification commands — ID corpus (CLAUDE §6.8 R2)
 
 ```bash
 # Total docs across all checked-in sources
@@ -125,7 +199,7 @@ python python/phase_e/scripts/build_id_corpus.py --source fineweb_2_id --dry-run
 python python/phase_e/scripts/audit_id_corpora.py
 ```
 
-## 7. Decisions logged at this version
+## 8. Decisions logged at this version
 
 1. **FineWeb-2 ID capped at 10M docs** for first slice. Full ind_Latn (32 train files × 4.5 GB = 144 GB source) would extrapolate to ~50–70 B tokens, well above plan upper estimate. Cap chosen to fit laptop-only disk budget per plan v1.7 hardware lock; 15 B from one slice ALREADY meets §E1.1 target.
 2. **OSCAR / CulturaX defer to user click-through.** Not blocking corpus completion; nice-to-have for diversity.
@@ -133,10 +207,13 @@ python python/phase_e/scripts/audit_id_corpora.py
 4. **Cosmetic SIGABRT in FineWeb-2 download.** `PyGILState_Release: thread state must be current when releasing` from C-extension shutdown order quirk (HF Datasets + aiohttp + pyarrow). Crash occurred AFTER all data + manifest written; manifest reports `error: null`; read-back of all 142 shards verifies 10,000,000 rows. Documented for future hardening; no data loss this run.
 5. **(v1.1)** **Dedup recipe pivot LSH → exact-hash sha256.** OOM-driven, see §4.2 above. Decision committed as code: `dedup_corpus_exact.py` + Makefile + .gitignore + this doc. LSH script kept in-tree for higher-noise future corpora.
 6. **(v1.1)** **LSH partial cleanup.** 84-shard partial output (15 GB) + `.progress/state.pkl` (6.8 GB) removed after exact-hash sweep validated and manifests written. The exact-hash sweep is fully reproducible from `corpus_id/` raw shards via `make dedup-corpus-id-exact`; LSH partial held no information not reproducible from the full sweep.
+7. **(v1.2)** **Bilingual ratio 60:40 ID:EN locked as default.** Matches §E2.4.1 `BilingualCalibrationSampler` default. Recorded in `intllm_en.BILINGUAL_RATIO_DEFAULT`; smoke gate asserts. 50:50 / 70:30 / 80:20 alternatives recoverable via `compute_en_token_cap(id_tokens, ratio_id_share)` without code changes (see §5.2 table).
+8. **(v1.2)** **EN repo at 60:40 = `gmongaras/SlimPajama-627B_Reupload` (Stretch).** EN cap of 10.27 B at the working ratio exceeds the 6 B threshold of `DKYoon/SlimPajama-6B`. The smoke gate asserts the Stretch repo is selected. If a future decision pivots to ratio ≥ 0.72 the Default 6B repo would suffice — recompute via `select_slimpajama_repo`.
+9. **(v1.2)** **EN as streaming-only, no on-disk parquet.** EN at 10–25 B tokens = 38–96 GB raw text, exceeds laptop-only $0 storage budget per plan v1.7. Phase E training drivers will import `slimpajama_stream` from Phase D and feed tokenized batches directly; no `data/phase_e/corpus_en_*` directory will exist. FineWeb-Edu add-on SKIPPED for v0; re-evaluate at E5/E6 if Mini-scale ablation flags EN coverage as a bottleneck.
 
-## 8. Open items for E1.x continuation
+## 9. Open items for E1.x continuation
 
-- [ ] E1.2 — English subset selection: reuse Phase D `intllm.data.slimpajama_stream` (~50 B available). Pure registry/config work, no new download.
+- [x] **E1.2 — English subset selection: LANDED 2026-04-26 via `intllm_en.py` config shim (60:40 default, Stretch repo per ratio math, see §5).** Streaming integration deferred to E2/E3 training drivers.
 - [ ] E1.3 — Vertical fine-tune corpus (tax/legal Indonesian): requires TaxPrime archive access via founder; small total volume (~150–700 MB).
 - [x] **E1.4 — Dedup + filter: LANDED 2026-04-26 via exact-hash sha256 (LSH variant pivoted post-OOM, see §4).** Language-detect deferred to E1.6 packaging audit if needed.
 - [ ] E1.5 — Synthetic pretrain augmentation: **DEFERRED TO PHASE F** per plan v1.7 (Option B aggressive $0). Real corpus alone sufficient; lose BeyondWeb 7.7× speedup.
@@ -144,8 +221,9 @@ python python/phase_e/scripts/audit_id_corpora.py
 - [ ] OPTIONAL E1.1.x — `--skip-docs N` flag for FineWeb-2 incremental slices.
 - [ ] OPTIONAL E1.1.x — MADLAD-400 ID via `HfApi().list_repo_files` glob workaround.
 - [ ] OPTIONAL E1.1.x — CC-100 ID via statmt.org tarball mirror (lower priority due to non-commercial license).
+- [ ] OPTIONAL E1.2.x — FineWeb-Edu add-on (~20 B EN high-quality) for code/technical content. Re-evaluate at E5/E6 per §5.3.
 - [ ] OPTIONAL E1.4.x — language-detect pass via `fasttext` lid.176 on the 10.66M kept docs (post-dedup); only needed if §E1.6 packaging audit flags non-ID content above a threshold.
 
 ---
 
-**Sign-off this version (v1.1):** Phase E E1.0 pre-flight CLOSED. E1.1 first slice LANDED. **E1.4 dedup LANDED** with budget MEASURED at 15.40 B tokens (1.92× over §2 abort threshold). Continue with E1.2 (registry only) or E1.3 (TaxPrime archive) at next session per founder decision.
+**Sign-off this version (v1.2):** Phase E E1.0 pre-flight CLOSED. **E1.1 + E1.2 + E1.4 all LANDED.** ID corpus measured at 15.40 B tokens (1.92× over §2 abort threshold); EN side configured at 60:40 default → 10.27 B EN cap on `gmongaras/SlimPajama-627B_Reupload`. Continue with E1.3 (TaxPrime archive, blocked on founder access) or stretch-target E1.6 packaging at next session.
