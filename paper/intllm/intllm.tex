@@ -1837,15 +1837,241 @@ ternary-LLM literature defaults to, and the type-system layer is a
 material improvement over that default.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §10 Discussion and Future Work — DRAFTED THIS COMMIT
+% (Path A Week 3 sub-step 3)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Discussion and Future Work}
 \label{sec:discussion}
 
-\textit{[STUB — drafted Week 3. Phase F.5 PTQ-style post-training
-calibration; Phase F.6 post-hoc QuaRot on pre-trained checkpoint;
-Phase F.7-F.9 deferred E2.2-E2.5 sub-features; Phase~E3 bilingual
-scale-up to Base/Medium; Phase~F~Tier-3 tax-vertical; Phase~D Stretch
-training. Each Phase~F entry maps to a sub-task table in
-\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md} v1.3.]}
+\subsection{Synthesis of contributions}
+\label{sec:discussion-synthesis}
+
+The five contributions of this paper compose into a single
+deployment-grade demonstration that is not addressed by any single
+prior work along the union of relevant axes
+(Section~\ref{sec:results-scaling-discuss},
+Section~\ref{sec:bilingual-discuss}; full multi-axis positioning in
+\texttt{docs/INTLLM\_RELATED\_WORK.md}~\textsection7.1):
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{C1.} The Phase~D scaling chain extends 1.58-bit ternary
+training-from-scratch validation downward from BitNet~b1.58's
+2~B-parameter regime~\citep{ma2024era} into the 22-74~M-parameter
+range relevant for kernel-context deployment, with monotonic widening
+gate margins ($0.118 \to 0.210 \to 0.279$~nat) over a $\sim$3.5$\times$
+parameter range and a $1.94\times$ end-to-end PPL reduction.
+
+\item \textbf{C2.} The Phase~E1 bilingual corpus v1.0 (25.67~B tokens
+at 60:40 ID:EN, 0\%~synthetic, mechanical-consistency-gated) and the
+Q5 Mini-scale baseline are the first fully-public bilingual ternary
+LM resources at the 22~M-parameter scale, reproducible in $\sim$42
+minutes on commodity laptop hardware.
+
+\item \textbf{C3.} The FajarOS Nova~v3.9.0 IntLLM kernel-path
+demonstrates a 1.58-bit ternary LM running entirely inside the
+operating-system kernel address space, with a 4-invariant CI-gated
+regression test and binary footprint within the
+$\leq 16$~MB total budget at Mini and Base scales (Medium marginally
+overruns; identifies v9-format compression as follow-up).
+
+\item \textbf{C4.} Two outlier-handling features ported from the
+post-hoc-quantization literature (balanced\_calib via SmoothQuant
+\citep{xiao2022smoothquant}~/~AWQ \citep{lin2023awq};
+Hadamard rotation via QuaRot \citep{ashkboos2024quarot}) FAIL their
+mechanical adoption gates by margins of $-82.13$ and $-0.12$~nat
+respectively. Three-cause attributions per failure converge on a
+common pattern: \emph{post-hoc-literature precedents do not transfer
+cleanly to training-from-scratch ternary at small scale}.
+
+\item \textbf{C5.} The Fajar Lang four-context type system enforces
+the kernel-context invariants of C3 at compile time via the seven
+KE001-KE004~/~DE001-DE003 error codes, sitting at a specific point
+on the safety-mechanism spectrum stronger than userspace ML
+deployments' documentation-grade conventions and weaker (explicitly)
+than seL4-class machine-checked proofs~\citep{klein2009sel4}.
+\end{itemize}
+
+The composition of these five — none of which is individually a
+breakthrough — is what makes IntLLM a coherent
+embedded-AI-plus-OS-integration system rather than an incremental
+advance on any single axis.
+
+\subsection{What this paper does NOT claim}
+\label{sec:discussion-nonclaims}
+
+The paper is deliberately scoped to what we can mechanically verify
+on the available infrastructure:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Frontier benchmark performance.} IntLLM is 25-100$\times$
+smaller than BitNet~b1.58~2B4T \citep{ma2024era} and orders of
+magnitude smaller than frontier 7~B+ models. We do not claim parity
+on multi-choice reasoning benchmarks; the 22-74~M scale is below the
+emergence threshold for those skills per Pythia
+\citep{biderman2023pythia} and Chinchilla \citep{hoffmann2022chinchilla}.
+
+\item \textbf{Ternary parity with FP16 at the same parameter count.}
+Pythia-160~M and SmolLM2-135~M~\citep{allal2024smollm2} achieve
+materially better Wikitext word-PPL at comparable parameter counts.
+The trade is parameter efficiency for kernel-deployable binary
+footprint and integer-native arithmetic.
+
+\item \textbf{Universal failure of outlier-handling features.} C4's
+two negative results are at our specific regime (Mini-scale,
+training-from-scratch, bilingual data); the literature's positive
+post-hoc results at $\geq 7$~B FP16 are not refuted, and Phase~F.6
+explicitly tests whether the post-hoc protocol recovers the literature
+result on our trained Mini checkpoint.
+
+\item \textbf{Production-grade FajarOS Nova.} The kernel passes its
+own 35-test regression suite but is research-grade; no formal
+verification, no hardened resource isolation beyond what the page-table
+mechanisms provide, no defense-in-depth against malicious inputs.
+
+\item \textbf{Bare-metal performance numbers.} Section~\ref{sec:results-kernel-runtime}
+explicitly tags the tok/s and watts entries of
+Table~\ref{tab:kernel-runtime} as PEND, deferred to a future
+deployment-platform partner.
+\end{enumerate}
+
+These delimitations are not modesty — they are research-integrity
+requirements per the methodology of
+Section~\ref{sec:method-integrity} (R3, R6).
+
+\subsection{Phase~F: immediate-next research agenda}
+\label{sec:discussion-phasef}
+
+The two C4 negative results, plus the three outlier-handling features
+cut from the paper's scope under the Path~A decision
+(Section~\ref{sec:negatives-future}), define a five-entry
+research agenda committed in
+\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md}~v1.3 \textsection4.1:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{F.5 Post-training PTQ-style activation calibration.}
+Replace the all-time-max running-max accumulator with a SmoothQuant
+\citep{xiao2022smoothquant}-style held-out post-training calibration
+on a fixed batch from the Q5-trained Mini checkpoint. Tests whether
+the balanced\_calib failure was about WHEN calibration happens
+(during-training accumulator) rather than WHAT calibration is computed
+(per-channel scale). Cheapest of the five; entry condition is
+sub-day smoke showing $\geq +10\%$ MSE reduction on outlier channels.
+
+\item \textbf{F.6 Post-hoc QuaRot on Q5-trained Mini checkpoint.}
+Apply the canonical QuaRot \citep{ashkboos2024quarot} recipe (load
+checkpoint, fuse Hadamard into adjacent weights via algebraic
+identity, re-evaluate without re-training) to the Q5-trained
+checkpoint. Tests whether the Hadamard failure was about
+training-from-scratch vs.\ post-hoc, controlling for HGRN-Bit
+architecture. Hard prerequisite F.6.1: pre-flight outlier-concentration
+measurement on \texttt{o\_proj} inputs (the hindsight measurement
+Section~\ref{sec:negatives-had} cause~2 should have run before E2.1).
+
+\item \textbf{F.7 FP8 (E4M3) mixed-precision for \texttt{lm\_head}~+~\texttt{attn.W\_o}.}
+Original Phase~E2.2 sub-feature, cut to Phase~F under Path~A. Tests
+whether structurally-different (mixed-precision rather than
+outlier-handling) features behave differently than F.5/F.6/E2.4/E2.1.
+Hardware compatibility check: \texttt{torch.float8\_e4m3fn}
+availability on RTX~4090~Laptop pinned PyTorch version is the F.7.0
+gate before F.7.1+ commits resources.
+
+\item \textbf{F.8 FP16 distillation during QAT.} Original Phase~E2.3,
+cut to Phase~F. Teacher~=~Phase~D Medium FP32 master (per Q3 closure,
+viable via \texttt{model.half()}); negative-transfer risk on
+ID-side samples (English-only teacher, bilingual student) addressed
+by sampling-aware distill-weight design.
+
+\item \textbf{F.9 Language-conditioned design.} Original Phase~E2.5,
+cut to Phase~F. Re-evaluate Option~(a)/(b)/(c) selection given F.5-F.8
+empirical evidence; if one of F.5-F.8 demonstrates that Phase~E-class
+features can help under our regime, F.9 carries the explicit
+responsibility to close the $1.77\times \to {\leq}1.5\times$
+coherence-ratio headroom the Q5 baseline left open.
+\end{itemize}
+
+The five-entry agenda is paced for V32-cycle execution post-this-paper-acceptance;
+estimated effort is 4-6 weeks human + $\sim$10-15~h GPU per
+sub-feature.
+
+\subsection{Longer-term roadmap}
+\label{sec:discussion-longer-term}
+
+Beyond the immediate Phase~F entries, three longer-horizon items are
+acknowledged but explicitly out-of-scope for this paper:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Phase~E3 bilingual scale-up to Base and Medium.} Q5 is a
+Mini-scale single-run baseline (Section~\ref{sec:bilingual-q5}); the
+full bilingual scaling chain (Phase~D's Mini~$\to$~Base~$\to$~Medium
+on the bilingual corpus rather than SlimPajama) would multiply the
+24K-step Mini budget by $\sim$$5\times$ for Base and $\sim$$10\times$
+for Medium. Estimated $\sim$30-50~hours GPU on RTX~4090~Laptop;
+deferred until Path~A paper acceptance frees calendar.
+
+\item \textbf{Phase~D Stretch training (15~B tokens).} A fourth
+data point on the Phase~D scaling-law curve. The $\sim$17-day
+continuous-GPU budget at the laptop's throughput is the binding
+constraint; nice-to-have but not required for the C1 scaling-law
+claim. Path~A explicitly defers this in
+\texttt{FJQ\_PHASE\_D\_PRODUCTION\_PLAN.md}~v1.10 \textsection2.3.
+
+\item \textbf{Tier~3 Phase~F.1-F.4 tax-vertical
+TaxPrime fine-tuning.}
+The original Phase~E plan included a tax-domain Indonesian fine-tune
+as a third deliverable (alongside Tier~1 kernel-context and Tier~2
+bilingual base); the Path~A scope decision deferred this entirely to
+Phase~F under
+\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md}~v1.3
+\textsection F.1-F.4. Founder-bandwidth + NDA-pending TaxPrime archive
+ingest are the binding constraints; Phase~F activation gates on
+this paper's acceptance.
+\end{itemize}
+
+\subsection{Methodological reflection: Path~A as a methodology contribution}
+\label{sec:discussion-methodology}
+
+The decision to STOP Phase~E2 after two ablations both FAILED, rather
+than pushing through three more ablations to fill out the original
+five-feature combined-ablation table, is itself a methodology choice
+that this paper claims as part of contribution~C4. The reasoning chain
+that motivated the cut, committed in
+\texttt{FJQ\_PHASE\_E\_PATH\_A\_PAPER\_OUTLINE.md}~v1.0:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{The 0/2 prior result is empirical evidence about the
+regime, not just about the two specific features.} Both failures
+attributed to the same root cause (post-hoc-literature features
+applied to training-from-scratch); the prior probability that
+features structurally similar to those (F.7 FP8, F.8 distillation,
+F.9 lang-cond — all originally Phase~E ablation candidates) succeed
+under the same regime is therefore lower than the original Phase~E
+plan~v1.0 assumed.
+
+\item \textbf{Continuing under that updated prior costs $\sim$3 weeks
+and $\sim$3-5 hours of GPU per ablation, against an expected paper
+yield of $\leq 1$ row likely to PASS.} The marginal evidence per
+additional ablation is low; the marginal cost is high.
+
+\item \textbf{The negative-results paper is publishable as written.}
+Two clean failures with three-cause attributions and four future-work
+pointers (F.5-F.8) is enough material for a contribution-C4 narrative
+that the next research team can build on; running three more
+ablations adds bulk but not new structural insight.
+
+\item \textbf{Cutting losses redirects the same calendar to paper
+LaTeX writing,} which Path~A's outline shows is the binding path to
+arXiv-and-MLSys submission.
+\end{enumerate}
+
+We treat this as a successful Phase~E2 outcome rather than a failure
+of the original plan: the methodology of mechanical gates committed
+before experiments ran (R6) and honest reporting of negative results
+(R3) is what allowed the cut decision to be made on empirical evidence
+rather than sunk-cost reasoning. The kind of paper that emerges —
+honest negative results plus deployable positive contributions — is
+the kind of paper the field needs more of, not fewer of, at the
+small-scale ternary intersection where literature is currently
+sparse.
 
 % ═══════════════════════════════════════════════════════════════════════
 % Bibliography (BibTeX entries to be generated from
