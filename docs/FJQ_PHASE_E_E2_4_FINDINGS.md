@@ -1,12 +1,12 @@
-# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.0)
+# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.1)
 
-> **Status:** E2.4.0 PRE-FLIGHT only — no code changes, no GPU runs. Hands-on audit + scope-clarification deliverable per CLAUDE §6.8 R1 (every Phase / sub-phase starts with a pre-flight that produces a runnable-command-verified findings doc).
+> **Status:** E2.4.0 CLOSED — Q9 selected = **Option C** (re-scoped ablation gate to MSE quantization-error metric); calibration plumbing (E2.4.A.1+A.2+A.3+A.4) shipped this session. E2.4 implementation now in flight under Option C scope.
 >
 > **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §3 PHASE E2.4 + `FJQ_PHASE_E_E2_FINDINGS.md` v1.1 §3 (E2.4 sequenced as priority #1, lowest-risk).
 >
 > **Predecessor:** Phase E2.0 fully closed 2026-04-27 (`FJQ_PHASE_E_E2_FINDINGS.md` v1.1 sign-off, commit `1074883`).
 >
-> **Last updated:** 2026-04-27 (E2.4.0 audit).
+> **Last updated:** 2026-04-27 (E2.4.0 v1.0 → v1.1 promotion: Q9 = Option C; E2.4.A calibration plumbing landed this session).
 
 ---
 
@@ -159,9 +159,9 @@ No upstream fork; lower scope than Option B; provides paper-defensible adoption 
 
 | # | Question | Why it matters | Owner / next step |
 |---|---|---|---|
-| **Q9** | Which option (A / B / C) does the user pick for E2.4 scope? | Determines whether E2.4 is plumbing-only (A), full feature (B), or signal-redefined (C). Each has distinct calendar + risk profile. | Defer to user. This findings doc lays out the evidence; the call is theirs. |
-| **Q10** | If Option B: does the user accept an external `IntLLMBitLinear` wrapper class (not a `_upstream/` fork), even if it duplicates ~30 LOC of forward logic? | The pinned upstream snapshot (`_upstream/UPSTREAM_PIN.md`) exists to enable bit-exact reproducibility of Phase D Medium training. Forking it for E2.4-B breaks that pin. A wrapper subclass keeps the pin intact at the cost of a small amount of forward-path duplication. | Recommend: wrapper. Confirm with user only if they intend to land Option B. |
-| **Q11** | If Option C: which held-out activation set defines "the" quantization-error metric? Phase D bench-canonical EN-only? Phase E1 corpus 1000-batch bilingual sample? Both? | The metric is the ablation gate; choosing the eval set is choosing what "improvement" means. Bilingual sample is more honest for Phase E goals; EN-only is more comparable to literature (SmoothQuant, GPTQ, AWQ baselines). | Recommend: bilingual 1000-batch sample (matches Q5 val protocol). Confirm with user only if they pick Option C. |
+| ~~Q9~~ ✅ **CLOSED v1.1** | Which option (A / B / C) does the user pick for E2.4 scope? | Determines whether E2.4 is plumbing-only (A), full feature (B), or signal-redefined (C). | **Answer: Option C** (re-scoped to MSE quantization-error metric on bilingual eval set). User nod 2026-04-27. Calibration plumbing landed this session; metric + ablation deferred to E2.4.C.1+. |
+| ~~Q10~~ ✅ **N/A under Option C** | If Option B: does the user accept an external `IntLLMBitLinear` wrapper class (not a `_upstream/` fork), even if it duplicates ~30 LOC of forward logic? | Forking `_upstream/` breaks Phase D Medium training reproducibility. | **N/A under Option C** — no BitLinear modification needed; `_upstream/` pin preserved. Revisit if a future session upgrades from C → B. |
+| **Q11** | If Option C: which held-out activation set defines "the" quantization-error metric? Phase D bench-canonical EN-only? Phase E1 corpus 1000-batch bilingual sample? Both? | The metric is the ablation gate; choosing the eval set is choosing what "improvement" means. Bilingual sample is more honest for Phase E goals; EN-only is more comparable to literature (SmoothQuant, GPTQ, AWQ baselines). | **Deferred to E2.4.C.1** — first sub-task under Option C is to define the metric, which inherently picks the eval set. Preliminary recommendation per §4.3: Q5-style 1000-batch bilingual sample. |
 
 ---
 
@@ -171,11 +171,41 @@ No upstream fork; lower scope than Option B; provides paper-defensible adoption 
 - [x] §3 Q6 closure (BitLinearStatTracker is data-agnostic; bilingual_stream feeds it cleanly)
 - [x] §4 implementation plan for all three user options (A / B / C) with sub-task breakdowns
 - [x] §5 open questions that block E2.4.1 commit (Q9 mandatory; Q10/Q11 conditional)
-- [ ] User decision on Q9 (option A vs B vs C) — this is the v1.0 → v1.1 promotion gate
+- [x] **User decision on Q9: Option C** — re-scoped ablation gate to MSE quantization-error metric on bilingual eval set. Calibration plumbing (A.1+A.2+A.3+A.4) lands this session as the prerequisite for the C.1+C.2 metric work.
 
-**Estimated effort to v1.1 promotion:** ~30 min (capture user's option choice, fold Q10/Q11 closures if relevant) + 0 GPU.
+### 6.1 Q9 closure — Option C selected
 
-**No GPU is needed for v1.0** — this is plan + audit only. Sign-off below means the audit is complete; the option-selection question is for the user.
+**Decision (user nod 2026-04-27, commit landed alongside this v1.1 promotion):** Phase E E2.4 proceeds under **Option C** — sampler + calibration plumbing + MSE-error ablation gate. Rationale per §1: avoids forking the `_upstream/` pinned snapshot (preserves Phase D Medium training reproducibility), lower scope than Option B (~3 days vs ~5-7 days), provides a paper-defensible adoption signal that Option A alone lacks.
+
+Q10 (wrapper subclass for Option B) **does not apply** under Option C — no BitLinear modification needed. Recorded as "N/A under Option C" in §5; revisit if the project later upgrades from C → B.
+
+Q11 (held-out activation set for the MSE metric) is **deferred to E2.4.C.1** — first sub-task under Option C is to define the metric, which inherently picks the eval set. Preliminary recommendation per §4.3: Q5-style 1000-batch bilingual sample (matches Q5 val protocol and is more honest for Phase E goals).
+
+### 6.2 What landed this session
+
+Calibration plumbing shipped alongside this v1.1 promotion (single commit, this session):
+
+- **`intllm.qat.save_calibration_maps(trackers, out_path, ...)`** — atomic-write helper that runs `compute_bit_allocation` + `compute_channel_permutation` per tracker and dumps a single `.pt` artifact with one entry per BitLinear plus a `_meta` block. 5 new unit tests in `tests/test_qat.py` (all PASS, including atomic-write + zero-observations error path).
+
+- **`scripts/train_mini_ablation.py` `--balanced-calib` wired to real impl:**
+  - Stream selector: `bilingual_stream(id_share=BILINGUAL_RATIO_DEFAULT)` when flag set; `slimpajama_stream` otherwise (baseline path unchanged).
+  - `attach_stat_trackers(model)` called pre-loop when flag set.
+  - Post-loop: `save_calibration_maps` writes `paper/intllm/ablations/mini_<TAG>_maps.pt`; `detach_stat_trackers` cleans up.
+  - `features_active` now records `balanced_calib`; the [WARN] for unimplemented features is suppressed via the new `E2_REAL_FEATURES` set.
+  - JSON schema bumped to v1.1 with new `tracker_maps_path` field.
+
+- **Smoke test passed:** 200-step POL on RTX 4090, 44s wall, **37 BitLinear sites covered** (= 6 layers × 6 attention/MLP projections + 1 lm_head — matches Q1 closure prediction exactly). Map .pt artifact contains `running_max`, `bits`, `permutation`, `in_features` per layer; bits tensor shows the expected ~5% top-K at 10-bit (13/256 = 5.08% on a layer 0 attn.i_proj sample).
+
+Module-level test coverage post-session: `tests/test_qat.py` 15 tests / `tests/test_data.py` 14 tests = 29/29 PASS.
+
+### 6.3 Remaining E2.4 sub-tasks (deferred to next sessions)
+
+- **E2.4.C.1** define MSE quantization-error metric (paper-spec the eval set + the formula)
+- **E2.4.C.2** implement `compute_quant_error_per_channel(model, batches, bit_map)` in `intllm.eval`
+- **E2.4.C.3** Mini ablation: train w/ `--balanced-calib` 24K steps, run metric, gate on ≥10% MSE reduction on outlier channels
+- **E2.4.C.4** Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` documenting adoption call
+
+Estimated remaining effort: ~2 days human + ~1.5h GPU (Mini ablation matches Q5 wall ≈ 42 min; metric + decision-doc are CPU-bound). Not auto-started this session per "first step only" rule.
 
 ---
 
@@ -193,7 +223,9 @@ No upstream fork; lower scope than Option B; provides paper-defensible adoption 
 
 **Sign-off (v1.0):** Phase E2.4.0 pre-flight AUDIT complete. Surface area mapped (qat / quant / train / BitLinear / bilingual_stream); Q6 closed by inspection (sampler is data-agnostic; bilingual_stream feeds tracker cleanly); core scope-clarification surfaced — plan-v1.8 framing of "lowest risk + ≥+0.05 nat improvement" is internally inconsistent without an arch-level change at BitLinear.forward. **Status: v1.0 (audit + plan + scope question only) — promotion to v1.1 (E2.4.0 CLOSED) requires user decision on Q9 (option A / B / C). No code committed; no GPU run.**
 
-Next session natural first step: **escalate Q9 to user**; depending on choice, proceed to either E2.4.A.1 (Option A: ~3 days, calibration plumbing only), E2.4.B.1 (Option B: ~5-7 days, full A+B feature), or E2.4.C.1 (Option C: ~3 days, MSE-metric ablation gate).
+**Sign-off (v1.1, 2026-04-27):** Phase E2.4.0 pre-flight CLOSED. Q9 = Option C (re-scoped ablation gate to MSE quantization-error metric). Calibration plumbing shipped this session: `intllm.qat.save_calibration_maps` + `scripts/train_mini_ablation.py --balanced-calib` real impl + 5 unit tests + 200-step smoke (44s wall, 37 BitLinear sites covered, ~5% top-K at 10-bit verified). Total test coverage post-session: 29/29 PASS across `test_qat.py` + `test_data.py`. No upstream fork; `_upstream/` pin preserved per Q10 (which is N/A under C).
 
-*Document version: 1.0 (E2.4.0 first audit). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+Next session natural first step: E2.4.C.1 — define the MSE quantization-error metric (formula + eval set selection per Q11). Pure design work, no GPU. Then E2.4.C.2 implementation, smoke; then E2.4.C.3 Mini ablation (~1.5h GPU); then E2.4.C.4 decision doc.
+
+*Document version: 1.1 (E2.4.0 CLOSED, Option C selected). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *Phase E v1.8 Tier 1+2 scope. Predecessor: E2.0 fully closed 2026-04-27.*

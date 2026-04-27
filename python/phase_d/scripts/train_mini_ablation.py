@@ -89,6 +89,18 @@ ABLATIONS_DIR = REPO_ROOT / "paper" / "intllm" / "ablations"
 # Mini gate per FJQ_PHASE_D_GATE_CALIBRATION.md (calibrated 2026-04-21).
 MINI_VAL_LOSS_GATE = 4.5
 
+# E2.4 Option-C calibration: top-K outlier-channel %, low/high bit widths.
+# Defaults match `intllm.qat.QATConfig.adaptive_bits_*` so paper claims
+# can cite a single source. Override via CLI for sensitivity analysis.
+E2_4_DEFAULT_TOP_K_PCT = 5.0
+E2_4_DEFAULT_LOW_BITS = 8
+E2_4_DEFAULT_HIGH_BITS = 10
+
+# Set of feature flags that DO have a real implementation in this driver.
+# Stub-warning loop skips entries here; the corresponding feature_active
+# entry is set when real wire-up runs.
+E2_REAL_FEATURES = {"balanced_calib"}
+
 # E2.x feature flag → human-readable name mapping. The driver only
 # RECORDS these in JSON; feature implementation lands in intllm.* as
 # E2.x sub-tasks complete and replaces the corresponding stub block.
@@ -121,12 +133,15 @@ def _write_ablation_json(
     model_params: int,
     proof_of_life: bool,
     dry_run: bool,
+    tracker_maps_path: Path | None = None,
 ) -> None:
-    """Write the ablation result JSON. Schema v1.0 per docstring above."""
+    """Write the ablation result JSON. Schema v1.1 (E2.4.A.2:
+    `tracker_maps_path` field added — null if --balanced-calib not used).
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     val_skipped = proof_of_life or dry_run or math.isnan(val_loss)
     payload = {
-        "_schema_version": "1.0",
+        "_schema_version": "1.1",
         "tag": tag,
         "phase": "E2.x",
         "features_active": features_active,
@@ -142,6 +157,7 @@ def _write_ablation_json(
         "model_params": model_params,
         "proof_of_life": proof_of_life,
         "dry_run": dry_run,
+        "tracker_maps_path": str(tracker_maps_path) if tracker_maps_path else None,
         "timestamp": _now_iso(),
     }
     tmp = out_path.with_suffix(".json.tmp")
@@ -230,13 +246,16 @@ def main() -> int:
     if args.lang_cond is not None:
         features_requested.append(f"lang_cond_{args.lang_cond}")
 
-    # Currently NO feature has a real implementation in intllm.*; flags
-    # toggle a warning + record the request, but the underlying training
-    # is baseline behavior. As each E2.x sub-task ships, the relevant
-    # block in this driver is replaced with a real wire-up to
-    # intllm.{quant,qat,model} and the feature moves to features_active.
+    # As each E2.x sub-task ships, the relevant flag is added to
+    # E2_REAL_FEATURES so the warning is suppressed; the actual
+    # behavior is wired further down. Features still in stub-mode emit
+    # a [WARN] and proceed with baseline behavior so the harness keeps
+    # producing JSON for verify_paper_tables to consume.
     features_active: list[str] = []
     for feat in features_requested:
+        if feat in E2_REAL_FEATURES:
+            features_active.append(feat)
+            continue
         print(
             f"  [WARN] feature '{feat}' requested but NOT YET IMPLEMENTED — "
             f"falling through to baseline behavior. "
@@ -282,11 +301,18 @@ def main() -> int:
     # ── REAL TRAINING PATH (proof-of-life or full) ──
     import torch  # noqa: E402
     from configs.mini import MiniArchConfig, MiniTrainConfig  # noqa: E402
-    from intllm.data import slimpajama_stream  # noqa: E402
+    from intllm.data import bilingual_stream, slimpajama_stream  # noqa: E402
     from intllm.eval import run_held_out_loss  # noqa: E402
     from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
+    from intllm.qat import (  # noqa: E402
+        attach_stat_trackers,
+        detach_stat_trackers,
+        save_calibration_maps,
+    )
     from intllm.tokenizer import get_tokenizer  # noqa: E402
     from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402  # noqa: F401
+    sys.path.insert(0, str(REPO_ROOT / "python" / "phase_e"))
+    from intllm_en import BILINGUAL_RATIO_DEFAULT  # noqa: E402
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     arch = MiniArchConfig()
@@ -301,16 +327,31 @@ def main() -> int:
     print(f"      device: {device}")
     print(f"      tag: {args.tag}")
     print(f"      features_requested: {features_requested or '(baseline only)'}")
+    print(f"      features_active   : {features_active or '(baseline only)'}")
 
     print("[2/4] tokenizer + data stream")
     tok = get_tokenizer()
-    batches = slimpajama_stream(
-        tokenizer=tok,
-        seq_len=train_hp.seq_len,
-        batch_size=train_hp.batch_size,
-        device=device,
-        seed=0,
-    )
+    if args.balanced_calib:
+        # E2.4 Option C: bilingual training data; sampler IS the
+        # BilingualCalibrationSampler per E2.4.0 findings v1.1 §2.4.
+        print(f"      stream: bilingual (id_share={BILINGUAL_RATIO_DEFAULT:.2f})")
+        batches = bilingual_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            id_share=BILINGUAL_RATIO_DEFAULT,
+            device=device,
+            seed=0,
+        )
+    else:
+        print("      stream: slimpajama (EN-only, baseline)")
+        batches = slimpajama_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            device=device,
+            seed=0,
+        )
 
     print("[3/4] model")
     cfg = HGRNBitConfig(
@@ -322,6 +363,15 @@ def main() -> int:
     model = HGRNBitForCausalLM(cfg).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"      params: {n_params:,}")
+
+    # E2.4.A.1: attach BitLinearStatTracker forward hooks BEFORE
+    # training begins so every forward pass contributes to per-channel
+    # running_max accumulation. Only enabled when --balanced-calib is
+    # set; baseline path stays hook-free.
+    trackers: dict | None = None
+    if args.balanced_calib:
+        trackers = attach_stat_trackers(model)
+        print(f"      stat trackers attached to {len(trackers)} BitLinear sites")
 
     print(f"[4/4] training {train_hp.n_steps} steps (tag={args.tag})")
 
@@ -360,6 +410,33 @@ def main() -> int:
     print(f"  initial loss  : {result.initial_loss:.4f}")
     print(f"  final loss    : {result.final_loss:.4f}")
 
+    # E2.4.A.2: post-training, compute bit allocation + channel
+    # permutation per BitLinear and serialize to a single .pt artifact
+    # alongside the ablation JSON. Hook teardown happens after save so
+    # the trackers' running_max stays valid through the dump.
+    tracker_maps_path: Path | None = None
+    if trackers is not None:
+        # 1 ckpt per HGRN block has 6 BitLinears (4 attn + 2 MLP) per Q1
+        # closure in FJQ_PHASE_E_E2_FINDINGS.md §4 + 1 lm_head BitLinear,
+        # so for L=6 we expect 6×6 + 1 = 37. Print the layer count for
+        # smoke confirmation.
+        tracker_maps_path = ABLATIONS_DIR / f"mini_{args.tag}_maps.pt"
+        save_calibration_maps(
+            trackers,
+            tracker_maps_path,
+            top_k_pct=E2_4_DEFAULT_TOP_K_PCT,
+            low_bits=E2_4_DEFAULT_LOW_BITS,
+            high_bits=E2_4_DEFAULT_HIGH_BITS,
+            extra_meta={
+                "tag": args.tag,
+                "id_share": float(BILINGUAL_RATIO_DEFAULT),
+                "n_steps": int(result.steps),
+                "n_layers_arch": int(arch.num_hidden_layers),
+            },
+        )
+        print(f"  calibration maps : {tracker_maps_path}  ({len(trackers)} BitLinear sites)")
+        detach_stat_trackers(model)
+
     val_loss = float("nan")
     if not args.proof_of_life:
         print(f"\n  measuring val_loss over {args.val_steps} batches ...")
@@ -392,6 +469,7 @@ def main() -> int:
         model_params=n_params,
         proof_of_life=args.proof_of_life,
         dry_run=False,
+        tracker_maps_path=tracker_maps_path,
     )
     print(f"\n  ablation JSON : {out_path}")
 

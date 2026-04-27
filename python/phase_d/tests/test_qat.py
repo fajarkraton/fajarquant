@@ -16,6 +16,7 @@ from intllm.qat import (
     compute_bit_allocation,
     compute_channel_permutation,
     detach_stat_trackers,
+    save_calibration_maps,
 )
 from intllm.train import TrainConfig, train_loop
 
@@ -187,3 +188,113 @@ def test_qat_hooks_do_not_break_training_convergence() -> None:
         f"final={result.final_loss:.3f}"
     )
     detach_stat_trackers(model)
+
+
+# -----------------------------------------------------------------
+# E2.4.A.2 — save_calibration_maps
+# -----------------------------------------------------------------
+
+def test_save_calibration_maps_writes_well_formed_pt(tmp_path) -> None:
+    """Round-trip: build trackers, populate, save, reload, verify shape."""
+    # Two synthetic trackers — different in_features to exercise the
+    # heterogeneous-layer case (real models have varying widths too).
+    t1 = BitLinearStatTracker(in_features=8)
+    t1.running_max = torch.tensor([1.0, 5.0, 0.5, 3.0, 0.1, 4.0, 2.0, 0.8])
+    t1.n_calls = 100
+    t2 = BitLinearStatTracker(in_features=4)
+    t2.running_max = torch.tensor([2.0, 0.1, 1.5, 0.05])
+    t2.n_calls = 50
+
+    out_path = tmp_path / "test_maps.pt"
+    payload = save_calibration_maps(
+        {"layer_a": t1, "layer_b": t2},
+        out_path,
+        top_k_pct=25.0,  # 25% of 8 = 2 channels high; 25% of 4 = 1 channel high
+        low_bits=8, high_bits=10,
+    )
+
+    # In-memory return value matches what was written.
+    loaded = torch.load(out_path, weights_only=False)
+    assert set(loaded.keys()) == {"layer_a", "layer_b", "_meta"}
+    assert loaded["_meta"]["n_layers"] == 2
+    assert loaded["_meta"]["top_k_pct"] == 25.0
+    assert loaded["_meta"]["low_bits"] == 8
+    assert loaded["_meta"]["high_bits"] == 10
+
+    # layer_a: top 2 by running_max are channels 1 (=5.0) and 5 (=4.0) → 10-bit
+    bits_a = loaded["layer_a"]["bits"]
+    assert bits_a.dtype == torch.int32
+    assert bits_a.shape == (8,)
+    assert int(bits_a[1]) == 10 and int(bits_a[5]) == 10
+    # All others 8-bit
+    assert int(bits_a[0]) == 8 and int(bits_a[7]) == 8
+
+    # layer_a: permutation sorts indices by descending running_max
+    # → [1 (5.0), 5 (4.0), 3 (3.0), 6 (2.0), 0 (1.0), 7 (0.8), 2 (0.5), 4 (0.1)]
+    expected_perm_a = torch.tensor([1, 5, 3, 6, 0, 7, 2, 4])
+    assert torch.equal(loaded["layer_a"]["permutation"], expected_perm_a)
+
+    # n_calls preserved
+    assert loaded["layer_a"]["n_calls"] == 100
+    assert loaded["layer_b"]["n_calls"] == 50
+
+    # Return value structure matches loaded structure
+    assert payload["_meta"]["n_layers"] == 2
+
+
+def test_save_calibration_maps_extra_meta_merged(tmp_path) -> None:
+    """`extra_meta` keys land in the `_meta` block alongside defaults."""
+    t = BitLinearStatTracker(in_features=4)
+    t.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t.n_calls = 10
+
+    out_path = tmp_path / "maps_with_meta.pt"
+    save_calibration_maps(
+        {"layer": t}, out_path,
+        extra_meta={"tag": "balanced_calib", "id_share": 0.6, "n_steps": 24000},
+    )
+    loaded = torch.load(out_path, weights_only=False)
+    assert loaded["_meta"]["tag"] == "balanced_calib"
+    assert loaded["_meta"]["id_share"] == 0.6
+    assert loaded["_meta"]["n_steps"] == 24000
+    # Defaults still present
+    assert loaded["_meta"]["top_k_pct"] == 5.0
+    assert loaded["_meta"]["_schema_version"] == "1.0"
+
+
+def test_save_calibration_maps_empty_dict_raises(tmp_path) -> None:
+    """No trackers → ValueError before any disk write."""
+    with pytest.raises(ValueError, match="trackers dict is empty"):
+        save_calibration_maps({}, tmp_path / "empty.pt")
+    assert not (tmp_path / "empty.pt").exists()
+
+
+def test_save_calibration_maps_zero_observations_raises(tmp_path) -> None:
+    """Tracker with n_calls=0 → ValueError; partial save not committed."""
+    fresh = BitLinearStatTracker(in_features=4)  # n_calls = 0
+    populated = BitLinearStatTracker(in_features=4)
+    populated.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    populated.n_calls = 5
+
+    out_path = tmp_path / "partial.pt"
+    with pytest.raises(ValueError, match="0 observations"):
+        save_calibration_maps(
+            {"populated": populated, "fresh": fresh}, out_path,
+        )
+    # Atomic write: tmp file should not be left behind on failure path.
+    # (We raise before torch.save, so .pt and .pt.tmp both absent.)
+    assert not out_path.exists()
+    assert not out_path.with_suffix(".pt.tmp").exists()
+
+
+def test_save_calibration_maps_atomic_write(tmp_path) -> None:
+    """Successful save → final file exists, .tmp does not."""
+    t = BitLinearStatTracker(in_features=4)
+    t.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t.n_calls = 1
+
+    out_path = tmp_path / "atomic.pt"
+    save_calibration_maps({"l": t}, out_path)
+    assert out_path.exists()
+    # The .tmp must have been os.replace'd to the final name.
+    assert not out_path.with_suffix(".pt.tmp").exists()

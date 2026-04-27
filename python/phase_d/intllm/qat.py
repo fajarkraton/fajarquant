@@ -199,6 +199,89 @@ def compute_channel_permutation(tracker: BitLinearStatTracker) -> torch.Tensor:
     return torch.argsort(tracker.running_max, descending=True)
 
 
+# ---------------------------------------------------------------------------
+# §5. Calibration-map serialization (E2.4.A.2)
+# ---------------------------------------------------------------------------
+
+def save_calibration_maps(
+    trackers: dict[str, BitLinearStatTracker],
+    out_path: "str | __import__('pathlib').Path",
+    *,
+    top_k_pct: float = 5.0,
+    low_bits: int = 8,
+    high_bits: int = 10,
+    extra_meta: dict | None = None,
+) -> dict:
+    """Compute per-BitLinear bit allocation + channel permutation maps from
+    a dict of attached `BitLinearStatTracker`s, and atomically serialize
+    them via `torch.save` to `out_path`.
+
+    The resulting `.pt` file is the deliverable of E2.4 Option-A
+    calibration — one entry per BitLinear, each containing:
+
+      - `running_max`         (float32, shape `(in_features,)`)
+      - `n_calls`             (int)
+      - `bits`                (int32, shape `(in_features,)`) — output of
+                              `compute_bit_allocation` (top-K → high_bits,
+                              rest → low_bits)
+      - `permutation`         (int64, shape `(in_features,)`) — output of
+                              `compute_channel_permutation`
+
+    The dict structure is `{layer_name: {**maps_above}}` plus a
+    top-level `"_meta"` key containing `top_k_pct`, `low_bits`,
+    `high_bits`, `n_layers`, plus any keys from `extra_meta`. The map
+    file is consumed by E2.4.C.2 quantization-error metric and
+    (eventually) by an `IntLLMBitLinear` wrapper if Option B is later
+    adopted.
+
+    Atomic write via `os.replace` so a SIGKILL mid-save cannot leave a
+    partial map on disk (matches §6.11 R1 atomicity convention).
+    """
+    import os
+    from pathlib import Path
+
+    if not trackers:
+        raise ValueError("save_calibration_maps: trackers dict is empty")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload: dict = {}
+    for layer_name, tracker in trackers.items():
+        if tracker.n_calls == 0:
+            raise ValueError(
+                f"save_calibration_maps: tracker '{layer_name}' has 0 observations; "
+                f"run forward passes before saving"
+            )
+        bits = compute_bit_allocation(
+            tracker, top_k_pct=top_k_pct, low_bits=low_bits, high_bits=high_bits,
+        )
+        perm = compute_channel_permutation(tracker)
+        payload[layer_name] = {
+            "running_max": tracker.running_max.detach().clone(),
+            "n_calls": int(tracker.n_calls),
+            "bits": bits,
+            "permutation": perm,
+            "in_features": int(tracker.in_features),
+        }
+
+    meta: dict = {
+        "top_k_pct": float(top_k_pct),
+        "low_bits": int(low_bits),
+        "high_bits": int(high_bits),
+        "n_layers": len(trackers),
+        "_schema_version": "1.0",
+    }
+    if extra_meta:
+        meta.update(extra_meta)
+    payload["_meta"] = meta
+
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    torch.save(payload, tmp)
+    os.replace(tmp, out_path)
+    return payload
+
+
 __all__ = [
     "BitLinearStatTracker",
     "QATConfig",
@@ -206,4 +289,5 @@ __all__ = [
     "compute_bit_allocation",
     "compute_channel_permutation",
     "detach_stat_trackers",
+    "save_calibration_maps",
 ]
