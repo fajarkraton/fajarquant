@@ -1,0 +1,388 @@
+% ═══════════════════════════════════════════════════════════════════════
+% IntLLM Paper — MLSys 2027 / arXiv submission
+%
+% Per FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md v1.0 §3:
+%   10-page MLSys + 11-page arXiv submission
+%   Five contributions C1-C5
+%   Submission target: 2026-05-25
+%
+% Status (2026-04-27 — Path A Week 1, sub-step 2):
+%   §3 architecture     — DRAFTED THIS COMMIT
+%   §4 methodology      — STUB (next sub-step)
+%   §1 §2 §5-§10        — STUB (Week 1-3 calendar per outline §7)
+%
+% This file is the manuscript's LaTeX source. Tables are auto-generated
+% from JSON artifacts via `paper/intllm/tables/*.md` + verify_intllm_tables.py;
+% each numeric literal in this file MUST correspond to a registered Claim
+% per the §6.9 R7 audit gate.
+% ═══════════════════════════════════════════════════════════════════════
+
+\documentclass[10pt,twocolumn]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{makecell}
+\usepackage{multirow}
+\usepackage{balance}
+
+% ── Code listings (consistent with v3.1 paper) ──
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,frame=single}
+
+% ── Theorem environments (mostly unused; kept for parity with v3.1) ──
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+
+% ── Title ──
+\title{IntLLM: Compiler-Verified 1.58-Bit Ternary Language Models for\\
+       Operating-System Kernel Inference}
+\author{Muhamad Fajar Putranto\\TaxPrime / PrimeCore.id, Jakarta, Indonesia}
+\date{}
+
+\begin{document}
+\maketitle
+
+% ═══════════════════════════════════════════════════════════════════════
+% Abstract (STUB — drafted Week 3 per Path A outline §7)
+% ═══════════════════════════════════════════════════════════════════════
+
+\begin{abstract}
+\textit{[Abstract pending — drafted Week 3 of Path A calendar after the
+results sections (§5-§7) land. Will summarize the five contributions:
+(C1) Phase D scaling chain at training-time-quant validates
+Chinchilla-style behavior at 22M-74M parameter range; (C2) bilingual
+ID+EN extension via Phase E1 corpus v1.0 (25.67~B tokens at 60:40);
+(C3) in-kernel deployment via FajarOS Nova v3.9.0 IntLLM kernel-path;
+(C4) honest negative results on outlier-handling features
+(\texttt{balanced\_calib} and Hadamard rotation) at this regime, with
+3-cause attribution; (C5) compiler-verified safety via
+\texttt{@kernel}/\texttt{@device}/\texttt{@noinline} annotations.]}
+\end{abstract}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+\textit{[STUB — drafted Week 3 of Path A calendar. Motivates the
+kernel-resident LLM use case + explains why existing solutions
+(BitNet~2B4T, MMfreeLM at $\geq$370M, eBPF-AI userspace offload) do
+not meet the $\leq$16~MB binary + zero-heap +
+deterministic-execution constraints simultaneously. Sets up C1-C5
+contribution preview.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Background}
+\label{sec:background}
+
+\textit{[STUB — drafted Week 3 of Path A calendar. Covers BitNet
+\citep{wang2023bitnet}, BitNet~b1.58~2B4T \citep{ma2024era},
+MatMul-Free LLM \citep{zhu2024matmulfree}, and the
+kernel-context constraints (no heap allocation during inference,
+$\leq$16~MB total binary footprint, deterministic
+execution, Fajar Lang \texttt{@kernel} annotation system).]}
+
+% ═══════════════════════════════════════════════════════════════════════
+% §3 IntLLM Architecture — DRAFTED THIS COMMIT (Path A Week 1 sub-step 2)
+% ═══════════════════════════════════════════════════════════════════════
+\section{IntLLM Architecture}
+\label{sec:arch}
+
+IntLLM is a decoder-only language model family that extends the
+MatMul-Free LLM architecture \citep{zhu2024matmulfree} with full
+integer-native operation, kernel-context-friendly memory layout, and a
+calibrated ternary quantization pipeline that runs end-to-end inside
+the FajarOS Nova \texttt{@kernel} address space.
+
+\subsection{Model class hierarchy}
+\label{sec:arch-class}
+
+The training-time class hierarchy is
+\texttt{HGRNBitForCausalLM}~$\to$~\texttt{HGRNBitModel}~$\to$~\texttt{HGRNBitBlock},
+inherited verbatim from the upstream MatMul-Free LLM repository (frozen
+pin in \texttt{python/phase\_d/\_upstream/mmfreelm/}). IntLLM extends
+the upstream surface in three places without modifying upstream
+sources: (i)~a custom training driver
+\texttt{intllm.train.train\_loop} that adds calibrated gates per scale,
+checkpoint atomicity, and a step-idle watchdog (per the cross-repo
+production-safety rule of Section~\ref{sec:method-trackb}); (ii)~a
+quantization helper module \texttt{intllm.quant} adding RMSNorm
+variants, sigmoid/SiLU lookup tables, and the per-channel adaptive
+quantizer (Section~\ref{sec:arch-bitlinear}); and (iii)~an evaluation
+harness \texttt{intllm.eval} aligning measurements with
+\texttt{lm-evaluation-harness~v0.4.11} for baseline parity per the
+research-integrity rules of Section~\ref{sec:method-integrity}.
+
+\subsection{BitLinear forward path}
+\label{sec:arch-bitlinear}
+
+The fundamental quantized operator is
+\texttt{BitLinear}~\citep{wang2023bitnet,ma2024era}, a drop-in
+replacement for \texttt{nn.Linear} that quantizes both weights and
+activations during training. The forward path is
+
+\begin{equation}
+\label{eq:bitlinear}
+y = \text{F.linear}\bigl(\widehat{x}_{\text{quant}},\;\widehat{W}_{\text{quant}}\bigr),
+\end{equation}
+
+where the activation and weight quantizers, with straight-through
+estimator (STE) gradient passthrough, are
+
+\begin{align}
+x_{\text{norm}} &= \text{RMSNorm}(x), \\
+\widehat{x}_{\text{quant}} &= x_{\text{norm}} + \text{StopGrad}\bigl(q_a(x_{\text{norm}}) - x_{\text{norm}}\bigr), \\
+\widehat{W}_{\text{quant}} &= W + \text{StopGrad}\bigl(q_w(W) - W\bigr).
+\end{align}
+
+The activation quantizer $q_a$ is per-token absmax 8-bit:
+\begin{equation}
+\label{eq:actquant}
+q_a(x)_{t,c} = \frac{\bigl\lfloor x_{t,c}\cdot s_t \bigr\rceil_{[-128,127]}}{s_t},
+\quad
+s_t = \frac{127}{\max_{c'} |x_{t,c'}| + \epsilon},
+\end{equation}
+where $\lfloor\cdot\rceil_{[-128,127]}$ denotes round-then-clamp.
+The weight quantizer $q_w$ is per-tensor absmean ternary
+$\{-1, 0, +1\}$ per b1.58:
+\begin{equation}
+\label{eq:wquant}
+q_w(W)_{i,j} = \frac{\bigl\lfloor W_{i,j}\cdot s_w \bigr\rceil_{[-1,1]}}{s_w},
+\quad
+s_w = \frac{1}{\overline{|W|} + \epsilon},
+\end{equation}
+giving an effective $\log_2 3 \approx 1.58$ bits per weight after entropy
+coding. We use $\epsilon = 10^{-5}$ throughout, matching the upstream
+implementation.
+
+\subsection{Per-block layout}
+\label{sec:arch-block}
+
+Each \texttt{HGRNBitBlock} contains exactly six BitLinear instances:
+four in the attention sub-layer (\texttt{i\_proj}, \texttt{f\_proj},
+\texttt{g\_proj}, \texttt{o\_proj}) implementing the gated linear
+recurrence of MMfreeLM~\citep{zhu2024matmulfree}, and two in the
+feed-forward sub-layer (\texttt{mlp.gate\_proj},
+\texttt{mlp.down\_proj}). A top-level \texttt{lm\_head} BitLinear
+projects to the vocabulary, giving a per-model BitLinear count of
+$6L + 1$, where $L$ is the number of layers. For our Mini configuration
+($L = 6$), this is $37$ BitLinear sites; this count is recoverable as a
+runtime invariant via \texttt{intllm.qat.is\_bitlinear}-based traversal
+and is reported by every Phase~D ablation harness.
+
+The structural distinction between \texttt{i\_proj}/\texttt{f\_proj}/\texttt{g\_proj}
+and \texttt{o\_proj} is load-bearing for our negative-result analysis
+in Section~\ref{sec:negatives}: the first three implement gated linear
+recurrence projections (structurally distinct from the QKV projections
+of softmax attention) while \texttt{o\_proj} is the post-recurrence
+output projection. Outlier-handling rotations from the QuaRot family
+\citep{ashkboos2024quarot,liu2024spinquant} are canonically applied
+to QKV inputs in transformers; we test the closest analogue (\texttt{o\_proj}
+input rotation) at \mbox{Mini scale} and find it insufficient
+(Section~\ref{sec:negatives}).
+
+\subsection{Tokenizer and vocabulary}
+\label{sec:arch-tokenizer}
+
+We use the Mistral~v3 byte-pair encoding tokenizer with 32{,}768 token
+vocabulary, chosen because (i)~it has wide multilingual coverage at a
+size that fits the kernel-binary budget, (ii)~it is the same tokenizer
+used by \citet{zhu2024matmulfree} so cross-paper benchmarks are
+directly comparable, and (iii)~its training data spans Latin-script
+languages including Indonesian, supporting the bilingual extension of
+Section~\ref{sec:bilingual} without retraining the tokenizer.
+
+\subsection{Configuration matrix}
+\label{sec:arch-config}
+
+Three IntLLM scales validate the Phase~D scaling-chain
+contribution~(C1, Section~\ref{sec:results-scaling}). All three share
+the BitLinear forward path of Section~\ref{sec:arch-bitlinear} and the
+per-block layout of Section~\ref{sec:arch-block}; they differ only in
+hidden dimension and depth.
+
+\begin{table}[t]
+\centering
+\small
+\caption{IntLLM configuration matrix. Parameter counts include the
+ternary BitLinear weights, FP32 norms, and the embedding+lm\_head
+matrices at full precision in the trained checkpoint. The
+\texttt{.fjm}~v9 export format reduces the trained checkpoint to a
+ternary-packed kernel binary.}
+\label{tab:config}
+\begin{tabular}{lrrrr}
+\toprule
+Config  & $d$  & $L$ & Vocab  & Params \\
+\midrule
+Mini    & 256  & 6   & 32{,}768 & 21.9~M \\
+Base    & 384  & 12  & 32{,}768 & 46.4~M \\
+Medium  & 512  & 12  & 32{,}768 & 74.5~M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The hidden dimensions $\{256, 384, 512\}$ are deliberately chosen as
+powers-of-two-friendly values: $d = 2^k$ supports the Walsh-Hadamard
+rotation construction of Section~\ref{sec:negatives} without padding,
+$d \cdot 4 / 3$ MLP intermediate sizes pack cleanly into ternary kernel
+buffers, and the embedding tables fit in $\leq 2^{15}$ vocabulary
+without dynamic sizing.
+
+\subsection{Integer-native activation pipeline}
+\label{sec:arch-pipeline}
+
+Beyond BitLinear, three additional surface-area changes make the
+forward path integer-native end-to-end:
+
+\paragraph{$\gamma$-less RMSNorm.} The upstream MatMul-Free RMSNorm
+multiplies its normalized output by a learnable $\gamma$ tensor; we
+absorb this scale into the downstream BitLinear's effective $\beta$
+calibration constant during checkpoint export, eliminating a per-block
+FP multiplication from the kernel-resident forward path. No
+training-time loss-of-expressivity penalty was observed in the Phase~D
+scaling chain (Section~\ref{sec:results-scaling}).
+
+\paragraph{Sigmoid and SiLU lookup tables.} The HGRN gating activation
+$\sigma$ and the MLP gate activation SiLU are replaced at inference
+time by 257-entry linear-interpolation lookup tables defined over
+$x \in [-8, +8]$, with maximum absolute error $\leq 2 \cdot 10^{-3}$ and
+$\leq 1.6 \cdot 10^{-2}$ respectively. The training-time forward path
+uses standard PyTorch \texttt{torch.sigmoid} and
+\texttt{torch.nn.functional.silu} for gradient stability; the
+training-versus-inference equivalence is verified by an
+\texttt{fp16-vs-ternary parity gate} (deferred to Path~A Week~3
+calendar; Section~\ref{sec:method-trackb}).
+
+\paragraph{Activation quantization at module boundary.} The activation
+quantizer $q_a$ of Equation~\ref{eq:actquant} is applied at every
+BitLinear input, producing 8-bit integer activations that are
+multiplied by ternary weights and accumulated into 16-bit (training) or
+32-bit (inference) integers before dequantization. At no point in the
+forward path does the kernel-resident inference code path require a
+floating-point matmul, satisfying the kernel-context invariant of
+zero-FP-hot-path execution.
+
+\subsection{Comparison with prior architectures}
+\label{sec:arch-comparison}
+
+Table~\ref{tab:arch-comparison} positions IntLLM against the closest
+prior architectures along the axes that drive the kernel-deployment
+constraint (full citations in
+\texttt{docs/INTLLM\_RELATED\_WORK.md}~\textsection7).
+
+\begin{table}[t]
+\centering
+\small
+\caption{Architecture comparison on axes relevant to kernel-context
+deployment. ``$\checkmark$'' = present, ``$\circ$'' = partial,
+``$-$'' = absent. The integer-native column requires
+zero floating-point matmuls in the forward path.}
+\label{tab:arch-comparison}
+\begin{tabular}{l c c c c c}
+\toprule
+                  & Tern.\ wts & Int.\ acts & No softmax & No FP $\sigma$ & Kernel \\
+\midrule
+BitNet b1.58 2B4T &$\checkmark$&     $-$    &     $-$    &       $-$      &  $-$  \\
+MatMul-Free 2.7B  &$\checkmark$&     $-$    & $\checkmark$&      $-$      &  $-$  \\
+TerEffic FPGA     &$\checkmark$&  $\circ$   &     $-$    &       $-$      &  $-$  \\
+\textbf{IntLLM}   &$\checkmark$&$\checkmark$&$\checkmark$ &$\checkmark$ &$\checkmark$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The composition of the five $\checkmark$'s in IntLLM's row, rather than
+any single axis, is the architectural contribution. We do not claim
+that any axis is novel in isolation; we claim that the joint
+satisfaction of all five is what unlocks the kernel-resident deployment
+demonstrated in Section~\ref{sec:results-kernel}.
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Training Methodology and Track~B Interruption Safety}
+\label{sec:method}
+\label{sec:method-trackb}
+\label{sec:method-integrity}
+
+\textit{[STUB — drafted next sub-step (Path A Week 1 sub-step 3).
+Covers calibrated gates per scale (Mini~$<$~4.5, Base~$<$~4.2,
+Medium~$<$~4.0; calibrated against Phase~D Mini~v2 evidence per
+\texttt{FJQ\_PHASE\_D\_GATE\_CALIBRATION.md}); checkpoint atomicity
+(\texttt{.tmp}~+~\texttt{os.replace}); step-idle watchdog (1800~s);
+HF-streaming retry on transient network errors; bilingual stream
+60:40 ID:EN sampling; like-for-like 24K-step ablation budget per
+Q5~baseline; research-integrity rules adopted from CLAUDE.md
+\textsection6.9~R1-R7 (canonical-protocol benchmarks, literature
+review precedes algorithm design, baseline parity, calibrated-once
+decompositions, outlier-handling required, results section last,
+pre-publication audit gate).]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Phase~D Scaling-Chain Results (C1)}
+\label{sec:results-scaling}
+
+\textit{[STUB — drafted Week 2. Tables~1+2, Figure~1, narrative.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Bilingual Extension and Q5 Baseline (C2)}
+\label{sec:bilingual}
+
+\textit{[STUB — drafted Week 2. Phase~E1 corpus v1.0 description,
+Q5 measurement protocol, Table~5 partial, Figure~4.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Honest Negative Results on Outlier-Handling Features (C4)}
+\label{sec:negatives}
+
+\textit{[STUB — drafted Week 2. Lifts content from
+\texttt{FJQ\_PHASE\_E\_E2\_BILINGUAL\_CALIB\_DECISION.md} v1.0 and
+\texttt{FJQ\_PHASE\_E\_E2\_HADAMARD\_DECISION.md} v1.0, including the
+3-cause attributions and Phase F.5/F.6 future-work pointers. Tables~5
+full and~6, Figure~3.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{In-Kernel Deployment via FajarOS Nova (C3)}
+\label{sec:results-kernel}
+
+\textit{[STUB — drafted Week 3. FajarOS Nova v3.9.0 IntLLM kernel-path;
+Table~4 binary-size + tok/s + watts; Figure~2 binary budget breakdown;
+4-invariant regression gate \texttt{make test-intllm-kernel-path}.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Compiler-Verified Safety (C5)}
+\label{sec:safety}
+
+\textit{[STUB — drafted Week 3. \texttt{@kernel} / \texttt{@device} /
+\texttt{@noinline} annotations; type-system enforcement of the
+no-heap, no-tensor, no-raw-pointer invariants at the kernel-LLM
+deployment boundary; Table~7 compile-time error examples (KE001
+HeapAllocInKernel, KE002 TensorInKernel, etc.); Figure~5 compilation
+pipeline diagram with the @kernel analyzer pass.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Discussion and Future Work}
+\label{sec:discussion}
+
+\textit{[STUB — drafted Week 3. Phase F.5 PTQ-style post-training
+calibration; Phase F.6 post-hoc QuaRot on pre-trained checkpoint;
+Phase F.7-F.9 deferred E2.2-E2.5 sub-features; Phase~E3 bilingual
+scale-up to Base/Medium; Phase~F~Tier-3 tax-vertical; Phase~D Stretch
+training. Each Phase~F entry maps to a sub-task table in
+\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md} v1.3.]}
+
+% ═══════════════════════════════════════════════════════════════════════
+% Bibliography (BibTeX entries to be generated from
+% docs/INTLLM_RELATED_WORK.md §10 References + verified against arXiv
+% per CLAUDE §6.9 R7 audit gate at first-draft time)
+% ═══════════════════════════════════════════════════════════════════════
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
