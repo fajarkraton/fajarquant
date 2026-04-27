@@ -1275,12 +1275,280 @@ original ``ablate five features and combine the wins'' plan that the
 empirical evidence has refuted.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §8 In-Kernel Deployment via FajarOS Nova (C3) — DRAFTED THIS COMMIT
+% (Path A Week 3 sub-step 1)
+% ═══════════════════════════════════════════════════════════════════════
 \section{In-Kernel Deployment via FajarOS Nova (C3)}
 \label{sec:results-kernel}
 
-\textit{[STUB — drafted Week 3. FajarOS Nova v3.9.0 IntLLM kernel-path;
-Table~4 binary-size + tok/s + watts; Figure~2 binary budget breakdown;
-4-invariant regression gate \texttt{make test-intllm-kernel-path}.]}
+The architecture (Section~\ref{sec:arch}) and training methodology
+(Section~\ref{sec:method}) of IntLLM are designed so the trained
+checkpoint can run \emph{inside} the operating-system kernel address
+space — no userspace process, no syscall boundary during inference,
+no heap allocation. This section reports the deployment of the
+Phase~D Medium checkpoint as a kernel-resident inference path inside
+FajarOS Nova~v3.9.0 (release dated 2026-04-24, three-day-soak validated),
+including the 4-invariant regression gate that we run on every commit
+to verify the path's mechanical stability.
+
+\subsection{Kernel-path architecture}
+\label{sec:results-kernel-arch}
+
+The IntLLM kernel-path is implemented in three Fajar Lang
+modules, all marked \texttt{@kernel} and therefore subject to the
+compile-time safety constraints of Section~\ref{sec:safety}: no heap
+allocation (\texttt{KE001}), no Tensor type construction
+(\texttt{KE002}), and no calls to \texttt{@device}-marked functions
+(\texttt{KE003}). The three modules form a layered pipeline:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{\texttt{matmulfree.fj}} (kernel ops module). Implements
+the integer-only ternary BitLinear inner loop
+\texttt{km\_mf\_bitlinear\_packed}, the 257-entry sigmoid and SiLU
+LUTs, and the i64 fixed-point RMSNorm.
+All operations are integer arithmetic; no FP hot path, no
+heap allocation, deterministic execution.
+
+\item \textbf{\texttt{fjm\_v9.fj}} (model parser). Parses the v9 ternary
+checkpoint format (\texttt{.fjm v9}) produced by
+\texttt{intllm.export.export\_fjm\_v9} during Phase~D training-export.
+Includes the IEEE-754 f32 to i64$\times$1000 fixed-point decoder for
+the small number of FP-stored constants (RMSNorm $\beta$ scales, LUT
+endpoints) that the v9 format retains in non-ternary precision.
+
+\item \textbf{\texttt{tfm\_matmulfree.fj}} (forward orchestrator).
+Wires the \texttt{matmulfree} kernel ops into a transformer-shaped
+decode loop (\texttt{tfm\_mf\_generate}); embedding lookup, RoPE
+apply, attention block, FFN block, RMSNorm, output sampling.
+Invoked from the FajarOS Nova shell via \texttt{cmd\_ask}, which
+dispatches Phase~D models (v9 magic in the loaded checkpoint header)
+through this path while routing legacy v8~RWKV models through the
+older \texttt{tfm\_generate} path.
+\end{enumerate}
+
+The three modules together total $\sim$1{,}500 lines of Fajar Lang
+code; kernel-side, with no userspace dependencies, runtime image
+budget (Section~\ref{sec:results-kernel-budget}), and full Fajar Lang
+\texttt{@kernel}-context type checking (Section~\ref{sec:safety}).
+
+The full inference flow from user input to output token sequence is:
+
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+shell prompt: nova>
+  user types: model-load nvme 0
+    -> mdl_parse_header(disk_buf)
+       -> dispatches v9 (HGRNBit)
+       -> fjm_v9.fj reads weights into
+          @kernel-static buffer
+  user types: ask hello
+    -> shell cmd_ask routes to
+       tfm_mf_generate(prompt_tokens)
+       -> embedding -> 6 HGRN blocks ->
+          lm_head -> sample
+       -> emits tokens to serial console
+\end{lstlisting}
+
+This inference flow runs entirely in kernel-context: at no point does
+control transfer to userspace, no syscalls execute, no heap allocation
+occurs (the model weight buffer is statically allocated at boot per
+the kernel-context constraint).
+
+\subsection{4-invariant regression gate}
+\label{sec:results-kernel-gate}
+
+A Makefile target \texttt{make test-intllm-kernel-path} exercises the
+inference flow inside QEMU on every commit, gating mechanical
+stability of the path as an artifact of the build. The gate uses
+QEMU with the FajarOS Nova ISO booted from CD-ROM
+(\texttt{-boot order=d}) and an attached NVMe disk image carrying a
+tiny synthetic v9 model checkpoint, waits for the shell prompt, sends
+\texttt{model-load nvme 0} and \texttt{ask hello} commands via the
+serial console, captures the serial-console output to a log file, and
+checks four invariants:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{No fault markers.} The serial log contains neither
+\texttt{EXC:} (CPU exception) nor \texttt{PANIC:} (kernel panic)
+markers; the inference path completes without triggering the
+kernel's mechanical-stability fail-safes.
+
+\item \textbf{v9 header parsed.} The log contains
+\texttt{[OK] Model header loaded}, confirming
+\texttt{mdl\_parse\_header} accepted the v9 magic and dispatched the
+checkpoint to the \texttt{fjm\_v9.fj} parser branch.
+
+\item \textbf{\texttt{cmd\_ask} dispatched to
+\texttt{tfm\_mf\_generate}.} A serial-log marker emitted from inside
+\texttt{cmd\_ask}'s dispatch logic confirms the v9 routing decision
+took the IntLLM kernel-path rather than the legacy v8 RWKV path.
+
+\item \textbf{Shell recovered after \texttt{ask}.} The log contains a
+return to the \texttt{nova>} prompt after the inference completes,
+confirming the kernel state was not corrupted by the inference run
+and the shell remains responsive.
+\end{enumerate}
+
+The gate explicitly does NOT verify token-level coherence quality of
+the generated output: the synthetic test model used by the regression
+gate is a tiny path-verification fixture, not a quality-evaluation
+model. Generation-quality verification is the job of the offline
+Phase~D Mini/Base/Medium training results
+(Section~\ref{sec:results-scaling}); the kernel-path gate verifies
+\emph{the path itself works}, not \emph{the model is good}.
+
+\subsection{Binary footprint and budget}
+\label{sec:results-kernel-budget}
+
+Table~\ref{tab:kernel-binary} reports the static binary footprint of
+the FajarOS Nova~v3.9.0 build artifact set, against the
+$\leq 16$~MB total-budget constraint of contribution~C3.
+
+\begin{table}[t]
+\centering
+\small
+\caption{FajarOS Nova~v3.9.0 binary footprint. The \emph{kernel ELF} is
+the unstripped output of the Fajar Lang LLVM backend
+(\texttt{build/fajaros-llvm.elf}); the \emph{ISO} adds GRUB and
+boot-stage loaders for QEMU/UEFI booting. The \emph{model} column is
+the ternary checkpoint loaded at runtime via NVMe (not part of the
+kernel binary; loaded into a static @kernel buffer at
+\texttt{model-load} time). Total budget is kernel~+~model~$\leq 16$~MB
+per the kernel-context constraint of Section~\ref{sec:arch}.}
+\label{tab:kernel-binary}
+\begin{tabular}{lr}
+\toprule
+Component                              & Size \\
+\midrule
+FajarOS Nova v3.9.0 kernel ELF (unstripped)   & 1.66~MB \\
+\quad of which: \texttt{matmulfree.fj} kernel ops & $\sim$0.18~MB \\
+\quad of which: \texttt{fjm\_v9.fj} parser    & $\sim$0.04~MB \\
+\quad of which: \texttt{tfm\_matmulfree.fj} forward & $\sim$0.06~MB \\
+\quad of which: rest of FajarOS Nova kernel   & $\sim$1.38~MB \\
+ISO image (with GRUB + boot loaders)          & 13.82~MB \\
+\midrule
+Phase~D Medium ternary model (\texttt{.fjm v9}) & $\sim$14.7~MB$^*$ \\
+\bottomrule
+\end{tabular}
+\\[2pt]
+{\footnotesize $^*$~Estimated as $74.5$~M params $\times 1.58$~bits$/$8 = 14.71~MB
+ternary-packed weights, plus $\sim$0.4~MB of full-precision $\beta$
+scales and embedding/lm\_head matrices retained at higher precision in
+the v9 export format. Direct measurement of an exported Medium model
+file is deferred to the camera-ready version (Path A outline §5
+``MUST-HAVE before submission'' checklist).}
+\end{table}
+
+The kernel ELF at 1.66~MB plus the Phase~D Medium ternary model at
+$\sim$14.7~MB sums to $\sim$16.36~MB, slightly exceeding the
+$\leq 16$~MB design budget at the Medium scale. Two of three
+deployment paths satisfy the budget: (a)~the Mini-scale model
+($\sim$4.3~MB ternary) plus kernel ELF totals $\sim$6.0~MB, well
+under budget; (b)~the Base-scale model ($\sim$9.2~MB ternary) plus
+kernel ELF totals $\sim$10.9~MB. Medium-scale deployment requires
+either kernel-side stripping (currently disabled for debugging) or
+v9-format compression (not yet implemented); we report the unmodified
+Medium total honestly and treat the marginal overrun as a
+calibration target for v9-format follow-up work.
+
+Figure~\ref{fig:kernel-budget} (deferred to camera-ready) plots the
+budget breakdown stacked by component.
+
+\begin{figure}[t]
+\centering
+\textit{[Figure pending — drafted camera-ready. Stacked bar chart of
+the 16~MB budget: kernel ELF (1.66~MB), matmulfree.fj kernel ops
+($\sim$0.18~MB), fjm\_v9.fj parser ($\sim$0.04~MB), tfm\_matmulfree.fj
+forward ($\sim$0.06~MB), Mini/Base/Medium ternary weight totals
+($\sim$4.3 / $\sim$9.2 / $\sim$14.7~MB), free headroom. Source:
+\texttt{ls~-l build/fajaros-llvm.elf} + Fajar Lang object-file
+introspection per kernel module + ternary-pack arithmetic per
+\texttt{intllm.export.export\_fjm\_v9}.]}
+\caption{FajarOS Nova~v3.9.0 binary budget breakdown by component.
+Source: \texttt{build/} artifact inspection; per-module sizes from
+ELF section table.}
+\label{fig:kernel-budget}
+\end{figure}
+
+\subsection{Runtime metrics: tok/s and watts}
+\label{sec:results-kernel-runtime}
+
+Table~\ref{tab:kernel-runtime} reports the runtime metrics for the
+IntLLM kernel-path on FajarOS Nova~v3.9.0. Static binary measurements
+in Section~\ref{sec:results-kernel-budget} are direct artifact
+inspections; the runtime measurements below require fresh capture on
+the target hardware (RTX~4090~Laptop CPU host running QEMU; bare
+metal capture deferred to a Phase~F deployment-platform partner that
+the V31 cycle does not have access to).
+
+\begin{table}[t]
+\centering
+\small
+\caption{IntLLM kernel-path runtime metrics. Measurement scaffolding
+(\texttt{make test-intllm-kernel-path-runtime}) is shipped as part of
+the v3.9.0 release; the four cells below populate from the
+\texttt{build/test-intllm-kernel-path.log} per QEMU run, with watts
+captured by an external USB-C power monitor on bare-metal Radxa Q6A
+when that platform's deferred-from-V31 partner integration completes.
+\textbf{PEND} = pending measurement at camera-ready.}
+\label{tab:kernel-runtime}
+\begin{tabular}{lrr}
+\toprule
+Config & tok/s (QEMU) & power (W, bare metal) \\
+\midrule
+Mini   (22~M) & PEND & PEND \\
+Base   (46~M) & PEND & PEND \\
+Medium (74~M) & PEND & PEND \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 4-invariant kernel-path gate of
+Section~\ref{sec:results-kernel-gate} is sufficient for the
+\emph{path-verification} claim of contribution~C3 — the inference
+runs end-to-end inside @kernel context without violating the
+compile-time safety invariants of Section~\ref{sec:safety}. Runtime
+performance numbers are an additional axis on which we make no
+camera-ready claim until measurement is complete; the paper is
+explicit that C3's contribution is the \emph{architectural integration},
+not a benchmark beat against userspace inference engines like
+\texttt{llama.cpp} or \texttt{Bitnet.cpp}~\citep{xu2025bitnet} that
+operate in fundamentally different deployment regimes.
+
+\subsection{Honest scope of contribution C3}
+\label{sec:results-kernel-discuss}
+
+What the kernel-path establishes:
+
+\begin{enumerate}[leftmargin=*]
+\item Phase~D ternary checkpoints can be loaded and inferenced
+\emph{without leaving the operating-system kernel address space} on
+a real (FajarOS Nova) operating system.
+\item The four mechanical-stability invariants pass on every CI run,
+gating regressions to the inference path on every commit.
+\item The static binary footprint at the Mini and Base scales fits
+the $\leq 16$~MB design budget; Medium overruns marginally and
+identifies v9-format compression as a follow-up calibration target.
+\end{enumerate}
+
+What the kernel-path does NOT establish:
+
+\begin{enumerate}[leftmargin=*]
+\item Token-level coherence-quality verification — that is the job of
+Section~\ref{sec:results-scaling} and Section~\ref{sec:bilingual-q5},
+not the kernel-path gate.
+\item Bare-metal performance numbers (tok/s, watts) — pending
+measurement; deferred to a future deployment-platform partner.
+\item Production-grade hardening of the FajarOS Nova kernel itself —
+the kernel passes its own 35-test regression suite (per the FajarOS
+Nova v3.9.0 release notes) but is research-grade, not formally
+verified in the seL4~\citep{klein2009sel4} sense.
+\end{enumerate}
+
+This honest delimitation of C3 is consistent with the
+research-integrity rules R3 and R6 of
+Section~\ref{sec:method-integrity}: we report what we have measured
+mechanically, leave gaps explicit, and avoid implying claims for
+which we lack the measurement infrastructure.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{Compiler-Verified Safety (C5)}
