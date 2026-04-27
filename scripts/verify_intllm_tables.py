@@ -138,6 +138,56 @@ def fp16_parity_summary(model: str, key: str) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────
+# Path A Phase E paper loaders (added 2026-04-27)
+# ─────────────────────────────────────────────────────────────────
+#
+# These cover the tables introduced by the Path A re-scoped paper
+# (`paper/intllm/intllm.tex`) — Q5 bilingual baseline (§6 tab:q5-baseline),
+# E2.4 + E2.1 negative-result rows (§7 tab:negatives-summary), Phase E1
+# corpus composition (§6 tab:corpus-comp). Sourced from the ablation
+# JSONs in `paper/intllm/ablations/` rather than `paper/intllm/results/`,
+# so we add a parallel ABLATIONS_DIR-relative loader.
+
+ABLATIONS_DIR = REPO_ROOT / "paper" / "intllm" / "ablations"
+
+
+def load_ablation(rel_path: str) -> dict[str, Any]:
+    """Load a JSON artifact from paper/intllm/ablations/. Same error-path
+    contract as load_json (clear FileNotFoundError on missing file)."""
+    path = ABLATIONS_DIR / rel_path
+    if not path.exists():
+        raise FileNotFoundError(f"Missing ablations artifact: {path.relative_to(REPO_ROOT)}")
+    with path.open() as f:
+        return json.load(f)
+
+
+def q5_baseline(key: str) -> float:
+    """Load a value from the Q5 bilingual baseline JSON.
+    Keys: val_loss_id, val_loss_en, ratio, ppl_id, ppl_en,
+    training_seconds, final_loss, n_steps."""
+    data = load_ablation("q5_bilingual_baseline.json")
+    return float(data[key])
+
+
+def ablation_row(tag: str, key: str = "val_loss") -> float:
+    """Load a metric from a Mini-scale ablation row JSON.
+    `tag` is the train_mini_ablation.py --tag value (e.g. 'hadamard',
+    'balanced_calib'). Default key is val_loss; other useful keys:
+    final_loss, training_seconds, model_params."""
+    data = load_ablation(f"mini_{tag}.json")
+    return float(data[key])
+
+
+def quant_error_metric(tag: str, key: str = "outlier_global_reduction") -> float:
+    """Load a value from the E2.4.C metric JSON output.
+    Keys: outlier_global_reduction (the gate metric), global_mean_reduction,
+    gate_threshold, gate_pass (bool — caller responsible for float-coercion
+    if needed; here we expect float-valued keys only)."""
+    data = load_ablation(f"mini_{tag}_quant_error.json")
+    return float(data[key])
+
+
+# ─────────────────────────────────────────────────────────────────
 # Claim registry — one entry per numeric cell that appears in the
 # paper. Populated incrementally as Phase 4.2 fills the tables.
 #
@@ -342,6 +392,71 @@ CLAIMS: list[Claim] = [
     Claim("Table 2 Baseline: EleutherAI/pythia-160m mmlu (5-shot)",
           0.0, lambda: bench_baselines("EleutherAI__pythia-160m", "mmlu", "acc"),
           float("inf"), "Table 2 / Pythia-160m / mmlu_acc (placeholder)"),
+
+    # ─────────────────────────────────────────────────────────────────
+    # Path A Phase E paper claims (added 2026-04-27 — paper/intllm/intllm.tex)
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── §6 Table tab:q5-baseline (Q5 bilingual baseline) ──
+    Claim("Q5 baseline: val_loss(ID, seed=999, 50 batches)",
+          paper_value=2.679,
+          source_loader=lambda: q5_baseline("val_loss_id"),
+          tolerance=0.001,
+          paper_ref="§6 Table tab:q5-baseline / val_loss(ID)"),
+    Claim("Q5 baseline: val_loss(EN, seed=998, 50 batches)",
+          paper_value=4.732,
+          source_loader=lambda: q5_baseline("val_loss_en"),
+          tolerance=0.001,
+          paper_ref="§6 Table tab:q5-baseline / val_loss(EN)"),
+    Claim("Q5 baseline: cross-lingual coherence ratio",
+          paper_value=1.77,
+          source_loader=lambda: q5_baseline("ratio"),
+          tolerance=0.01,
+          paper_ref="§6 Table tab:q5-baseline / rho"),
+    Claim("Q5 baseline: PPL(ID)",
+          paper_value=14.6,
+          source_loader=lambda: q5_baseline("ppl_id"),
+          tolerance=0.05,
+          paper_ref="§6 Table tab:q5-baseline / PPL(ID)"),
+    Claim("Q5 baseline: PPL(EN)",
+          paper_value=113.5,
+          source_loader=lambda: q5_baseline("ppl_en"),
+          tolerance=0.05,
+          paper_ref="§6 Table tab:q5-baseline / PPL(EN)"),
+
+    # ── §7 Table tab:negatives-summary (E2.4 balanced_calib + E2.1 Hadamard) ──
+    Claim("Negatives: balanced_calib val_loss(EN)",
+          paper_value=4.834,
+          source_loader=lambda: ablation_row("balanced_calib", "val_loss"),
+          tolerance=0.001,
+          paper_ref="§7 Table tab:negatives-summary / balanced_calib val_loss(EN)"),
+    Claim("Negatives: balanced_calib outlier_global_reduction (E2.4 gate)",
+          paper_value=-82.13,
+          source_loader=lambda: quant_error_metric("balanced_calib", "outlier_global_reduction"),
+          tolerance=0.05,
+          paper_ref="§7 Table tab:negatives-summary / balanced_calib gate value"),
+    Claim("Negatives: balanced_calib global_mean_reduction (diagnostic)",
+          paper_value=-148.27,
+          source_loader=lambda: quant_error_metric("balanced_calib", "global_mean_reduction"),
+          tolerance=0.05,
+          paper_ref="§7 §7.2 / balanced_calib global_mean_reduction"),
+    Claim("Negatives: hadamard val_loss(EN)",
+          paper_value=4.852,
+          source_loader=lambda: ablation_row("hadamard", "val_loss"),
+          tolerance=0.001,
+          paper_ref="§7 Table tab:negatives-summary / Hadamard val_loss(EN)"),
+
+    # Wall-clock training time claims (validate the §4 + §6 + §7 numbers)
+    Claim("Q5 baseline: training wall-clock (seconds; matches §6 42.0 min)",
+          paper_value=2519.17,
+          source_loader=lambda: q5_baseline("training_seconds"),
+          tolerance=10.0,  # ±10s for system-load jitter
+          paper_ref="§6 Table tab:q5-baseline / training wall-clock"),
+    Claim("Negatives: hadamard training wall-clock (seconds; matches §7 61.8 min)",
+          paper_value=3706.50,
+          source_loader=lambda: ablation_row("hadamard", "training_seconds"),
+          tolerance=10.0,
+          paper_ref="§7.3 / Hadamard training_seconds"),
 ]
 
 
