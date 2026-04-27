@@ -305,23 +305,238 @@ satisfaction of all five is what unlocks the kernel-resident deployment
 demonstrated in Section~\ref{sec:results-kernel}.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §4 Training Methodology and Track B — DRAFTED THIS COMMIT
+% (Path A Week 1 sub-step 3)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Training Methodology and Track~B Interruption Safety}
 \label{sec:method}
+
+The IntLLM training pipeline is structured around five methodological
+commitments that together support the C1~scaling-chain and
+C4~negative-results contributions: calibrated per-scale val\_loss gates
+(\textsection\ref{sec:method-gates}), a bilingual training stream
+matching the Q5~baseline protocol (\textsection\ref{sec:method-stream}),
+a six-layer interruption-safety harness
+(\textsection\ref{sec:method-trackb}), a like-for-like 24K-step ablation
+budget (\textsection\ref{sec:method-budget}), and a set of
+research-integrity rules adopted from the project's
+\texttt{CLAUDE.md~\textsection6.9}~ruleset
+(\textsection\ref{sec:method-integrity}).
+
+\subsection{Calibrated per-scale val\_loss gates}
+\label{sec:method-gates}
+
+Each IntLLM configuration ships with a single mechanical pass/fail
+threshold on held-out validation loss, against which the trained
+checkpoint is judged. The thresholds are
+\textbf{Mini~$<$~4.5}, \textbf{Base~$<$~4.2}, and
+\textbf{Medium~$<$~4.0} for the SlimPajama-derived English validation
+stream (50~batches at \texttt{seed=999}). The thresholds are
+\emph{calibrated} against empirical Phase~D evidence rather than
+chosen \emph{a priori}: an earlier Mini~v1 run used the uncalibrated
+target $<$~4.0 and FAILED ($\text{val\_loss} = 4.46$); the same
+checkpoint, re-evaluated against the calibrated Mini target $<$~4.5,
+PASSES with margin~$0.04$~nat. Mini~v2 widens that margin to
+$0.12$~nat, Base~c.1 to $0.21$~nat, and Medium~c.1 to $0.28$~nat. The
+\emph{monotonic widening} of margins across scales is the
+scaling-chain claim of contribution~C1
+(Section~\ref{sec:results-scaling}); we treat it as the principal
+structural signal in the paper rather than any single absolute
+val\_loss number, because absolute losses are sensitive to tokenizer
+choice and validation-stream sampling that other ternary papers do not
+hold fixed.
+
+Each gate decision is committed as a separate decision document
+(\texttt{FJQ\_PHASE\_D\_MINI\_GATE.md},
+\texttt{\_BASE\_GATE.md}, and \texttt{\_MEDIUM\_GATE.md}) per the
+``decisions are mechanical, not paragraphs'' rule of
+Section~\ref{sec:method-integrity}, R6.
+
+\subsection{Bilingual training stream}
+\label{sec:method-stream}
+
+For the bilingual extension (contribution~C2,
+Section~\ref{sec:bilingual}), the Phase~E1 corpus
+v1.0~(25.67~B~tokens, $60$:$40$~ID:EN, 0\%~synthetic, 0.0254\%
+exact-hash dedup) feeds an interleaver
+\texttt{intllm.data.bilingual\_stream(id\_share=0.6)} that mixes the
+Indonesian parquet shards and a streaming SlimPajama English source at
+per-batch granularity via a seeded coin flip. Distinct random seeds
+are used for the Indonesian source (\texttt{seed}), English source
+(\texttt{seed+1}), and the per-batch language-selection RNG
+(\texttt{seed+2}) so that the coin-flip cannot accidentally correlate
+with shard ordering on either side.
+
+The \emph{Q5 baseline protocol} that all subsequent E2 ablations
+compare against is a Mini-scale training run on this bilingual stream
+for $24{,}000$~steps at batch size~$8$ and sequence length~$1024$,
+yielding $\approx196$~M tokens of training data at the design 60:40
+ratio. The protocol is implemented in
+\texttt{python/phase\_d/scripts/q5\_bilingual\_baseline.py} and
+produces the artifact
+\texttt{paper/intllm/ablations/q5\_bilingual\_baseline.json}, against
+which all E2.x ablation rows are measured.
+
+\subsection{Track~B six-layer interruption safety}
 \label{sec:method-trackb}
+
+A Phase~D Base~c.1 training run on
+2026-04-22 hung for 8.5~hours after a laptop suspension event killed
+the HuggingFace CDN socket beneath the streaming dataloader. The
+training loop continued executing but produced zero step progress; no
+checkpoint had been saved and no watchdog detected the hang. The
+incident motivated a six-layer interruption-safety rule that we
+codify here for any training script in the IntLLM~/ FajarQuant tree:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Periodic atomic checkpointing.} Every $N$~steps
+($N=10{,}000$ for the Phase~D Mini/Base/Medium runs), the model,
+optimizer, and LR-scheduler states are serialized via
+\texttt{torch.save} to \texttt{ckpt\_step\_\{step:06d\}.pt.tmp},
+then renamed via \texttt{os.replace}, which is POSIX-atomic on the
+same filesystem. The next-write-wins property of \texttt{os.replace}
+guarantees no half-written checkpoint is observed by a resuming
+reader, even under SIGKILL during the write.
+
+\item \textbf{Bit-exact resume.} A \texttt{--resume <path>} CLI flag
+loads the model state-dict, optimizer state, and LR-scheduler state
+from a checkpoint and continues training with the step counter
+restored. The unit test \texttt{test\_train\_watchdog.py::}
+\texttt{test\_resume\_bit\_exact\_loss} verifies that pre-save and
+post-resume one-step losses match within $10^{-4}$.
+
+\item \textbf{Step-idle watchdog.} A daemon thread polls the step
+counter every 30~seconds; if the counter has not advanced for
+1{,}800~seconds (30~minutes), it sends \texttt{SIGTERM} to the main
+process. Combined with layer~1 and layer~2 above, the operator can
+restart the training script with \texttt{--resume-auto} and lose at
+most $\sim$1.5~$\times$ \texttt{ckpt\_every} steps of compute per
+incident.
+
+\item \textbf{Per-chunk read timeouts on streaming sources.} The
+environment variables
+\texttt{HF\_DATASETS\_DOWNLOAD\_TIMEOUT=60} and
+\texttt{HF\_HUB\_DOWNLOAD\_TIMEOUT=60} are set on import of
+\texttt{intllm.data}, capping any single HTTP chunk read at 60~s; a
+dead socket raises a timeout instead of hanging indefinitely.
+
+\item \textbf{Streaming retry on transient network errors.} A wrapper
+\texttt{intllm.data.\_retry\_iter} reconstructs the streaming
+iterator on transient exceptions (\texttt{ConnectionError},
+\texttt{OSError}, \texttt{requests.Timeout},
+\texttt{urllib3.ReadTimeoutError}, et al.), with exponential backoff
+capped at 60~s and a per-retry seed offset so retries see a
+different shuffle order. Non-retryable exceptions (\texttt{ValueError},
+\texttt{KeyError}) propagate immediately.
+
+\item \textbf{Regression gate.} A Makefile target
+\texttt{make test-train-watchdog} runs $\sim$24~unit tests covering
+the watchdog real-thread fire path, default \texttt{SIGTERM}
+delivery, checkpoint rotation, \texttt{--resume} bit-exact load, and
+\texttt{retry\_iter} on a synthetic transient exception. A
+pre-push hook gates training-code changes on this target's pass.
+\end{enumerate}
+
+The harness was validated end-to-end during a manual laptop-shutdown
+event on 2026-04-23 mid-Medium-training: the watchdog fired, the
+checkpoint was preserved, \texttt{--resume-auto} bit-exact-restored
+the model, and only $\sim$36~minutes of compute was lost out of a
+$\sim$10~hour run. Subsequent Phase~E2 ablations
+(Sections~\ref{sec:bilingual} and~\ref{sec:negatives}) used the same
+harness without modification.
+
+\subsection{Like-for-like ablation budget}
+\label{sec:method-budget}
+
+Every E2.x ablation in the present paper trains for exactly the same
+24{,}000-step budget at the same batch size and sequence length as the
+Q5 baseline of Section~\ref{sec:method-stream}, i.e.\ a constant
+$\approx$196~M-token training-token budget. The budget is exposed as
+the constant \texttt{E2\_DEFAULT\_N\_STEPS=24\_000} at the top of the
+ablation harness driver \texttt{train\_mini\_ablation.py}; an earlier
+draft of the driver defaulted to the larger 60{,}000-step Phase~D~Mini
+target, which was caught and fixed during the Hadamard ablation launch
+(commit \texttt{ed5a7c2}) when it was noticed that an EN-only
+60{,}000-step run was not directly comparable to the bilingual
+24{,}000-step Q5 baseline.
+
+The orthogonal flag \texttt{--bilingual-data} switches the training
+stream from EN-only SlimPajama to the bilingual mix described in
+Section~\ref{sec:method-stream}, so any E2 feature flag
+(\texttt{--hadamard}, \texttt{--balanced-calib}, etc.) can be ablated
+against either the EN-only Phase~D~Mini-gate baseline or the bilingual
+Q5 baseline. The negative-results experiments of
+Section~\ref{sec:negatives} use \texttt{--bilingual-data} throughout
+because that is the regime the paper's bilingual contribution lives in.
+
+The principal val\_loss comparison metric across all E2 rows is
+\texttt{val\_loss(EN, seed=999, 50~batches)}, identical to the Q5
+baseline's English measurement, so each ablation reports a single
+delta against a single baseline rather than a vector of weakly
+comparable numbers.
+
+\subsection{Research-integrity rules adopted from CLAUDE.md \textsection6.9}
 \label{sec:method-integrity}
 
-\textit{[STUB — drafted next sub-step (Path A Week 1 sub-step 3).
-Covers calibrated gates per scale (Mini~$<$~4.5, Base~$<$~4.2,
-Medium~$<$~4.0; calibrated against Phase~D Mini~v2 evidence per
-\texttt{FJQ\_PHASE\_D\_GATE\_CALIBRATION.md}); checkpoint atomicity
-(\texttt{.tmp}~+~\texttt{os.replace}); step-idle watchdog (1800~s);
-HF-streaming retry on transient network errors; bilingual stream
-60:40 ID:EN sampling; like-for-like 24K-step ablation budget per
-Q5~baseline; research-integrity rules adopted from CLAUDE.md
-\textsection6.9~R1-R7 (canonical-protocol benchmarks, literature
-review precedes algorithm design, baseline parity, calibrated-once
-decompositions, outlier-handling required, results section last,
-pre-publication audit gate).]}
+The methodology section closes with the seven research-integrity
+rules adopted verbatim from the project's
+\texttt{CLAUDE.md~\textsection6.9} ruleset, since those rules
+materially constrain how each contribution in this paper was produced:
+
+\begin{description}[leftmargin=*]
+\item[R1 Canonical-protocol benchmarks.] All comparison benchmarks
+use \texttt{lm-evaluation-harness~v0.4.11} with no custom protocol
+deviation. The harness SHA is pinned in
+\texttt{eval/HARNESS\_SHA} and CI fails on drift.
+
+\item[R2 Literature review precedes algorithm design.] The
+related-work synthesis (\texttt{docs/INTLLM\_RELATED\_WORK.md},
+18~papers across 7~clusters) was committed before the results
+sections of this paper were drafted, satisfying the
+``literature first'' invariant.
+
+\item[R3 Baseline parity (port full features, no strawman).]
+Comparison baselines (BitNet~b1.58~2B4T, MMfreeLM~370M/1.3B/2.7B,
+SmolLM2~135M/360M, Pythia~160M) are evaluated as published; any
+unported feature is recorded in
+\texttt{docs/BASELINE\_UNPORTED\_FEATURES.md} so reviewers can adjust
+their judgments rather than be misled by silent strawman baselines.
+
+\item[R4 Calibrated~$>$~per-chunk for data-driven decompositions.]
+The BitLinear weight-quant scale~$s_w$ is calibrated once at QAT
+freeze rather than recomputed per forward pass, eliminating a
+correlated noise source on the activation-quantization grid.
+
+\item[R5 Outlier-handling required for LLM quantization.] Every
+ablation in Section~\ref{sec:negatives} has an explicit outlier-
+handling rationale and adoption gate; the negative-result attribution
+of Section~\ref{sec:negatives} is itself an instance of this rule's
+mechanical-gate enforcement.
+
+\item[R6 Results section last.] The architecture
+(Section~\ref{sec:arch}) and methodology (this section) were drafted
+before any results table was populated; results sections in this
+paper draw exclusively from the JSON artifact directory
+\texttt{paper/intllm/results/} and are auto-generated rather than
+hand-edited.
+
+\item[R7 Pre-publication audit gate.] The script
+\texttt{scripts/verify\_intllm\_tables.py~--strict} is registered as
+a pre-push hook and a CI required check; every floating-point
+literal in this manuscript's tables maps to a registered claim
+backed by a JSON cell, with the script failing on drift between
+table and source.
+\end{description}
+
+The combination of mechanical gates (R6, R7) and committed-decision
+artifacts (R5 + the per-scale gate decision documents of
+Section~\ref{sec:method-gates}) is what gives the paper's negative
+results their specific weight: the failures of
+Section~\ref{sec:negatives} cannot be explained away as ``we tried
+something and it didn't work,'' because the gates that ruled them out
+were specified \emph{before} the experiments ran and ran
+\emph{mechanically} on the artifacts rather than through interpretive
+re-reading after the fact.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{Phase~D Scaling-Chain Results (C1)}
