@@ -113,6 +113,40 @@ on, extended from, or diverges from.
 
 ---
 
+## 1.6 Post-hoc activation-outlier handling (Phase E2 negative-result framing)
+
+**Added 2026-04-27 (Path A v1.0):** these five papers form the literature precedent for Phase E2 ablations (E2.4 `balanced_calib` + E2.1 `hadamard`) that BOTH FAILED at Mini scale + training-from-scratch + bilingual data. They are cited in paper §7 to support the C4 contribution (honest negative results) — specifically, the 3-cause attribution that "QuaRot/SmoothQuant-style features ported from POST-HOC quantization literature fail in training-from-scratch + small-scale regime."
+
+### SmoothQuant (Xiao et al., 2022)
+- **arXiv:** 2211.10438 (Nov 2022, MIT + NVIDIA)
+- **Core contribution:** post-training W8A8 quantization for transformers via mathematical-equivalent migration of activation outlier difficulty into the weight matrix. Calibrates per-channel scaling factors on a held-out batch from the pre-trained model.
+- **How IntLLM relates (negative-result framing).** Phase E2.4 attempted to port the per-channel calibration idea to TRAINING-from-scratch via `BitLinearStatTracker` accumulating running-max during training. Result: catastrophic FAIL (`outlier_global_reduction = −82.13`, 83× WORSE than upstream baseline). Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0 attributes failure to (1) all-time-max accumulator captures early-training peaks; (2) RMSNorm-bounded BitLinear inputs benefit from per-token-adaptive baseline scale calibration cannot match; (3) outlier-bit allocation lever ineffective when calibrated scale is fundamentally too coarse.
+- **Future-work pointer:** Phase F.5 plans to test the canonical SmoothQuant pattern (held-out post-training calibration on Q5-trained Mini checkpoint) to confirm whether the negative result is training-from-scratch-specific or HGRN-architecture-specific.
+
+### GPTQ (Frantar et al., 2022)
+- **arXiv:** 2210.17323 (Oct 2022, IST Austria + ETH Zurich)
+- **Core contribution:** post-training weight quantization via approximate second-order information (Hessian-based update rule) layer-by-layer. Achieves 3-4 bit weights with minimal PPL degradation on OPT and BLOOM at ≥6.7B scale.
+- **Role.** Cited as a representative post-hoc weight-quantization baseline that IntLLM does NOT compete with directly: GPTQ requires a pre-trained FP16 model to quantize, whereas IntLLM trains ternary from scratch. The "compress a pre-trained large model" paradigm and "train ternary from scratch at small scale" paradigm are complementary, not competing.
+
+### AWQ (Lin et al., 2023)
+- **arXiv:** 2306.00978 (Jun 2023, MIT + Tsinghua)
+- **Core contribution:** per-channel weight scaling derived from activation distributions (rather than weight distributions alone), preserving the ~1% most-salient weight channels at higher precision. 4-bit weight quantization with strong perplexity preservation on Llama-7B/13B.
+- **How IntLLM relates.** Cited alongside SmoothQuant + GPTQ as the family of post-hoc quantization techniques that informed Phase E2.4's `balanced_calib` design (`compute_bit_allocation` with `top_k_pct=5` channels promoted from 8-bit to 10-bit). AWQ + GPTQ both note their methods only work with correctly calibrated scales — our negative result is consistent with this dependency: training-from-scratch all-time-max calibration is incorrect, so bit-allocation alone cannot compensate.
+
+### QuaRot (Ashkboos et al., 2024)
+- **arXiv:** 2404.00456 (Mar 2024, ETH Zurich + ISTA + Microsoft Research)
+- **Core contribution:** rotates LLM weights and activations by random Hadamard matrices to spread outlier energy uniformly across channels, enabling 4-bit weight + 4-bit activation post-hoc quantization with minimal degradation on Llama-2 7B/13B/70B.
+- **How IntLLM relates (negative-result framing).** Phase E2.1 ported the QuaRot Hadamard idea to TRAINING-from-scratch by inserting a fixed Walsh-Hadamard rotation pre-hook on `block.attn.o_proj` inputs. Result: regression of +0.12 nat val_loss (Q5 baseline 4.732 → Hadamard 4.852); gate ≥+0.05 nat improvement FAIL. Decision doc `FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0 attributes the failure to (1) training-from-scratch loses Hadamard's primary benefit (literature applies POST-hoc); (2) HGRN attention output may not have transformer-style outlier concentration; (3) rotating only `o_proj` (per Q1 closure conservatism) may have been overly restrictive vs full QuaRot recipe.
+- **Future-work pointer:** Phase F.6 plans the canonical QuaRot recipe (load Q5-trained Mini checkpoint, fuse Hadamard into adjacent weights via algebraic identity, re-evaluate without re-training).
+
+### SpinQuant (Liu et al., 2024)
+- **arXiv:** 2405.16406 (May 2024, Meta AI + UC San Diego)
+- **Core contribution:** extends QuaRot with LEARNED orthogonal rotations rather than fixed Hadamard; reports the rotation benefit grows with model size. Provides ablations across Llama-2 sizes.
+- **How IntLLM relates.** Cited alongside QuaRot in Phase E2.1 negative-result framing. SpinQuant's "benefit grows with size" finding is cited in our 3-cause attribution as evidence that Mini-scale (22M) is below the threshold where rotation-based outlier handling pays off; Phase F.6.4 explicitly tests Hadamard at Base/Medium scale.
+- **Differentiation.** SpinQuant requires gradient-based rotation training; IntLLM Phase E2.1 used FIXED Walsh-Hadamard for simplicity. Even the simpler fixed version regressed val_loss; pursuing learnable rotations at Mini scale is Phase F future-work.
+
+---
+
 ## 2. Softmax-free / position-free attention replacement
 
 ### MatMul-Free MLGRU (Zhu et al., 2024) — our primary
@@ -229,6 +263,18 @@ See §1 entry. MLGRU eliminates softmax + self-attention entirely. Phase D
 
 ---
 
+## 4.4 Multilingual / bilingual quantization (Phase E1+Q5 context)
+
+**Added 2026-04-27 (Path A v1.0):** this cluster is intentionally narrow because the bilingual ternary niche is largely unaddressed in literature.
+
+### Calibrating Beyond English (Authors et al., 2026)
+- **arXiv:** 2601.18306
+- **Core contribution.** Demonstrates that quantization disproportionately degrades performance on non-English languages in multilingual LLMs; argues for language-aware calibration data balance.
+- **How IntLLM relates.** Original motivation for Phase E2.4 `balanced_calib` (now CLOSED with FAIL per Path A). Paper §7 negative-result discussion cites this work as evidence that the multilingual quantization problem IS real, but our specific solution (per-channel calibrated scales from running-max accumulator during training-from-scratch) is NOT the right fix; Phase F.5 future-work tests the canonical post-hoc held-out calibration pattern.
+- **Differentiation.** This paper's setting is post-hoc multilingual quantization of pre-trained large models. IntLLM's Q5 baseline shows that training a ternary model from scratch on bilingual data produces a coherence ratio of 1.77× (val_loss(EN)/val_loss(ID)) — a SEPARATE phenomenon from "post-hoc quantization disproportionately hurts non-English" because there is no pre-training stage where the asymmetry could compound.
+
+---
+
 ## 5. Kernel-integrated ML deployment (OS side)
 
 ### seL4 (Klein et al., 2009)
@@ -300,6 +346,17 @@ BitNet 2B4T and RWKV-7, and we lack a formal correctness proof.
 The **composition** — first arch to be simultaneously ternary-weight,
 integer-activation, softmax-free, position-free, LUT-transcendental,
 γ-less, **and kernel-deployable** — is the novel contribution.
+
+### 7.1 Path A addendum (added 2026-04-27)
+
+After Phase E1 (bilingual corpus v1.0) + Phase E2 (2 ablations, BOTH FAIL), the Path A paper outline (`FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0) extends the IntLLM contribution stack with two more axes:
+
+| Axis | BitNet 2B4T | MatMul-Free | QuaRot/SmoothQuant family | **IntLLM (Path A)** |
+|---|---|---|---|---|
+| Bilingual ID+EN native | ❌ | ❌ | ⚠️ (post-hoc on multilingual base) | ✅ (Phase E1 corpus v1.0, 25.67 B tokens at 60:40) |
+| Honest negative-results methodology (§6.6 R3) | ❌ | ❌ | ❌ | ✅ (E2.4 + E2.1 decision docs published with 3-cause attributions) |
+
+The composition becomes: **first arch to be simultaneously ternary-weight + integer-activation + softmax-free + position-free + LUT-transcendental + γ-less + kernel-deployable + bilingual-native + methodologically-honest-on-ablation-negatives.** Each individual axis has weak prior art; the combination is novel. See §1.6 for negative-results framing details.
 
 ---
 
@@ -387,10 +444,21 @@ Positional encoding:
 Kernel / formal OS:
 - seL4 — SOSP 2009 (Klein et al.) — https://sel4.systems/About/seL4-sosp09.pdf
 
+Post-hoc activation-outlier handling (§1.6 — added Path A v1.0):
+- SmoothQuant — https://arxiv.org/abs/2211.10438
+- GPTQ — https://arxiv.org/abs/2210.17323
+- AWQ — https://arxiv.org/abs/2306.00978
+- QuaRot — https://arxiv.org/abs/2404.00456
+- SpinQuant — https://arxiv.org/abs/2405.16406
+
+Multilingual / bilingual quantization (§4.4 — added Path A v1.0):
+- Calibrating Beyond English — https://arxiv.org/abs/2601.18306
+
 ---
 
 ## 11. Changelog
 
 | Date | Commit | Change |
 |---|---|---|
-| 2026-04-21 | (this commit) | Phase 4.1 initial draft — 12 papers across 6 clusters + positioning table + §6.9 compliance self-check |
+| 2026-04-21 | (Phase 4.1) | Phase 4.1 initial draft — 12 papers across 6 clusters + positioning table + §6.9 compliance self-check |
+| 2026-04-27 | (Path A v1.0) | Added §1.6 (5 papers: SmoothQuant + GPTQ + AWQ + QuaRot + SpinQuant) for Phase E2 negative-result framing per Path A C4 contribution. Added §4.4 Calibrating Beyond English for Phase E1 bilingual context. Added §7.1 Path A addendum positioning row (bilingual-native + methodological-honesty axes). Updated §10 References list with §1.6 + §4.4 entries. Total papers: 12 → 18 (+6). All new entries verified against arxiv search at time of insertion. |
