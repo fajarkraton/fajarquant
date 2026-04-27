@@ -157,6 +157,28 @@ Items deferred to Phase F because the Phase E investigation surfaced specific al
 
 Phase F.5 work is purely about replacing `running_max` accumulator semantics and re-running the metric.
 
+### F.6 Post-hoc QuaRot-style Hadamard rotation on pre-trained checkpoint
+
+**Origin:** Phase E E2.1 closure 2026-04-27 (`FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0 §4.3). Training-from-scratch with `HadamardRotation` on `block.attn.o_proj` produced a +0.12 nat REGRESSION vs Q5 baseline (gate required ≥+0.05 nat IMPROVEMENT). The literature precedent (QuaRot arxiv 2404.00456, SpinQuant arxiv 2405.16406) applies rotation POST-hoc to pre-trained models; training-from-scratch loses the primary benefit.
+
+**What to investigate in Phase F:**
+
+| Sub-task | Description | Risk / cost |
+|---|---|---|
+| F.6.1 | Outlier-concentration measurement on Q5-trained Mini checkpoint o_proj inputs (per-channel absmax / per-channel mean ratio histogram via forward-pre-hook capture; reuse `compute_quant_error_per_channel` infrastructure adapted for distribution dump) | ~½ day; CPU-bound. **Hard prerequisite** — if HGRN o_proj inputs don't have outlier concentration (≥3× max/mean ratio), post-hoc rotation has nothing to spread either; F.6.2-6.4 are moot. |
+| F.6.2 | Post-hoc QuaRot on Q5-trained Mini checkpoint (canonical recipe: load checkpoint, fuse Hadamard into adjacent weights via algebraic identity, re-evaluate val_loss without re-training) | ~1 day; tests whether E2.1 failure was specifically "training-from-scratch fights rotation" vs "HGRN architecture doesn't have outlier-prone activations." Must be preceded by F.6.1. |
+| F.6.3 | Hadamard rotation on i/f/g_proj inputs (against Q1 closure's "non-canonical" warning) | ~1 day implementation + 1 ablation. Tests whether the right insertion point for HGRN was QKV-equivalent paths, not o_proj. Run alongside F.6.2 if budget permits. |
+| F.6.4 | Hadamard at Base or Medium scale (rather than Mini) | 4-6h GPU per scale; tests whether outlier concentration emerges at larger scales. SpinQuant paper shows benefit grows with model size. |
+
+**Entry condition for F.6:** Phase E paper accepted (or at least submitted) AND F.6.1 measurement confirms ≥3× max/mean ratio on at least one BitLinear site (the threshold below which outlier-spreading rotations are net cost).
+
+**Reusable infrastructure already shipped** (does NOT need to be re-built in Phase F):
+- `intllm.quant.HadamardRotation` — orthogonal Walsh-Hadamard module, 9 unit tests, dtype-agnostic
+- `--hadamard` + `--bilingual-data` flags in `train_mini_ablation.py` — diagnostic ablation harness ready
+- `register_forward_pre_hook` attach pattern in driver — mirrors E2.4.A; reusable for any "modify input to BitLinear" experiment
+
+Phase F.6 work is about WHEN/WHERE to apply the rotation, not the rotation itself.
+
 ---
 
 ## 5. Decision artifact (when Phase F kicks off OR is decided NOT to)
@@ -171,6 +193,7 @@ Either way, the decision is committed as code per CLAUDE §6.8 R6 (mechanical de
 
 ---
 
-*Document version: 1.1 (post-E2.4 sync — F.5 PTQ calibration entry added). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Document version: 1.2 (post-E2.4 + E2.1 sync — F.5 + F.6 entries added). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *v1.0→v1.1 (2026-04-27): added §4.1 F.5 sub-tasks for post-training PTQ calibration as future-work entry from E2.4 negative result.*
+*v1.1→v1.2 (2026-04-27): added §4.1 F.6 sub-tasks for post-hoc QuaRot-style Hadamard rotation as future-work entry from E2.1 negative result.*
 *Origin: created alongside Phase E v1.7 → v1.8 surgical revision (2026-04-26) to preserve Tier 3 work as Phase F roadmap rather than delete.*

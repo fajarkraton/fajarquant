@@ -1,6 +1,6 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Production Bar, Tier 1+2 Scope)
 
-> **Plan version:** 1.9 (2026-04-27 v1.9 sync — post-E2.4 closure with negative result; E2 implementation order revised; combined gate recalibrated)
+> **Plan version:** 1.9 (2026-04-27 v1.9 sync — TWO E2 negative results closed: E2.4 balanced_calib FAIL + E2.1 Hadamard FAIL; E2 implementation order revised; combined gate recalibrated; F.5 + F.6 future-work entries added)
 >
 > **v1.8 → v1.9 changelog (2026-04-27, post-E2.4.C.3 + C.4 closure):**
 > - **§3 PHASE E2 status block updated** — E2.0 + E2.4 marked CLOSED. E2.4 outcome = **honest negative result** (`outlier_global_reduction = −82.13`, gate FAIL by 82×). Demoted to Phase D infra-diagnostic; NOT in V31 paper main results. Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0 records the call + 3-cause analysis.
@@ -403,23 +403,36 @@ Per §14 synthetic-data hygiene + R8: add 5–10 B (up to 50% of pretrain mix pe
 
 Ablations done at Mini scale (cheapest, fastest signal) before committing to bilingual training.
 
-> **Status (v1.9, 2026-04-27, post-E2.4 sync):** E2.0 + E2.4 + E2.4.0+A+C.1+C.2+C.3+C.4 all CLOSED. **E2.4 produced an honest negative result** — `balanced_calib` with all-time-max calibration is 83× WORSE than baseline on outlier channels (`outlier_global_reduction = −82.13`). Demoted to Phase D infrastructure-diagnostic; NOT a Phase E2 ablation winner. See `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0 for the 3-cause analysis (all-time-max non-stationarity + RMSNorm interaction + outlier-bit lever wrong) and Phase F future-work pointer (post-training PTQ-style calibration on held-out data, SmoothQuant pattern). **Implementation order revised:** E2.1 Hadamard → E2.2 FP8 → E2.3 Distill → E2.5 LangCond → E2.6 Combined (4 features, not 5; E2.4 removed from combined). Q5 baseline `outlier_global_reduction` floor for combined-gate calibration is the all-time-max FAIL of −82.13; any feature that lands non-negative is a clear win on the metric.
+> **Status (v1.9, 2026-04-27, post-E2.4 + E2.1 sync):** E2.0 + E2.4 + E2.1 all CLOSED. **TWO honest negative results in a row:**
+>
+> - **E2.4 balanced_calib FAIL**: `outlier_global_reduction = −82.13`, calibrated quantizer 83× WORSE than baseline. Demoted; future-work `Phase F.5` (post-training PTQ on held-out, SmoothQuant pattern). See `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0.
+> - **E2.1 Hadamard FAIL**: `val_loss(EN) = 4.852` (Q5 baseline 4.732), regression by **+0.12 nat** vs gate ≥+0.05 nat improvement. NOT adopted; future-work `Phase F.6` (post-hoc QuaRot on pre-trained checkpoint, outlier-concentration measurement, alternate insertion points). See `FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0.
+>
+> **Implementation order remaining:** E2.2 FP8 → E2.3 Distill → E2.5 LangCond → E2.6 Combined (now 2-4 features depending on remaining ablation results). The original "all 4 features will help ≥+0.05 nat each" expectation is RECALIBRATED — empirical evidence shows Mini-scale + training-from-scratch + bilingual-data conditions are HOSTILE to the QuaRot/SmoothQuant style features that were ported from post-hoc-quantization literature. The remaining ablations (E2.2/E2.3/E2.5) are structurally different (FP8 = mixed precision, not outlier handling; FP16 distillation = teacher-student; lang-cond = arch change) and may behave differently. **Combined-gate expectation now: 1-2 of remaining 3 may PASS; combined ≥+0.10 nat realistic only if 2+ help meaningfully.** This is NOT a Phase E2 ABORT trigger (`FJQ_PHASE_E_E2_ABORT.md` fires only on aggregate <0 nat after E2.6).
 
 #### E2.0 Pre-flight audit ✅ CLOSED 2026-04-27
 
 Reproduced Mini v2 baseline on the bilingual corpus (10% sample, ~200M tokens, 24K steps × 8K tok/step at 60:40, 42 min RTX 4090). Q5 baseline measured: val_loss(ID)=2.68, val_loss(EN)=4.73, ratio=1.77×. All Q1-Q5 blockers closed. Decision: GO for E2.1. Findings: `FJQ_PHASE_E_E2_FINDINGS.md` v1.1; artifact: `paper/intllm/ablations/q5_bilingual_baseline.json`.
 
-#### E2.1 Hadamard rotation (outlier handling) — **PRIORITY #1, NEXT**
+#### E2.1 Hadamard rotation (outlier handling) ✅ CLOSED with FAIL 2026-04-27
 
-Port QuaRot / SpinQuant rotation to `intllm.quant`. Per E2.0 Q1 closure: apply ONLY to `block.attn.o_proj` (HGRN's `i_proj`/`f_proj`/`g_proj` are gated-linear-recurrence projections, structurally distinct from QKV; rotating them is not part of canonical QuaRot/SpinQuant recipe). E2.1.0 ablation harness scaffold already shipped (commit `5ba7858`).
+> **Outcome: HONEST NEGATIVE RESULT.** Hadamard at Mini scale + training-from-scratch + bilingual-data REGRESSES val_loss by +0.12 nat vs Q5 baseline (gate required ≥+0.05 nat IMPROVEMENT). NOT adopted as Phase E2 ablation feature. See `FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0 for full 3-cause analysis. Original v1.1 framing of E2.1 as "lowest-risk + easy adoption" is RETRACTED based on empirical evidence.
 
-| Task | Verification |
-|---|---|
-| E2.1.0 Mini-ablation harness scaffold | ✅ DONE (commit `5ba7858`); `make train-mini-ablation TAG=X` parametric |
-| E2.1.1 Implement `intllm.quant.HadamardRotation` (apply to `block.attn.o_proj` only per Q1 closure) | `pytest python/phase_d/tests/test_hadamard.py` passes; orthogonality + outlier-suppression unit tests |
-| E2.1.2 Wire `--hadamard` flag from stub to real impl in `scripts/train_mini_ablation.py` | smoke run via `--proof-of-life` produces JSON with `features_active=['hadamard']` |
-| E2.1.3 Mini-scale ablation run | `make train-mini-ablation TAG=hadamard --hadamard` (matches Q5 budget: 24K steps × 8K tok/step at 60:40, ~42 min GPU) produces `paper/intllm/ablations/mini_hadamard.json` |
-| E2.1.4 Decision doc | `docs/FJQ_PHASE_E_E2_HADAMARD_DECISION.md` — adopt iff ≥+0.05 nat val_loss improvement vs Q5 baseline at Mini scale (val_loss(EN) < 4.73 by ≥0.05) |
+What was actually built (E2.1.0 + E2.1.1 + E2.1.2 + E2.1.3 + E2.1.4):
+
+| Task | Status | Result |
+|---|---|---|
+| E2.1.0 Mini-ablation harness scaffold | ✅ CLOSED (commit `5ba7858`) | `make train-mini-ablation TAG=X` parametric harness shipped |
+| E2.1.1 Implement `intllm.quant.HadamardRotation` (o_proj only per Q1 closure) | ✅ CLOSED (commit `5eba7ad`) | Walsh-Hadamard recursive doubling construction; orthogonality + outlier-suppression + 9 unit tests, all PASS |
+| E2.1.2 Wire `--hadamard` flag + `--bilingual-data` orthogonal flag | ✅ CLOSED (commit `ed5a7c2`) | Forward pre-hook on 6 attn.o_proj sites at Mini scale (matches Q1 prediction: 6 layers × 1 o_proj). `--bilingual-data` orthogonal flag added so E2.x ablations get apples-to-apples vs Q5 without requiring `--balanced-calib` |
+| E2.1.3 Mini-scale ablation run | ✅ CLOSED (commit `<this>`) | `val_loss(EN) = 4.852` vs Q5 4.732 → **+0.12 nat WORSE.** Training: 24K steps × 8K tok/step at 60:40, 61.8 min on RTX 4090 (+47% wall vs Q5 due to extra Hadamard matmul × 6 sites per fwd). Final train loss 3.06 (≈ Q5 3.05, within noise — bilingual sampler + Hadamard does not perturb training trajectory). |
+| E2.1.4 Decision doc | ✅ CLOSED (commit `<this>`) | `FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0 — DEMOTE Hadamard; NOT in V31 paper main results |
+
+**Root-cause attribution (decision doc §3):** (1) training-from-scratch loses Hadamard's primary benefit (QuaRot/SpinQuant literature applies rotation POST-hoc to pre-trained models; training-from-scratch makes the model fight rotation rather than benefit from outlier reduction); (2) HGRN attention output may not have transformer-style outlier concentration (gated linear recurrence smoothes activations differently than softmax attention); (3) Q1 closure's "rotate o_proj only" call may have been overly conservative — full QuaRot rotates inputs to ALL projections including QKV-equivalent paths.
+
+**Future-work (V32/Phase F.6):** post-hoc QuaRot on pre-trained Mini checkpoint + outlier-concentration measurement + alternate insertion points + Base/Medium scale tests — see `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` §4.1 F.6.
+
+**What stays from E2.1 regardless of failure** (reusable infrastructure, independent of training-from-scratch failure mode): `intllm.quant.HadamardRotation` (orthogonal Walsh-Hadamard module with full unit-test coverage), `--hadamard` flag in `train_mini_ablation.py` (kept for diagnostic + F.6 post-hoc experiments), `--bilingual-data` orthogonal flag (used by ALL remaining E2.x ablations), `register_forward_pre_hook` wire-up pattern (mirrors E2.4.A; reusable for any "modify input to BitLinear" experiment without forking `_upstream/`).
 
 #### E2.2 Mixed-precision (FP8 LM head + attention output)
 

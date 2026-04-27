@@ -1,0 +1,25 @@
+{
+  "_schema_version": "1.2",
+  "tag": "hadamard",
+  "phase": "E2.x",
+  "features_active": [
+    "hadamard"
+  ],
+  "features_requested": [
+    "hadamard"
+  ],
+  "n_steps": 24000,
+  "val_loss": 4.852002267837524,
+  "ppl": 127.99641655165361,
+  "gate_pass": false,
+  "gate_threshold": 4.5,
+  "training_seconds": 3706.5040237903595,
+  "initial_loss": 10.4124755859375,
+  "final_loss": 3.058481216430664,
+  "model_params": 21907968,
+  "proof_of_life": false,
+  "dry_run": false,
+  "tracker_maps_path": null,
+  "quant_error_path": null,
+  "timestamp": "2026-04-27T08:52:40+00:00"
+}
