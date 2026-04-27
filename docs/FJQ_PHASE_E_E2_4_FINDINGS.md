@@ -1,12 +1,14 @@
-# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.1)
+# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.2)
 
-> **Status:** E2.4.0 CLOSED — Q9 selected = **Option C** (re-scoped ablation gate to MSE quantization-error metric); calibration plumbing (E2.4.A.1+A.2+A.3+A.4) shipped this session. E2.4 implementation now in flight under Option C scope.
+> **Status:** E2.4.0 CLOSED + E2.4.A CLOSED + **E2.4.C.1 spec CLOSED**. Q9 = Option C; Q10 = N/A; Q11 closed in spec doc. E2.4 implementation in flight under Option C; metric spec frozen.
 >
 > **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §3 PHASE E2.4 + `FJQ_PHASE_E_E2_FINDINGS.md` v1.1 §3 (E2.4 sequenced as priority #1, lowest-risk).
 >
 > **Predecessor:** Phase E2.0 fully closed 2026-04-27 (`FJQ_PHASE_E_E2_FINDINGS.md` v1.1 sign-off, commit `1074883`).
 >
-> **Last updated:** 2026-04-27 (E2.4.0 v1.0 → v1.1 promotion: Q9 = Option C; E2.4.A calibration plumbing landed this session).
+> **Companion spec:** `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0 (E2.4.C.1 deliverable, this session). Defines eval set, quantizer formulas, aggregation rules, adoption gate, and the implementation contract for E2.4.C.2.
+>
+> **Last updated:** 2026-04-27 (E2.4.0 v1.1 → v1.2 promotion: E2.4.C.1 spec doc complete; Q11 closed in spec doc §2).
 
 ---
 
@@ -161,7 +163,7 @@ No upstream fork; lower scope than Option B; provides paper-defensible adoption 
 |---|---|---|---|
 | ~~Q9~~ ✅ **CLOSED v1.1** | Which option (A / B / C) does the user pick for E2.4 scope? | Determines whether E2.4 is plumbing-only (A), full feature (B), or signal-redefined (C). | **Answer: Option C** (re-scoped to MSE quantization-error metric on bilingual eval set). User nod 2026-04-27. Calibration plumbing landed this session; metric + ablation deferred to E2.4.C.1+. |
 | ~~Q10~~ ✅ **N/A under Option C** | If Option B: does the user accept an external `IntLLMBitLinear` wrapper class (not a `_upstream/` fork), even if it duplicates ~30 LOC of forward logic? | Forking `_upstream/` breaks Phase D Medium training reproducibility. | **N/A under Option C** — no BitLinear modification needed; `_upstream/` pin preserved. Revisit if a future session upgrades from C → B. |
-| **Q11** | If Option C: which held-out activation set defines "the" quantization-error metric? Phase D bench-canonical EN-only? Phase E1 corpus 1000-batch bilingual sample? Both? | The metric is the ablation gate; choosing the eval set is choosing what "improvement" means. Bilingual sample is more honest for Phase E goals; EN-only is more comparable to literature (SmoothQuant, GPTQ, AWQ baselines). | **Deferred to E2.4.C.1** — first sub-task under Option C is to define the metric, which inherently picks the eval set. Preliminary recommendation per §4.3: Q5-style 1000-batch bilingual sample. |
+| ~~Q11~~ ✅ **CLOSED v1.2 (in spec doc)** | If Option C: which held-out activation set defines "the" quantization-error metric? Phase D bench-canonical EN-only? Phase E1 corpus 1000-batch bilingual sample? Both? | The metric is the ablation gate; choosing the eval set is choosing what "improvement" means. | **Answer:** Q5-style 1000-batch bilingual sample, `bilingual_stream(id_share=0.6, seed=42)`, batch_size=8, seq_len=1024, 8.19M tokens total. Distinct seeds from Q5 (train=0, val_id=999, val_en=998); seed=42 reserved for E2.4.C metric. EN-only and "both" alternatives explicitly rejected. Full justification: `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0 §2. |
 
 ---
 
@@ -200,12 +202,12 @@ Module-level test coverage post-session: `tests/test_qat.py` 15 tests / `tests/t
 
 ### 6.3 Remaining E2.4 sub-tasks (deferred to next sessions)
 
-- **E2.4.C.1** define MSE quantization-error metric (paper-spec the eval set + the formula)
-- **E2.4.C.2** implement `compute_quant_error_per_channel(model, batches, bit_map)` in `intllm.eval`
-- **E2.4.C.3** Mini ablation: train w/ `--balanced-calib` 24K steps, run metric, gate on ≥10% MSE reduction on outlier channels
-- **E2.4.C.4** Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` documenting adoption call
+- [x] **E2.4.C.1** define MSE quantization-error metric — DONE this session, `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0
+- [ ] **E2.4.C.2** implement `compute_quant_error_per_channel(model, batches, bit_map_path, ...)` in `intllm.eval` + `activation_quant_per_channel(x, running_max, bits_per_channel)` standalone math helper in `intllm.quant`. Unit tests including the spec §7 cross-reference invariant (q_calibrated with bits=8 everywhere ≡ q_baseline). ~½ day human, no GPU.
+- [ ] **E2.4.C.3** Mini ablation: train w/ `--balanced-calib` 24K steps, run metric on the 1000-batch eval set per spec §2, gate on `outlier_global_reduction ≥ 0.10` per spec §6. Writes `paper/intllm/ablations/mini_balanced_calib_quant_error.json` per spec §7 schema. ~1.5h GPU + ~5 min metric pass.
+- [ ] **E2.4.C.4** Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` documenting adoption call — PASS / OBSERVATION / FAIL path per spec §6.
 
-Estimated remaining effort: ~2 days human + ~1.5h GPU (Mini ablation matches Q5 wall ≈ 42 min; metric + decision-doc are CPU-bound). Not auto-started this session per "first step only" rule.
+Estimated remaining effort: ~1.5 days human + ~1.5h GPU (was ~2 days at v1.1; -25% because C.1 finished in this session was budgeted at ½ day).
 
 ---
 
@@ -225,7 +227,9 @@ Estimated remaining effort: ~2 days human + ~1.5h GPU (Mini ablation matches Q5 
 
 **Sign-off (v1.1, 2026-04-27):** Phase E2.4.0 pre-flight CLOSED. Q9 = Option C (re-scoped ablation gate to MSE quantization-error metric). Calibration plumbing shipped this session: `intllm.qat.save_calibration_maps` + `scripts/train_mini_ablation.py --balanced-calib` real impl + 5 unit tests + 200-step smoke (44s wall, 37 BitLinear sites covered, ~5% top-K at 10-bit verified). Total test coverage post-session: 29/29 PASS across `test_qat.py` + `test_data.py`. No upstream fork; `_upstream/` pin preserved per Q10 (which is N/A under C).
 
-Next session natural first step: E2.4.C.1 — define the MSE quantization-error metric (formula + eval set selection per Q11). Pure design work, no GPU. Then E2.4.C.2 implementation, smoke; then E2.4.C.3 Mini ablation (~1.5h GPU); then E2.4.C.4 decision doc.
+**Sign-off (v1.2, 2026-04-27):** E2.4.C.1 metric specification COMPLETE. Q11 closed (eval set = `bilingual_stream(id_share=0.6, seed=42)`, 1000 batches × 8 × 1024 = 8.19M tokens). Companion spec doc `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0 freezes the implementation contract for E2.4.C.2 (`compute_quant_error_per_channel` + `activation_quant_per_channel` standalone helper). Adoption gate = `outlier_global_reduction ≥ 0.10` (10% MSE reduction restricted to channels promoted to 10-bit by the saved map). No code shipped this session — spec only.
 
-*Document version: 1.1 (E2.4.0 CLOSED, Option C selected). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+Next session natural first step: E2.4.C.2 implementation — `activation_quant_per_channel` math helper in `intllm.quant` + `compute_quant_error_per_channel` driver in `intllm.eval`, with unit tests including the spec §7 cross-reference invariant. Pure CPU work; ~½ day. Then E2.4.C.3 Mini ablation (~1.5h GPU); then E2.4.C.4 decision doc.
+
+*Document version: 1.2 (E2.4.C.1 metric spec frozen). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *Phase E v1.8 Tier 1+2 scope. Predecessor: E2.0 fully closed 2026-04-27.*
