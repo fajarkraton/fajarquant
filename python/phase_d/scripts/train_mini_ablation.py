@@ -101,6 +101,18 @@ E2_4_DEFAULT_HIGH_BITS = 10
 # entry is set when real wire-up runs.
 E2_REAL_FEATURES = {"balanced_calib"}
 
+# E2 ablation runs match Q5 baseline (24K steps × 8K tok/step ≈ 196M
+# tokens at 60:40 bilingual mix); see `q5_bilingual_baseline.py:DEFAULT_N_STEPS_FOR_200M_TOK`
+# and `FJQ_PHASE_E_E2_FINDINGS.md` v1.1 §3. This is the LIKE-FOR-LIKE
+# comparison budget — every E2.x ablation row must use this token
+# budget so deltas reflect the FEATURE, not training depth.
+#
+# `MiniTrainConfig.n_steps = 60000` is the original Phase D Mini-full
+# target (~491M tokens, EN-only); use that only by passing --n-steps
+# 60000 explicitly when reproducing Phase D Mini gates, not when
+# computing E2 ablations.
+E2_DEFAULT_N_STEPS = 24_000
+
 # E2.x feature flag → human-readable name mapping. The driver only
 # RECORDS these in JSON; feature implementation lands in intllm.* as
 # E2.x sub-tasks complete and replaces the corresponding stub block.
@@ -134,14 +146,16 @@ def _write_ablation_json(
     proof_of_life: bool,
     dry_run: bool,
     tracker_maps_path: Path | None = None,
+    quant_error_path: Path | None = None,
 ) -> None:
-    """Write the ablation result JSON. Schema v1.1 (E2.4.A.2:
-    `tracker_maps_path` field added — null if --balanced-calib not used).
+    """Write the ablation result JSON. Schema v1.2 (E2.4.C.3:
+    `quant_error_path` field added — null if --balanced-calib not run
+    or if running in POL mode).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     val_skipped = proof_of_life or dry_run or math.isnan(val_loss)
     payload = {
-        "_schema_version": "1.1",
+        "_schema_version": "1.2",
         "tag": tag,
         "phase": "E2.x",
         "features_active": features_active,
@@ -158,6 +172,7 @@ def _write_ablation_json(
         "proof_of_life": proof_of_life,
         "dry_run": dry_run,
         "tracker_maps_path": str(tracker_maps_path) if tracker_maps_path else None,
+        "quant_error_path": str(quant_error_path) if quant_error_path else None,
         "timestamp": _now_iso(),
     }
     tmp = out_path.with_suffix(".json.tmp")
@@ -200,6 +215,13 @@ def main() -> int:
         type=int,
         default=50,
         help="Number of batches to compute val_loss over (default 50).",
+    )
+    p.add_argument(
+        "--quant-error-n-batches",
+        type=int,
+        default=1000,
+        help="E2.4.C.3 metric: # batches for the quant-error pass (default 1000 per "
+        "FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md §2). Only runs when --balanced-calib is set.",
     )
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini_ablations")
     p.add_argument("--device", default=None)
@@ -302,7 +324,7 @@ def main() -> int:
     import torch  # noqa: E402
     from configs.mini import MiniArchConfig, MiniTrainConfig  # noqa: E402
     from intllm.data import bilingual_stream, slimpajama_stream  # noqa: E402
-    from intllm.eval import run_held_out_loss  # noqa: E402
+    from intllm.eval import compute_quant_error_per_channel, run_held_out_loss  # noqa: E402
     from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
     from intllm.qat import (  # noqa: E402
         attach_stat_trackers,
@@ -321,6 +343,10 @@ def main() -> int:
         train_hp = replace(train_hp, n_steps=200, log_every=25)
     elif args.n_steps is not None:
         train_hp = replace(train_hp, n_steps=args.n_steps)
+    else:
+        # Default to Q5-baseline-comparable token budget (24K steps),
+        # NOT MiniTrainConfig's 60K. See E2_DEFAULT_N_STEPS docstring.
+        train_hp = replace(train_hp, n_steps=E2_DEFAULT_N_STEPS)
 
     print(f"[1/4] config: arch={asdict(arch)}")
     print(f"      train: {asdict(train_hp)}")
@@ -437,6 +463,44 @@ def main() -> int:
         print(f"  calibration maps : {tracker_maps_path}  ({len(trackers)} BitLinear sites)")
         detach_stat_trackers(model)
 
+    # E2.4.C.3: when --balanced-calib is set AND we're not in POL/dry-run,
+    # run the offline quantization-error metric IN-PROCESS so the trained
+    # model state is reused without checkpoint reload. Spec §4-§7 of
+    # FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md v1.0.
+    quant_error_path: Path | None = None
+    if args.balanced_calib and not args.proof_of_life and tracker_maps_path is not None:
+        n_qe_batches = args.quant_error_n_batches
+        print(f"\n  running quant-error metric ({n_qe_batches} batches, seed=42) ...")
+        qe_stream = bilingual_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            id_share=BILINGUAL_RATIO_DEFAULT,
+            device=device,
+            seed=42,
+        )
+        quant_error_path = ABLATIONS_DIR / f"mini_{args.tag}_quant_error.json"
+        qe_t0 = time.time()
+        qe_result = compute_quant_error_per_channel(
+            model,
+            batches=qe_stream,
+            n_batches=n_qe_batches,
+            bit_map_path=tracker_maps_path,
+            device=device,
+            out_path=quant_error_path,
+        )
+        qe_elapsed = time.time() - qe_t0
+        print(f"  quant-error elapsed       : {qe_elapsed:.1f} s ({qe_elapsed/60:.1f} min)")
+        print(f"  global_mean_reduction     : {qe_result['global_mean_reduction']:+.4f}")
+        print(
+            f"  outlier_global_reduction  : {qe_result['outlier_global_reduction']:+.4f}  "
+            f"(gate ≥ {qe_result['gate_threshold']:.2f})",
+        )
+        print(
+            f"  E2.4.C gate               : {'PASS ✓' if qe_result['gate_pass'] else 'FAIL ✗ (or OBSERVATION if 0.05-0.10)'}",
+        )
+        print(f"  quant-error JSON          : {quant_error_path}")
+
     val_loss = float("nan")
     if not args.proof_of_life:
         print(f"\n  measuring val_loss over {args.val_steps} batches ...")
@@ -470,6 +534,7 @@ def main() -> int:
         proof_of_life=args.proof_of_life,
         dry_run=False,
         tracker_maps_path=tracker_maps_path,
+        quant_error_path=quant_error_path,
     )
     print(f"\n  ablation JSON : {out_path}")
 

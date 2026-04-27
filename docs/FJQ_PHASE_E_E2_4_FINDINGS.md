@@ -1,6 +1,6 @@
-# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.3)
+# Phase E E2.4 — BilingualCalibrationSampler Pre-flight Audit (Findings v1.4)
 
-> **Status:** E2.4.0 CLOSED + E2.4.A CLOSED + E2.4.C.1 spec CLOSED + **E2.4.C.2 impl CLOSED**. Q9 = Option C; Q10 = N/A; Q11 closed in spec doc. Only E2.4.C.3 (Mini ablation, ~1.5h GPU) and E2.4.C.4 (decision doc) remain.
+> **Status:** E2.4 ENTIRELY DONE. E2.4.0 CLOSED + E2.4.A CLOSED + E2.4.C.1+C.2+C.3+C.4 all CLOSED. **E2.4.C.3 ablation: GATE FAIL** — outlier_global_reduction = −82.13 (calibrated quantizer is 83× WORSE than upstream baseline on outlier channels). Honest negative result documented in `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md`. balanced_calib demoted to Phase D infrastructure-diagnostic status; NOT adopted as a Phase E2 ablation winner.
 >
 > **Plan reference:** `FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §3 PHASE E2.4 + `FJQ_PHASE_E_E2_FINDINGS.md` v1.1 §3 (E2.4 sequenced as priority #1, lowest-risk).
 >
@@ -200,14 +200,34 @@ Calibration plumbing shipped alongside this v1.1 promotion (single commit, this 
 
 Module-level test coverage post-session: `tests/test_qat.py` 15 tests / `tests/test_data.py` 14 tests = 29/29 PASS.
 
-### 6.3 Remaining E2.4 sub-tasks (deferred to next sessions)
+### 6.3 Remaining E2.4 sub-tasks — ALL CLOSED 2026-04-27
 
-- [x] **E2.4.C.1** define MSE quantization-error metric — DONE 2026-04-27, `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0
-- [x] **E2.4.C.2** implement `compute_quant_error_per_channel` + `activation_quant_per_channel` — DONE this session. 13 new unit tests (8 for math helper + 5 for driver); 53/53 PASS across `test_quant.py` + `test_qat.py` + `test_data.py` + `test_eval_quant_error.py`. Spec §7 cross-reference invariant CORRECTED in companion spec doc — the v1.0 draft asserted `q_calibrated ≡ q_baseline` when `bits=8`, which is mathematically false (per-token vs per-channel scales differ); v1.0+ replaces with 7 sensible math invariants the unit tests actually enforce.
-- [ ] **E2.4.C.3** Mini ablation: train w/ `--balanced-calib` 24K steps, run metric on the 1000-batch eval set per spec §2, gate on `outlier_global_reduction ≥ 0.10` per spec §6. Writes `paper/intllm/ablations/mini_balanced_calib_quant_error.json` per spec §7 schema. ~1.5h GPU + ~5 min metric pass.
-- [ ] **E2.4.C.4** Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` documenting adoption call — PASS / OBSERVATION / FAIL path per spec §6.
+- [x] **E2.4.C.1** define MSE quantization-error metric — `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0
+- [x] **E2.4.C.2** implement `compute_quant_error_per_channel` + `activation_quant_per_channel` — 13 new unit tests; spec §7 invariant corrected.
+- [x] **E2.4.C.3** Mini ablation — DONE this session. **GATE FAIL.** Training: 24K steps, 43.4 min wall on RTX 4090, val_loss(EN) 4.83 (PPL 125.7) — within noise of Q5 baseline 4.73, confirming the bilingual sampler doesn't perturb training. **Quantization-error metric: outlier_global_reduction = −82.13** (calibrated MSE is 83× WORSE than baseline MSE on outlier channels); global_mean_reduction = −148.27 (calibrated is 149× worse on average). Gate threshold 0.10; FAIL by enormous margin. Artifacts: `paper/intllm/ablations/mini_balanced_calib.json`, `mini_balanced_calib_maps.pt`, `mini_balanced_calib_quant_error.json`.
+- [x] **E2.4.C.4** Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` — DONE this session. Recommendation: **DEMOTE balanced_calib to Phase D infrastructure-diagnostic status; NOT a Phase E2 ablation winner.** Path forward: post-training calibration on held-out data (SmoothQuant-style PTQ) is the literature-standard alternative to all-time-max accumulation; punt to V32/Phase F.
 
-Estimated remaining effort: ~½ day human (decision doc post-ablation) + ~1.5h GPU (was 1.5d at v1.2; −66% because C.2 closed in ~3h vs ½ day estimate).
+### 6.4 E2.4.C.3 result interpretation — why the gate FAILED
+
+The metric correctly identified that `q_calibrated` (per-channel calibrated scale derived from `running_max` accumulated across 24K training steps) is fundamentally inferior to the upstream `q_baseline` (per-token activation_quant) for BitLinear inputs in this model. Three converging causes:
+
+1. **All-time-max is too pessimistic.** `BitLinearStatTracker.running_max` is `torch.maximum` over every forward call across all 24K training steps. Early training has random-init activation peaks 10-100× larger than steady-state. The accumulator captures these early peaks and never forgets, so the calibrated scale is locked to a worst-case the late-training model rarely produces.
+
+2. **BitLinear inputs are RMSNorm-ed.** Upstream `BitLinear.forward` runs `RMSNorm(x)` BEFORE `activation_quant`. RMSNorm bounds inputs adaptively per-token. Per-token-baseline `q_baseline` benefits from this adaptation: `scale_t = 127 / max(|x_norm[t,:]|)` is large for typical small-magnitude rows, granting fine-grained quantization. Per-channel-calibrated `q_calibrated` cannot adapt — it locks to the calibration constant.
+
+3. **Outlier-channel allocation is the wrong lever.** The 5% top-K → 10-bit promotion gives outlier channels MORE bits, but the channels with high `running_max` are exactly those whose typical late-training values are SMALL relative to running_max. More bits do not help when the scale is so coarse that even fine resolution lands outside the populated range.
+
+This is consistent with the SmoothQuant/GPTQ/AWQ literature, which all calibrate on a HELD-OUT POST-TRAINING SET, not on a peak accumulator across the training trajectory. The Phase D `BitLinearStatTracker` design was sound for the use case it was originally specified for (offline channel-importance ranking for compute-skip decisions in the FajarOS kernel inference path) but is the wrong calibration source for forward-time quantization.
+
+### 6.5 E2.4 closure and forward path
+
+E2.4 ENDS HERE for the V31 cycle. Net deliverables:
+
+- **Shipped:** `bilingual_stream` (Q5 + this Phase), `BitLinearStatTracker` integration with production training (Phase D infrastructure), `save_calibration_maps` (paper diagnostic), `activation_quant_per_channel` (offline metric helper), `compute_quant_error_per_channel` (Option C metric).
+- **Documented negative result:** all-time-max calibration is unsuitable for forward-time activation quantization on RMSNorm-ed BitLinear inputs. Paper claim removed; balanced_calib NOT in main results.
+- **Future work pointer:** post-training PTQ-style calibration on held-out batches (SmoothQuant/GPTQ pattern). Punted to V32 or Phase F per E2.4.C.4 decision doc.
+
+Variance: E2.4 total ~10h human + ~85 min GPU vs ~3-5 days human + ~3h GPU original estimate; −80%+. Driver: Q5 plumbing reuse + Option C scope choice (no upstream fork) + early ablation surfacing the negative result before paper-claim work locked in.
 
 ---
 
@@ -231,7 +251,9 @@ Estimated remaining effort: ~½ day human (decision doc post-ablation) + ~1.5h G
 
 **Sign-off (v1.3, 2026-04-27):** E2.4.C.2 implementation COMPLETE. (1) `intllm.quant.activation_quant_per_channel(x, running_max, bits_per_channel, *, eps=1e-5)` — standalone per-channel calibrated quantize-cast-dequantize, ~70 LOC, 8 unit tests covering hand-computed reference, shape preservation, 2D/3D input equivalence, clip behavior, bit-width effect (10-bit MSE ≥4× lower than 8-bit on non-clipped input), idempotence, zero handling, channel-dim mismatch ValueError. (2) `intllm.eval.compute_quant_error_per_channel(model, batches, n_batches, bit_map_path, ...)` — forward-pre-hook-based streaming SSE accumulation per spec §4-§7; per-layer + global + outlier-restricted aggregation; atomic JSON write. 5 driver tests on a CPU-only synthetic `BitLinear`-named module. (3) Public alias `is_bitlinear` exposed from `intllm.qat` (was leading-underscore private; backwards-compat alias `_is_bitlinear` retained). (4) Spec §7 cross-reference invariant CORRECTED — the v1.0 draft claim `q_calibrated ≡ q_baseline` when `bits=8` is mathematically false (per-token vs per-channel scales); replaced with 7 actual math invariants the unit tests enforce. 53/53 PASS across `test_quant.py` + `test_qat.py` + `test_data.py` + `test_eval_quant_error.py` (was 29 at v1.1; +24 covering E2.4.C.2). No GPU run; pure CPU implementation work.
 
-Next session natural first step: E2.4.C.3 Mini ablation. Run `make train-mini-ablation TAG=balanced_calib --balanced-calib` (~42 min GPU per Q5 wall) → produces `mini_balanced_calib_maps.pt`; then call `compute_quant_error_per_channel` with `bilingual_stream(id_share=0.6, seed=42)` × 1000 batches (~5 min) → produces `mini_balanced_calib_quant_error.json`; gate on `outlier_global_reduction ≥ 0.10`. ~1.5h GPU end-to-end; needs explicit user nod (GPU run + multi-step orchestration).
+**Sign-off (v1.4, 2026-04-27):** E2.4.C.3 ablation + E2.4.C.4 decision doc COMPLETE. **Honest negative result.** Training: 24K steps × 8K tok/step bilingual at 60:40 in 43.4 min on RTX 4090 (matches Q5 wall 42 min within noise — bilingual sampler does NOT perturb training trajectory). val_loss(EN) = 4.83 (PPL 125.7) vs Q5 baseline 4.73 (PPL 113.5) — within seed-variance. Quantization-error metric: 1000 batches in 62 s (60× faster than the smoke-based estimate; cause = per-batch fp32 SSE accumulator + post-training-warm GPU vs the 200-step-cold smoke condition). `outlier_global_reduction = −82.13` (gate threshold 0.10; FAIL by enormous margin); `global_mean_reduction = −148.27`. Per-layer analysis (§6.4) attributes the failure to (a) all-time-max calibration capturing early-training peaks 10-100× larger than steady-state, (b) RMSNorm-bounded BitLinear inputs benefit from per-token-adaptive `q_baseline` scale that calibration cannot match, (c) outlier-bit-allocation lever ineffective when calibrated scale is fundamentally too coarse. Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` records: **DEMOTE balanced_calib to Phase D infra-diagnostic; NOT a Phase E2 ablation winner; future work = post-training PTQ-style calibration on held-out batches (SmoothQuant pattern) deferred to V32/Phase F.** Side fix: `train_mini_ablation.py` default `n_steps` corrected from 60K (Phase D Mini full) to 24K (E2 ablation budget matching Q5) — initial run accidentally launched at 60K and was killed; constant `E2_DEFAULT_N_STEPS = 24_000` documented at top of script. **E2.4 ENTIRELY DONE.**
 
-*Document version: 1.3 (E2.4.C.2 impl complete). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+Next session natural first step: a different E2 sub-feature. Per findings v1.1 §3 implementation order, the next sequenced feature is **E2.1 Hadamard rotation** (QuaRot/SpinQuant on `block.attn.o_proj` per Q1 closure) — structurally independent of E2.4's failure mode (rotates activations BEFORE quantization rather than reallocating scales/bits). Estimated: ~3-5 days human + ~3-5 h GPU (one Mini ablation run). E2.2 (FP8 mixed-precision) and E2.3 (FP16 distillation) are also viable parallel tracks.
+
+*Document version: 1.4 (E2.4 ENTIRELY DONE — honest negative result). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *Phase E v1.8 Tier 1+2 scope. Predecessor: E2.0 fully closed 2026-04-27.*

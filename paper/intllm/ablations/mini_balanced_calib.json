@@ -1,0 +1,25 @@
+{
+  "_schema_version": "1.2",
+  "tag": "balanced_calib",
+  "phase": "E2.x",
+  "features_active": [
+    "balanced_calib"
+  ],
+  "features_requested": [
+    "balanced_calib"
+  ],
+  "n_steps": 24000,
+  "val_loss": 4.834293847084045,
+  "ppl": 125.74975329184474,
+  "gate_pass": false,
+  "gate_threshold": 4.5,
+  "training_seconds": 2604.264468431473,
+  "initial_loss": 10.423725128173828,
+  "final_loss": 3.044823169708252,
+  "model_params": 21907968,
+  "proof_of_life": false,
+  "dry_run": false,
+  "tracker_maps_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/mini_balanced_calib_maps.pt",
+  "quant_error_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/mini_balanced_calib_quant_error.json",
+  "timestamp": "2026-04-27T05:28:33+00:00"
+}
