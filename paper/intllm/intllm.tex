@@ -1321,17 +1321,38 @@ The three-cause attribution committed in
 
 \begin{enumerate}[leftmargin=*]
 \item \textbf{All-time-max \texttt{running\_max} accumulator captures
-non-stationary peaks.} The accumulator is \texttt{torch.maximum} over
-every forward call across all 24K training steps. Early training has
-random-init activation peaks $10$-$100\times$ larger than steady-state.
-The accumulator captures these and never decays, so the calibrated
-scale is locked to a worst case the late-training model rarely
-produces. Per-layer evidence: \texttt{attn.o\_proj} \texttt{running\_max}
-ranges $11$--$20$ across the 6 layers, while typical late-training
-$|x|$ on the same channel is $\sim$$0.1$-$0.5$ post-RMSNorm. The
-calibrated scale~$=127/\text{running\_max}\approx 6$-$12$ is far too
-coarse for the steady-state distribution; the baseline per-token
-scale~$=127/0.5\approx 254$ is much finer.
+non-stationary peaks (empirically measured).} The accumulator is
+\texttt{torch.maximum} over every forward call across all 24K training
+steps; early training produces activation peaks well above
+steady-state, and the accumulator never decays. We verify this
+mechanism empirically by cross-comparing two existing artifacts: the
+training-time \texttt{running\_max} saved by E2.4 in
+\texttt{paper/intllm/ablations/mini\_balanced\_calib\_maps.pt} versus
+the steady-state per-channel \texttt{channel\_max} from F.6.1 on the
+trained Phase~D Mini in
+\texttt{outlier\_concentration\_mini.json}.\footnote{The two
+artifacts come from different models (E2.4 is bilingual at 24K~steps;
+F.6.1 evaluates the EN-only Phase~D Mini at 60K~steps). A clean
+within-model test would F.6.1-measure the balanced\_calib checkpoint
+itself, but balanced\_calib's training run did not save a final
+checkpoint (24K not divisible by \texttt{ckpt\_every}=10K). The
+cross-model comparison is therefore weaker evidence than F.6.1
+alone, but the gap magnitudes (per-layer-mean ratios of 67$\times$
+and 210$\times$ on max-to-max and median-to-median) are large enough
+that minor model differences are unlikely to flip the qualitative
+conclusion.}
+Per-layer measurement on \texttt{attn.o\_proj} (the rotated site):
+training-time \texttt{running\_max} per-layer max ranges $11.28$ to
+$19.80$ across the 6 layers; steady-state \texttt{channel\_max}
+per-layer max averages $\sim$$0.34$ across the same layers.
+Per-layer-mean training-to-steady ratio is $67\times$ on the
+max-to-max comparison and $\mathbf{210\times}$ on the
+median-to-median comparison. The calibrated scale
+$=127/\text{running\_max}\approx 6$-$12$ is locked to the
+training-time peaks; the baseline per-token scale at typical
+steady-state $|x|\sim 0.5$ produces $\sim$$254$, far finer.
+Reproducible via
+\texttt{python/phase\_d/scripts/compare\_running\_max\_train\_vs\_steady.py}.
 
 \item \textbf{RMSNorm-bounded BitLinear inputs reward per-token
 adaptation, not per-channel calibration.} Upstream BitLinear runs

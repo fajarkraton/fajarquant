@@ -1,0 +1,229 @@
+{
+  "_schema_version": "1.0",
+  "phase": "F.5.0-cross-comparison",
+  "source_a": {
+    "path": "paper/intllm/ablations/mini_balanced_calib_maps.pt",
+    "description": "E2.4 balanced_calib BitLinearStatTracker.running_max (training-time, all-time-max accumulator)",
+    "model_training": "bilingual_stream(seed=0) at 24K steps",
+    "model_class": "HGRNBitForCausalLM (Mini)"
+  },
+  "source_b": {
+    "path": "paper/intllm/ablations/outlier_concentration_mini.json",
+    "description": "F.6.1 channel_max measured on trained Phase D Mini final ckpt under bilingual_stream(seed=42)",
+    "model_eval": "100 batches \u00d7 8 \u00d7 1024 = 819K obs/site",
+    "model_class": "HGRNBitForCausalLM (Mini)",
+    "checkpoint": "python/phase_d/checkpoints/mini/mini_final.pt (Phase D EN-only c.1)"
+  },
+  "caveat": "Sources A and B use DIFFERENT trained models (bilingual at 24K vs EN-only at 60K). A clean apples-to-apples test would F.6.1-measure the balanced_calib checkpoint directly, but balanced_calib's training run did not save a final checkpoint (24K not divisible by ckpt_every=10K). Cross-model comparison is therefore weaker evidence than within-model F.6.1; reported because the gap magnitudes (100-360\u00d7 per median, 50-200\u00d7 per max) are large enough that minor model differences are unlikely to flip the qualitative conclusion that cause-1 holds.",
+  "comparison": {
+    "o_proj": {
+      "n_layers": 6,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.attn.o_proj",
+          "train_running_max__max": 18.18301010131836,
+          "train_running_max__mean": 5.0564799308776855,
+          "train_running_max__median": 4.737635135650635,
+          "steady_channel_max__max": 0.558377742767334,
+          "steady_channel_max__median": 0.013030752539634705,
+          "ratio_max_to_max": 32.56399513920972,
+          "ratio_median_to_median": 363.5734099961234
+        },
+        {
+          "layer": "model.layers.1.attn.o_proj",
+          "train_running_max__max": 16.754867553710938,
+          "train_running_max__mean": 4.791105270385742,
+          "train_running_max__median": 4.2716898918151855,
+          "steady_channel_max__max": 0.69986891746521,
+          "steady_channel_max__median": 0.03460315987467766,
+          "ratio_max_to_max": 23.94000810093672,
+          "ratio_median_to_median": 123.44797143630738
+        },
+        {
+          "layer": "model.layers.2.attn.o_proj",
+          "train_running_max__max": 14.738807678222656,
+          "train_running_max__mean": 5.213360786437988,
+          "train_running_max__median": 4.545066833496094,
+          "steady_channel_max__max": 0.28083154559135437,
+          "steady_channel_max__median": 0.027269182726740837,
+          "ratio_max_to_max": 52.48273532514576,
+          "ratio_median_to_median": 166.67411264361394
+        },
+        {
+          "layer": "model.layers.3.attn.o_proj",
+          "train_running_max__max": 19.799341201782227,
+          "train_running_max__mean": 4.757126331329346,
+          "train_running_max__median": 4.278416156768799,
+          "steady_channel_max__max": 0.2260923981666565,
+          "steady_channel_max__median": 0.01909024640917778,
+          "ratio_max_to_max": 87.57190140991737,
+          "ratio_median_to_median": 224.11529244127084
+        },
+        {
+          "layer": "model.layers.4.attn.o_proj",
+          "train_running_max__max": 15.123594284057617,
+          "train_running_max__mean": 4.153127670288086,
+          "train_running_max__median": 3.41536283493042,
+          "steady_channel_max__max": 0.1366077959537506,
+          "steady_channel_max__median": 0.01716996170580387,
+          "ratio_max_to_max": 110.70813476251239,
+          "ratio_median_to_median": 198.91499430519656
+        },
+        {
+          "layer": "model.layers.5.attn.o_proj",
+          "train_running_max__max": 11.282456398010254,
+          "train_running_max__mean": 2.881702184677124,
+          "train_running_max__median": 2.288383960723877,
+          "steady_channel_max__max": 0.11857674270868301,
+          "steady_channel_max__median": 0.012426787056028843,
+          "ratio_max_to_max": 95.14898234073412,
+          "ratio_median_to_median": 184.1492857651946
+        }
+      ],
+      "agg_train_running_max_mean": 4.475483695665996,
+      "agg_steady_channel_max_max_mean": 0.3367258571088314,
+      "agg_ratio_max_to_max_mean": 67.06929284640934,
+      "agg_ratio_median_to_median_mean": 210.14584443128444
+    },
+    "mlp.down_proj": {
+      "n_layers": 6,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.mlp.down_proj",
+          "train_running_max__max": 19.117969512939453,
+          "train_running_max__mean": 6.913673400878906,
+          "train_running_max__median": 6.385800838470459,
+          "steady_channel_max__max": 1.3687764406204224,
+          "steady_channel_max__median": 0.13864266872406006,
+          "ratio_max_to_max": 13.967196501624393,
+          "ratio_median_to_median": 46.059419493576634
+        },
+        {
+          "layer": "model.layers.1.mlp.down_proj",
+          "train_running_max__max": 28.72980308532715,
+          "train_running_max__mean": 7.821558475494385,
+          "train_running_max__median": 7.114047050476074,
+          "steady_channel_max__max": 1.9004120826721191,
+          "steady_channel_max__median": 0.14852748811244965,
+          "ratio_max_to_max": 15.117670187052765,
+          "ratio_median_to_median": 47.897174730983494
+        },
+        {
+          "layer": "model.layers.2.mlp.down_proj",
+          "train_running_max__max": 40.72813034057617,
+          "train_running_max__mean": 9.069096565246582,
+          "train_running_max__median": 8.108553886413574,
+          "steady_channel_max__max": 2.998946189880371,
+          "steady_channel_max__median": 0.19209891557693481,
+          "ratio_max_to_max": 13.580813979927006,
+          "ratio_median_to_median": 42.21030536305205
+        },
+        {
+          "layer": "model.layers.3.mlp.down_proj",
+          "train_running_max__max": 40.56499099731445,
+          "train_running_max__mean": 9.416508674621582,
+          "train_running_max__median": 8.243117332458496,
+          "steady_channel_max__max": 6.064711093902588,
+          "steady_channel_max__median": 0.4435186982154846,
+          "ratio_max_to_max": 6.688693058783652,
+          "ratio_median_to_median": 18.585726747541898
+        },
+        {
+          "layer": "model.layers.4.mlp.down_proj",
+          "train_running_max__max": 39.333709716796875,
+          "train_running_max__mean": 8.991079330444336,
+          "train_running_max__median": 7.986164569854736,
+          "steady_channel_max__max": 2.8751108646392822,
+          "steady_channel_max__median": 0.24183282256126404,
+          "ratio_max_to_max": 13.680762783988078,
+          "ratio_median_to_median": 33.02349319365688
+        },
+        {
+          "layer": "model.layers.5.mlp.down_proj",
+          "train_running_max__max": 18.7657527923584,
+          "train_running_max__mean": 5.124119281768799,
+          "train_running_max__median": 4.569715976715088,
+          "steady_channel_max__max": 0.2103876918554306,
+          "steady_channel_max__median": 0.02086937613785267,
+          "ratio_max_to_max": 89.19605812897753,
+          "ratio_median_to_median": 218.9675410769267
+        }
+      ],
+      "agg_train_running_max_mean": 7.889339288075765,
+      "agg_steady_channel_max_max_mean": 2.5697240605950356,
+      "agg_ratio_max_to_max_mean": 25.371865773392233,
+      "agg_ratio_median_to_median_mean": 67.79061010095627
+    },
+    "i_proj": {
+      "n_layers": 6,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.attn.i_proj",
+          "train_running_max__max": 5.433528900146484,
+          "train_running_max__mean": 4.42323637008667,
+          "train_running_max__median": 4.384588718414307,
+          "steady_channel_max__max": 2.938382625579834,
+          "steady_channel_max__median": 0.190146341919899,
+          "ratio_max_to_max": 1.8491563531738078,
+          "ratio_median_to_median": 23.059022193870852
+        },
+        {
+          "layer": "model.layers.1.attn.i_proj",
+          "train_running_max__max": 5.663733005523682,
+          "train_running_max__mean": 4.825059413909912,
+          "train_running_max__median": 4.768720626831055,
+          "steady_channel_max__max": 0.42437291145324707,
+          "steady_channel_max__median": 0.21649987995624542,
+          "ratio_max_to_max": 13.346122838350986,
+          "ratio_median_to_median": 22.02643543171854
+        },
+        {
+          "layer": "model.layers.2.attn.i_proj",
+          "train_running_max__max": 5.800683975219727,
+          "train_running_max__mean": 4.83305025100708,
+          "train_running_max__median": 4.803600788116455,
+          "steady_channel_max__max": 0.5247365236282349,
+          "steady_channel_max__median": 0.21188007295131683,
+          "ratio_max_to_max": 11.054469651000305,
+          "ratio_median_to_median": 22.671319304388604
+        },
+        {
+          "layer": "model.layers.3.attn.i_proj",
+          "train_running_max__max": 5.676328182220459,
+          "train_running_max__mean": 4.728199005126953,
+          "train_running_max__median": 4.710967540740967,
+          "steady_channel_max__max": 0.496243417263031,
+          "steady_channel_max__median": 0.21248973906040192,
+          "ratio_max_to_max": 11.438596432225827,
+          "ratio_median_to_median": 22.170329548956886
+        },
+        {
+          "layer": "model.layers.4.attn.i_proj",
+          "train_running_max__max": 6.201364517211914,
+          "train_running_max__mean": 4.693045139312744,
+          "train_running_max__median": 4.654510974884033,
+          "steady_channel_max__max": 0.5184051394462585,
+          "steady_channel_max__median": 0.21184571087360382,
+          "ratio_max_to_max": 11.962390117960608,
+          "ratio_median_to_median": 21.97123064559524
+        },
+        {
+          "layer": "model.layers.5.attn.i_proj",
+          "train_running_max__max": 6.31361198425293,
+          "train_running_max__mean": 4.697554111480713,
+          "train_running_max__median": 4.667567729949951,
+          "steady_channel_max__max": 0.5681888461112976,
+          "steady_channel_max__median": 0.22213779389858246,
+          "ratio_max_to_max": 11.111819648455771,
+          "ratio_median_to_median": 21.012037834862717
+        }
+      ],
+      "agg_train_running_max_mean": 4.700024048487346,
+      "agg_steady_channel_max_max_mean": 0.9117215772469839,
+      "agg_ratio_max_to_max_mean": 10.127092506861217,
+      "agg_ratio_median_to_median_mean": 22.151729159898807
+    }
+  },
+  "interpretation": "Cause-1 SUPPORTED: o_proj training-time running_max mean = 4.48 vs steady-state channel_max mean = 0.34; per-layer max-to-max ratio averages 67.1\u00d7 and per-layer median-to-median ratio averages 210\u00d7. Training-time accumulator captures activations dramatically larger than late-training steady-state, consistent with the \u00a77.2 cause-1 hypothesis that all-time-max running_max locks the calibrated scale to early-training peaks.",
+  "timestamp": "2026-04-27T13:05:23+00:00"
+}

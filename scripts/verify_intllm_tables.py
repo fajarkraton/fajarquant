@@ -483,6 +483,32 @@ CLAIMS: list[Claim] = [
                                       ["by_role"]["i_proj"]["mean_of_ratio_mean"]),
           tolerance=0.05,
           paper_ref="§7.3 cause-2 measured F.6.1 / i_proj mean_of_ratio_mean"),
+
+    # ── §7.2 cause-1 cross-comparison (NEW post-V31) ──
+    Claim("F.5.0-cross: o_proj per-layer-mean max-to-max ratio (paper says 67×)",
+          paper_value=67.1,
+          source_loader=lambda: float(load_ablation("running_max_train_vs_steady.json")
+                                      ["comparison"]["o_proj"]["agg_ratio_max_to_max_mean"]),
+          tolerance=0.5,
+          paper_ref="§7.2 cause-1 cross-comparison / o_proj agg_ratio_max_to_max_mean"),
+    Claim("F.5.0-cross: o_proj per-layer-mean median-to-median ratio (paper says 210×)",
+          paper_value=210.0,
+          source_loader=lambda: float(load_ablation("running_max_train_vs_steady.json")
+                                      ["comparison"]["o_proj"]["agg_ratio_median_to_median_mean"]),
+          tolerance=2.0,
+          paper_ref="§7.2 cause-1 cross-comparison / o_proj agg_ratio_median_to_median_mean"),
+    Claim("F.5.0-cross: o_proj training-time running_max mean (paper says 4.48)",
+          paper_value=4.48,
+          source_loader=lambda: float(load_ablation("running_max_train_vs_steady.json")
+                                      ["comparison"]["o_proj"]["agg_train_running_max_mean"]),
+          tolerance=0.05,
+          paper_ref="§7.2 cause-1 cross-comparison / o_proj agg_train_running_max_mean"),
+    Claim("F.5.0-cross: o_proj steady-state channel_max mean (paper says 0.34)",
+          paper_value=0.34,
+          source_loader=lambda: float(load_ablation("running_max_train_vs_steady.json")
+                                      ["comparison"]["o_proj"]["agg_steady_channel_max_max_mean"]),
+          tolerance=0.01,
+          paper_ref="§7.2 cause-1 cross-comparison / o_proj agg_steady_channel_max_max_mean"),
 ]
 
 
