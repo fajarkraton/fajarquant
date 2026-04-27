@@ -99,7 +99,7 @@ E2_4_DEFAULT_HIGH_BITS = 10
 # Set of feature flags that DO have a real implementation in this driver.
 # Stub-warning loop skips entries here; the corresponding feature_active
 # entry is set when real wire-up runs.
-E2_REAL_FEATURES = {"balanced_calib"}
+E2_REAL_FEATURES = {"balanced_calib", "hadamard"}
 
 # E2 ablation runs match Q5 baseline (24K steps × 8K tok/step ≈ 196M
 # tokens at 60:40 bilingual mix); see `q5_bilingual_baseline.py:DEFAULT_N_STEPS_FOR_200M_TOK`
@@ -240,6 +240,16 @@ def main() -> int:
     p.add_argument("--distill", action="store_true", help=E2_FEATURE_FLAGS["distill"])
     p.add_argument("--balanced-calib", action="store_true", help=E2_FEATURE_FLAGS["balanced_calib"])
     p.add_argument(
+        "--bilingual-data",
+        action="store_true",
+        help="Use bilingual_stream(id_share=0.6) for both train and val. "
+        "Default OFF (= slimpajama EN-only, matches Phase D Mini gates). "
+        "Implicitly ON when --balanced-calib is set (E2.4 always implies "
+        "bilingual). For apples-to-apples vs Q5 baseline (commit 1074883), "
+        "E2.x ablations should pass --bilingual-data alongside the feature "
+        "flag (e.g., `--hadamard --bilingual-data`).",
+    )
+    p.add_argument(
         "--lang-cond",
         choices=["a", "b", "c"],
         default=None,
@@ -329,8 +339,10 @@ def main() -> int:
     from intllm.qat import (  # noqa: E402
         attach_stat_trackers,
         detach_stat_trackers,
+        is_bitlinear,
         save_calibration_maps,
     )
+    from intllm.quant import HadamardRotation  # noqa: E402
     from intllm.tokenizer import get_tokenizer  # noqa: E402
     from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402  # noqa: F401
     sys.path.insert(0, str(REPO_ROOT / "python" / "phase_e"))
@@ -357,10 +369,13 @@ def main() -> int:
 
     print("[2/4] tokenizer + data stream")
     tok = get_tokenizer()
-    if args.balanced_calib:
-        # E2.4 Option C: bilingual training data; sampler IS the
-        # BilingualCalibrationSampler per E2.4.0 findings v1.1 §2.4.
-        print(f"      stream: bilingual (id_share={BILINGUAL_RATIO_DEFAULT:.2f})")
+    use_bilingual = args.balanced_calib or args.bilingual_data
+    if use_bilingual:
+        # Bilingual stream when EITHER --balanced-calib (E2.4 implicit
+        # bilingual sampling) OR --bilingual-data (explicit, used by
+        # E2.1+ ablations that want apples-to-apples vs Q5 baseline).
+        reason = "balanced_calib" if args.balanced_calib else "bilingual_data"
+        print(f"      stream: bilingual (id_share={BILINGUAL_RATIO_DEFAULT:.2f}, reason={reason})")
         batches = bilingual_stream(
             tokenizer=tok,
             seq_len=train_hp.seq_len,
@@ -370,7 +385,7 @@ def main() -> int:
             seed=0,
         )
     else:
-        print("      stream: slimpajama (EN-only, baseline)")
+        print("      stream: slimpajama (EN-only, Phase D Mini-gate baseline)")
         batches = slimpajama_stream(
             tokenizer=tok,
             seq_len=train_hp.seq_len,
@@ -398,6 +413,41 @@ def main() -> int:
     if args.balanced_calib:
         trackers = attach_stat_trackers(model)
         print(f"      stat trackers attached to {len(trackers)} BitLinear sites")
+
+    # E2.1.2: attach HadamardRotation pre-hook on every block.attn.o_proj
+    # BitLinear. Per Q1 closure (FJQ_PHASE_E_E2_FINDINGS.md v1.1 §4),
+    # rotation applies ONLY to o_proj — i/f/g_proj are HGRN gated-linear-
+    # recurrence projections, structurally distinct from QKV. The hook
+    # REPLACES the input tensor with H @ x before BitLinear sees it,
+    # so quantization operates on outlier-spread activations.
+    #
+    # Single shared HadamardRotation instance — all o_proj sites at Mini
+    # share `hidden_size`, so one matrix in memory suffices. Hook handles
+    # tracked for clean teardown post-val.
+    hadamard_module: HadamardRotation | None = None
+    hadamard_handles: list = []
+    if args.hadamard:
+        hadamard_module = HadamardRotation(arch.hidden_size).to(device)
+
+        def _hadamard_pre_hook(_module, inputs):
+            x = inputs[0]
+            return (hadamard_module(x),)
+
+        n_attached = 0
+        for name, module in model.named_modules():
+            if name.endswith(".attn.o_proj") and is_bitlinear(module):
+                handle = module.register_forward_pre_hook(_hadamard_pre_hook)
+                hadamard_handles.append(handle)
+                n_attached += 1
+        print(
+            f"      Hadamard rotation attached to {n_attached} attn.o_proj sites "
+            f"(dim={arch.hidden_size})",
+        )
+        if n_attached == 0:
+            raise RuntimeError(
+                "args.hadamard set but no block.attn.o_proj BitLinear modules found "
+                "in the model — model layout may not match expected HGRNBit topology",
+            )
 
     print(f"[4/4] training {train_hp.n_steps} steps (tag={args.tag})")
 
@@ -537,6 +587,12 @@ def main() -> int:
         quant_error_path=quant_error_path,
     )
     print(f"\n  ablation JSON : {out_path}")
+
+    # E2.1.2 teardown: remove Hadamard pre-hooks before model is freed,
+    # so PyTorch's hook-handle cleanup path doesn't need to traverse a
+    # half-deleted module tree.
+    for h in hadamard_handles:
+        h.remove()
 
     # Explicit teardown
     del model
