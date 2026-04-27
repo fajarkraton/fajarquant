@@ -69,15 +69,136 @@ ID+EN extension via Phase E1 corpus v1.0 (25.67~B tokens at 60:40);
 \end{abstract}
 
 % ═══════════════════════════════════════════════════════════════════════
+% §1 Introduction — DRAFTED THIS COMMIT (Path A Week 4 sub-step 1)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Introduction}
 \label{sec:intro}
 
-\textit{[STUB — drafted Week 3 of Path A calendar. Motivates the
-kernel-resident LLM use case + explains why existing solutions
-(BitNet~2B4T, MMfreeLM at $\geq$370M, eBPF-AI userspace offload) do
-not meet the $\leq$16~MB binary + zero-heap +
-deterministic-execution constraints simultaneously. Sets up C1-C5
-contribution preview.]}
+Operating-system kernels are an unusually hostile environment for
+language models. Heap allocation is forbidden in interrupt-handler
+context; floating-point hot paths are unreliable across interrupt
+boundaries on most x86 microkernels; the binary footprint is
+constrained by physical memory budgets that pre-date the
+gigabyte-scale weights of modern transformer LMs by decades. Yet there
+is a growing class of deployment scenarios — drone flight controllers
+that must classify sensor anomalies in real time, automotive
+electronic control units that must reason about driver-intent
+ambiguity inside the safety boundary, embedded sensor hubs that
+cannot afford userspace context-switch latency for every classification
+— where the model SHOULD be in the kernel address space rather than
+shipping data across the user/kernel boundary on every inference.
+
+Existing 1-bit and 1.58-bit ternary LMs come close but do not fit.
+BitNet~b1.58~2B4T~\citep{ma2024era} is $\approx 500$~MB even after
+ternary packing, two orders of magnitude over a typical
+embedded-kernel binary budget. MatMul-Free
+LLM~\citep{zhu2024matmulfree} validates the architecture down to
+370~M parameters, $\approx 70$~MB packed — still too large for the
+kernel budget but a useful starting point. The eBPF-AI line of work
+puts inference \emph{near} the kernel via syscall-side hooks, but
+keeps the model weights in a userspace process that the kernel
+calls into; the inference still crosses the user/kernel boundary on
+every call. Standard FP16 transformer deployments (Llama-style,
+SmolLM2~\citep{allal2024smollm2}, Pythia~\citep{biderman2023pythia})
+are at minimum gigabytes; they do not fit by orders of magnitude.
+
+This paper presents \textbf{IntLLM}, a 1.58-bit ternary language model
+family in the 22-74~M parameter range, trained from scratch under a
+calibrated three-point scaling chain, deployed entirely inside the
+FajarOS Nova~v3.9.0 kernel address space, and verified at compile
+time by a four-context type system. The combination of these
+properties is the contribution; no single property is a breakthrough
+in isolation, and we do not claim frontier benchmark performance at
+this scale. What IntLLM \emph{does} establish is that the joint
+deployment-target intersection of (i)~ternary precision,
+(ii)~22-74~M scale, (iii)~bilingual native training, (iv)~kernel-resident
+inference, and (v)~compile-time-verified safety is achievable by a
+single coherent system, on commodity laptop hardware, with all
+artifacts publicly reproducible.
+
+The paper makes five contributions:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{C1 (Section~\ref{sec:results-scaling}).} A three-point
+1.58-bit ternary scaling chain at 22~M~/~46~M~/~74~M parameters with
+monotonically widening calibrated-gate margins
+($0.118 \to 0.210 \to 0.279$ nat) over a $\sim$$3.5\times$ parameter
+range, validating that BitNet-style training-from-scratch ternary
+extends downward from the literature's 2~B+ regime
+\citep{ma2024era} into the parameter range relevant for
+kernel-context deployment.
+
+\item \textbf{C2 (Section~\ref{sec:bilingual}).} A 25.67~B-token
+fully-public bilingual Indonesian + English corpus at 60:40 mix with
+0\%~synthetic content and a mechanical-consistency-gated reproducibility
+artifact, plus a Q5 Mini-scale baseline measurement that establishes
+the cross-lingual coherence floor every subsequent ablation in the
+paper compares against.
+
+\item \textbf{C3 (Section~\ref{sec:results-kernel}).} Deployment of
+the Phase~D Medium checkpoint inside the FajarOS Nova v3.9.0 kernel
+address space via a three-module Fajar Lang \texttt{@kernel}-context
+implementation, gated by a 4-invariant CI regression test, with binary
+footprint within the $\leq 16$~MB design budget at the Mini and Base
+scales.
+
+\item \textbf{C4 (Section~\ref{sec:negatives}).} Two outlier-handling
+features ported from the post-hoc-quantization
+literature~\citep{xiao2022smoothquant,ashkboos2024quarot} ablated
+against the C2 Q5 baseline both FAIL their mechanical adoption gates
+($-82.13$ and $-0.12$~nat respectively), with three-cause attributions
+identifying a common failure mode that we hypothesize generalizes
+beyond the two specific features tested:
+\emph{post-hoc-literature precedents do not transfer cleanly to
+training-from-scratch ternary at small scale}.
+
+\item \textbf{C5 (Section~\ref{sec:safety}).} A four-context type
+system (\texttt{@safe}, \texttt{@kernel}, \texttt{@device},
+\texttt{@unsafe}) implemented in the Fajar Lang compiler that
+enforces the C3 kernel-context invariants at compile time via seven
+domain-specific error codes (KE001-KE004, DE001-DE003), positioned on
+the safety-mechanism spectrum stronger than userspace-ML
+documentation-grade conventions and weaker (explicitly) than
+seL4-class machine-checked proofs~\citep{klein2009sel4}.
+\end{itemize}
+
+C1-C3 are \emph{deployment positives} establishing that the IntLLM
+family is a working artifact at the stated intersection. C4 is a
+\emph{methodological negative} — two ablations that FAIL — published
+honestly per the project's research-integrity rules
+(Section~\ref{sec:method-integrity}) because the failures inform a
+five-entry Phase~F follow-up agenda
+(Section~\ref{sec:discussion-phasef}) more usefully than ``we tried
+something and it didn't work'' would. C5 ties C3 to the compiler
+infrastructure, lifting kernel-context safety from review-time
+convention to compile-time guarantee.
+
+\subsection{What this paper is not}
+\label{sec:intro-non-claims}
+
+The paper does not claim:
+\begin{itemize}[leftmargin=*]
+\item competitive multi-choice reasoning benchmark scores, nor
+parity with FP16 baselines at the same parameter count — the 22-74~M
+scale is below the emergence threshold for those skills per
+\citet{biderman2023pythia} and the trade for ternary precision is
+explicit;
+\item that the C4 outlier-handling failures imply universal failure
+of the QuaRot/SmoothQuant family — Phase~F.6 explicitly tests whether
+the post-hoc protocol recovers a positive result on the trained
+checkpoint;
+\item that FajarOS Nova or the Fajar Lang analyzer are
+formally verified or production-hardened — both are research-grade,
+and Section~\ref{sec:safety-scope} delineates the gap to
+seL4~\citep{klein2009sel4}-class guarantees explicitly;
+\item bare-metal performance numbers (tok/s, watts) — Table~\ref{tab:kernel-runtime}
+tags those entries PEND, deferred to a future deployment-platform partner.
+\end{itemize}
+
+The paper organization follows the C1-C5 contribution stack, with
+Sections~\ref{sec:background}-\ref{sec:method} establishing background
+and methodology and Section~\ref{sec:discussion} closing with the
+Phase~F follow-up agenda.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{Background}
