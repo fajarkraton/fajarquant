@@ -179,6 +179,56 @@ Phase F.5 work is purely about replacing `running_max` accumulator semantics and
 
 Phase F.6 work is about WHEN/WHERE to apply the rotation, not the rotation itself.
 
+### F.7 FP8 (E4M3) mixed-precision for `lm_head` + `attn.W_o`
+
+**Origin:** Path A v1.10 cut decision 2026-04-27 — Phase E2.2 deferred to here. Was originally planned as Mini-scale ablation but never executed; Path A stops Phase E2 after 2 negative results (E2.4 + E2.1) and pivots to paper.
+
+**What to investigate in Phase F:**
+
+| Sub-task | Description | Risk / cost |
+|---|---|---|
+| F.7.0 | Pre-flight: verify `torch.float8_e4m3fn` availability on RTX 4090 Laptop + production `torch` version pin (was Q7 in E2.0 findings, deferred). `python -c "import torch; print(torch.float8_e4m3fn, torch.cuda.get_device_capability())"`. | ~½h. Determines whether F.7 is buildable on this hardware at all. |
+| F.7.1 | Implement FP8 (E4M3) cast for `lm_head` and `attn.W_o` weights only (not full BitLinear); document binary-size delta vs ternary. | ~2 days human; may need PyTorch upgrade if current pinned version lacks fp8. |
+| F.7.2 | Mini-scale ablation `make train-mini-ablation TAG=fp8_lmhead --fp8-lmhead --bilingual-data` (~50 min GPU). | Standard E2-style run; like-for-like vs Q5 baseline. |
+| F.7.3 | Decision doc `FJQ_PHASE_E_E2_FP8_DECISION.md` — adopt iff ≥+0.05 nat val_loss AND kernel binary size ≤ 16 MB. |
+| F.7.4 | If PASS: extend to Base / Medium scale; consider as candidate for paper update / second paper. |
+
+**Entry condition for F.7:** Path A paper accepted (or at least submitted) AND F.7.0 confirms PyTorch FP8 is buildable on this hardware. If F.7.0 fails (e.g., `torch.float8_e4m3fn` not available), defer further until PyTorch / Triton upgrade.
+
+**Risk specific to F.7:** unlike F.5/F.6 which adapt existing primitives, F.7 may require a PyTorch upgrade that destabilizes the rest of the stack. Should be tested on a separate branch.
+
+### F.8 FP16 distillation during QAT (teacher-student)
+
+**Origin:** Path A v1.10 cut decision 2026-04-27 — Phase E2.3 deferred to here.
+
+**What to investigate in Phase F:**
+
+| Sub-task | Description | Risk / cost |
+|---|---|---|
+| F.8.1 | Add teacher-student loss to `intllm.qat` (KL on logits + MSE on hidden states). Teacher = Phase D Medium c.1 FP32 master (per E2.0 Q3 closure: viable via `model.half()`; ~280 MB FP16 in VRAM during student training). | ~3 days human. |
+| F.8.2 | Address negative-transfer risk per Q3 caveat: teacher is English-only Phase D Medium; bilingual student distilling from EN-only teacher needs sampling-aware distill weight (full weight on EN samples, down-weighted on ID samples). | Adds complexity; needs ablation of weighting scheme itself. |
+| F.8.3 | Mini-scale ablation `make train-mini-ablation TAG=distill --distill --bilingual-data`. | Standard E2-style run. |
+| F.8.4 | Decision doc `FJQ_PHASE_E_E2_DISTILL_DECISION.md`. |
+| F.8.5 | If F.8.1-F.8.4 negative-result-on-EN-only-teacher: pivot to Option C — train a fresh bilingual FP16 teacher (~30-60 h GPU additional). High cost; only pursue if F.8 FAIL is clearly attributable to teacher-language-mismatch and the architecture itself shows promise. |
+
+**Entry condition for F.8:** Path A paper accepted AND F.7 outcome documented (FP8 has lower implementation risk and may inform whether mixed-precision path is even worth pursuing).
+
+### F.9 Language-conditioned design (per-lang RMSNorm γ / LoRA / MoE-light)
+
+**Origin:** Path A v1.10 cut decision 2026-04-27 — Phase E2.5 deferred to here.
+
+**What to investigate in Phase F:**
+
+| Sub-task | Description | Risk / cost |
+|---|---|---|
+| F.9.1 | Re-evaluate option (a/b/c) selection given F.5/F.6/F.7/F.8 outcomes. Original preliminary recommendation (Option (a) per-lang RMSNorm γ) was contingent on post-E2.1-2.4 empirical signal which was 0/2 FAIL — preliminary may need revision. | ~½ day; literature + decision doc. |
+| F.9.2 | Implement chosen option as `intllm.arch.LanguageConditioned*` classes with unit tests. | ~3-5 days human depending on option (a easiest; c hardest). |
+| F.9.3 | Mini-scale ablation `make train-mini-ablation TAG=lang_cond --lang-cond X --bilingual-data`. | Standard E2-style run. |
+| F.9.4 | Decision doc — adopt iff coherence ratio improvement ≥+0.10× toward 1.5× absolute (Q5 baseline 1.77×; gate 1.67× achievable). |
+| F.9.5 | If PASS at Mini, optionally extend to Base scale to confirm scaling-friendliness. |
+
+**Entry condition for F.9:** Path A paper accepted AND at least one of F.5/F.6/F.7/F.8 has demonstrated that ANY Phase E-class feature can help under our regime (post-hoc or otherwise). If all of F.5-F.8 fail, F.9 is unlikely to flip the trend; demote to "experimental research" without paper-submission target.
+
 ---
 
 ## 5. Decision artifact (when Phase F kicks off OR is decided NOT to)
@@ -193,7 +243,8 @@ Either way, the decision is committed as code per CLAUDE §6.8 R6 (mechanical de
 
 ---
 
-*Document version: 1.2 (post-E2.4 + E2.1 sync — F.5 + F.6 entries added). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Document version: 1.3 (Path A absorption — F.5+F.6+F.7+F.8+F.9 entries). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *v1.0→v1.1 (2026-04-27): added §4.1 F.5 sub-tasks for post-training PTQ calibration as future-work entry from E2.4 negative result.*
 *v1.1→v1.2 (2026-04-27): added §4.1 F.6 sub-tasks for post-hoc QuaRot-style Hadamard rotation as future-work entry from E2.1 negative result.*
+*v1.2→v1.3 (2026-04-27): added §4.1 F.7 (FP8 mixed-precision, deferred E2.2) + F.8 (FP16 distillation, deferred E2.3) + F.9 (language-conditioned design, deferred E2.5) as Path A scope-cut absorption.*
 *Origin: created alongside Phase E v1.7 → v1.8 surgical revision (2026-04-26) to preserve Tier 3 work as Phase F roadmap rather than delete.*

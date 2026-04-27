@@ -1,6 +1,14 @@
 # FajarQuant Phase E — Bilingual Kernel-LLM Production Plan (100% Production Bar, Tier 1+2 Scope)
 
-> **Plan version:** 1.9 (2026-04-27 v1.9 sync — TWO E2 negative results closed: E2.4 balanced_calib FAIL + E2.1 Hadamard FAIL; E2 implementation order revised; combined gate recalibrated; F.5 + F.6 future-work entries added)
+> **Plan version:** 1.10 (2026-04-27 v1.10 — PATH A scope decision: STOP Phase E2 after 2 negative results; CUT E2.2/E2.3/E2.5; REMOVE E2.6 combined; pivot directly to Phase E4 paper writeup. See `FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0 for paper structure.)
+>
+> **v1.9 → v1.10 changelog (2026-04-27, post-E2.1 closure, Path A decision):**
+> - **§3 PHASE E2 status block updated** — Path A selected. Continuing E2.2/E2.3/E2.5 was high-cost (3 × ~50 min GPU + 2-3 weeks human) for low expected paper yield (likely 0-2 of 3 help based on E2.4+E2.1 meta-pattern). Re-frame as honest-negative-results paper is faster + defensible.
+> - **E2.2 / E2.3 / E2.5 sub-sections marked DEFERRED to Phase F.7 / F.8 / F.9** — code/scaffolding stays in tree; ablations not run.
+> - **E2.6 combined ablation REMOVED** — only 2 features attempted (E2.4 + E2.1), both FAIL; combined ablation moot.
+> - **Phase E3 (bilingual scale-up) status:** plan-v1.0-v1.9 had E3 as Mini→Base→Medium bilingual training. Under Path A, E3 stays in plan but is also DEFERRED post-paper-acceptance (Q5 Mini baseline is the paper's bilingual claim; scale-up is future-work). Paper is publishable on Q5 alone.
+> - **Phase E4 (paper writeup) PROMOTED to immediate next phase** — was Week 18+ in v1.9 calendar; now Week 1-4 starting 2026-04-27. Companion doc `FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0 has full section map + tables/figures inventory + 4-week calendar.
+> - **Tier 1+2 scope unchanged** — Tier 3 still deferred to Phase F.1-F.4. Path A is a re-scoping WITHIN Tier 1+2, not a Tier scope change.
 >
 > **v1.8 → v1.9 changelog (2026-04-27, post-E2.4.C.3 + C.4 closure):**
 > - **§3 PHASE E2 status block updated** — E2.0 + E2.4 marked CLOSED. E2.4 outcome = **honest negative result** (`outlier_global_reduction = −82.13`, gate FAIL by 82×). Demoted to Phase D infra-diagnostic; NOT in V31 paper main results. Decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0 records the call + 3-cause analysis.
@@ -403,12 +411,12 @@ Per §14 synthetic-data hygiene + R8: add 5–10 B (up to 50% of pretrain mix pe
 
 Ablations done at Mini scale (cheapest, fastest signal) before committing to bilingual training.
 
-> **Status (v1.9, 2026-04-27, post-E2.4 + E2.1 sync):** E2.0 + E2.4 + E2.1 all CLOSED. **TWO honest negative results in a row:**
+> **Status (v1.10, 2026-04-27, PATH A — STOP Phase E2 + pivot to paper):** E2.0 + E2.4 + E2.1 CLOSED. **TWO honest negative results, Path A selected → STOP Phase E2 here.**
 >
 > - **E2.4 balanced_calib FAIL**: `outlier_global_reduction = −82.13`, calibrated quantizer 83× WORSE than baseline. Demoted; future-work `Phase F.5` (post-training PTQ on held-out, SmoothQuant pattern). See `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0.
 > - **E2.1 Hadamard FAIL**: `val_loss(EN) = 4.852` (Q5 baseline 4.732), regression by **+0.12 nat** vs gate ≥+0.05 nat improvement. NOT adopted; future-work `Phase F.6` (post-hoc QuaRot on pre-trained checkpoint, outlier-concentration measurement, alternate insertion points). See `FJQ_PHASE_E_E2_HADAMARD_DECISION.md` v1.0.
 >
-> **Implementation order remaining:** E2.2 FP8 → E2.3 Distill → E2.5 LangCond → E2.6 Combined (now 2-4 features depending on remaining ablation results). The original "all 4 features will help ≥+0.05 nat each" expectation is RECALIBRATED — empirical evidence shows Mini-scale + training-from-scratch + bilingual-data conditions are HOSTILE to the QuaRot/SmoothQuant style features that were ported from post-hoc-quantization literature. The remaining ablations (E2.2/E2.3/E2.5) are structurally different (FP8 = mixed precision, not outlier handling; FP16 distillation = teacher-student; lang-cond = arch change) and may behave differently. **Combined-gate expectation now: 1-2 of remaining 3 may PASS; combined ≥+0.10 nat realistic only if 2+ help meaningfully.** This is NOT a Phase E2 ABORT trigger (`FJQ_PHASE_E_E2_ABORT.md` fires only on aggregate <0 nat after E2.6).
+> **PATH A SCOPE DECISION (v1.10):** Continuing E2.2/E2.3/E2.5 was estimated 3 × ~50 min GPU + 2-3 weeks human for likely 0-2 of 3 wins (per E2.4+E2.1 meta-pattern: post-hoc-quantization-literature features fail at small-scale training-from-scratch). Re-frame paper as "Phase D scaling chain + bilingual extension + honest negative results on outlier-handling features at this regime" — defensible, faster, complete in ~4 weeks. Companion: `FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0 (5 contributions, 10 page MLSys + 11 page arXiv, 4-week calendar). **E2.2/E2.3/E2.5 cut to Phase F.7/F.8/F.9; E2.6 combined REMOVED.**
 
 #### E2.0 Pre-flight audit ✅ CLOSED 2026-04-27
 
@@ -434,21 +442,29 @@ What was actually built (E2.1.0 + E2.1.1 + E2.1.2 + E2.1.3 + E2.1.4):
 
 **What stays from E2.1 regardless of failure** (reusable infrastructure, independent of training-from-scratch failure mode): `intllm.quant.HadamardRotation` (orthogonal Walsh-Hadamard module with full unit-test coverage), `--hadamard` flag in `train_mini_ablation.py` (kept for diagnostic + F.6 post-hoc experiments), `--bilingual-data` orthogonal flag (used by ALL remaining E2.x ablations), `register_forward_pre_hook` wire-up pattern (mirrors E2.4.A; reusable for any "modify input to BitLinear" experiment without forking `_upstream/`).
 
-#### E2.2 Mixed-precision (FP8 LM head + attention output)
+#### E2.2 Mixed-precision (FP8 LM head + attention output) — **DEFERRED to Phase F.7 under Path A**
+
+> **Path A status (v1.10):** CUT from E2 sequence. E2.4 + E2.1 negative results established that Mini-scale + training-from-scratch + bilingual-data is hostile to QuaRot/SmoothQuant-style features ported from post-hoc literature. FP8 mixed-precision is structurally different (precision allocation, not outlier handling) but the laptop-only constraint + paper-track timing favor cutting losses and shipping the negative-results-paper rather than running another 50-min GPU ablation that may also FAIL. See `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` §4.1 F.7 for deferred sub-tasks.
+
+(Original sub-task table below preserved for Phase F.7 lift):
 
 | Task | Verification |
 |---|---|
 | E2.2.1 FP8 (E4M3) for `lm_head` and `attn.W_o` | `pytest python/phase_d/tests/test_mixed_precision.py` passes (param dtype check) |
-| E2.2.2 Mini-scale ablation | `make train-mini-ablation TAG=fp8_lmhead` |
+| E2.2.2 Mini-scale ablation | `make train-mini-ablation TAG=fp8_lmhead --bilingual-data` |
 | E2.2.3 Decision doc | `docs/FJQ_PHASE_E_E2_FP8_DECISION.md` — adopt iff ≥+0.05 nat AND kernel binary size remains ≤ 16 MB |
 
-#### E2.3 FP16 distillation during QAT
+#### E2.3 FP16 distillation during QAT — **DEFERRED to Phase F.8 under Path A**
+
+> **Path A status (v1.10):** CUT from E2 sequence. Distillation requires a teacher (Phase D Medium c.1 FP32 master available per Q3 closure, but English-only) — bilingual student distilling from EN-only teacher has known negative-transfer risk per Q3 caveat. Pursuing this in V32/Phase F when Phase E paper claim doesn't depend on it. See `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` §4.1 F.8.
+
+(Original sub-task table below preserved for Phase F.8 lift):
 
 | Task | Verification |
 |---|---|
 | E2.3.1 Add teacher-student loss to `intllm.qat` (KL on logits + MSE on hidden states) | `pytest python/phase_d/tests/test_distillation.py` passes |
 | E2.3.2 Teacher = Phase D Medium FP16-trained checkpoint (or BitNet-2B4T proxy if no FP16 teacher available) | smoke test on 100 batches: distill loss > 0, decreasing |
-| E2.3.3 Mini-scale ablation | `make train-mini-ablation TAG=distill` |
+| E2.3.3 Mini-scale ablation | `make train-mini-ablation TAG=distill --bilingual-data` |
 | E2.3.4 Decision doc | `docs/FJQ_PHASE_E_E2_DISTILL_DECISION.md` |
 
 #### E2.4 Bilingual calibration data balance ✅ CLOSED with FAIL 2026-04-27
@@ -474,9 +490,13 @@ What was actually built (E2.4.0 + E2.4.A + E2.4.C.1 + E2.4.C.2 + E2.4.C.3 + E2.4
 
 **What stays from E2.4 regardless of failure** (reusable infrastructure, independent of which calibration scheme produces inputs): `bilingual_stream`, `attach_stat_trackers` in production training, `save_calibration_maps`, `activation_quant_per_channel`, `compute_quant_error_per_channel`, `train_mini_ablation.py` `--balanced-calib` flag (kept for diagnostic use; not a paper claim flag).
 
-#### E2.5 Language-conditioned design (NEW v1.1 — primary feature, not fallback)
+#### E2.5 Language-conditioned design — **DEFERRED to Phase F.9 under Path A**
 
-V28.5 multilingual coherence gap (memory: "v8 coherence gap remains open") proves naive multilingual ternary fails. Phase E adopts ONE of these proactively (decided in E2.0 based on V28.5 forensics):
+> **Path A status (v1.10):** CUT from E2 sequence. Q2 closure (E2.0 findings v1.1 §4) re-framed V28.5 evidence as kernel-numerical, NOT a model-level multilingual training stability test — preliminary recommendation Option (a) per-language RMSNorm γ was contingent on post-E2.1-2.4 empirical signal, which (a) E2.1 + E2.4 both FAIL has not provided. The ratio 1.77× at Q5 baseline sets the headroom but ≤1.67× target may be unreachable at Mini scale + training-from-scratch with this class of features. Pursuing in V32/Phase F when paper isn't blocking. See `FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` §4.1 F.9.
+
+(Original sub-task table + 3 options below preserved for Phase F.9 lift):
+
+V28.5 multilingual coherence gap (memory: "v8 coherence gap remains open") originally cited as motivation; Q2 closure re-framed V28.5 as kernel-numerical issue, not bilingual-training. Phase F.9 will pick ONE option below based on F.6 + F.5 outcomes:
 
 - **(a) Per-language LayerNorm parameters** — small param overhead (~0.1% model size), trains language-specific RMSNorm scale at each block
 - **(b) Per-language adapter (LoRA-style)** — slightly larger overhead but more expressive; trained jointly with main model
@@ -486,21 +506,23 @@ V28.5 multilingual coherence gap (memory: "v8 coherence gap remains open") prove
 |---|---|
 | E2.5.1 Pick option (a/b/c) based on V28.5 forensic + literature | `docs/FJQ_PHASE_E_E2_LANG_COND_DECISION.md` checked in with reasoning |
 | E2.5.2 Implement chosen feature | `intllm.arch.LanguageConditioned*` classes with unit tests |
-| E2.5.3 Mini-scale ablation: with vs without language-conditioning | `make train-mini-ablation TAG=lang_cond` produces JSON |
-| E2.5.4 Bilingual coherence improvement gate | val_loss(ID) and val_loss(EN) within 1.5× at Mini scale (vs uncontrolled multilingual where ratio can blow to 3–5×) |
+| E2.5.3 Mini-scale ablation: with vs without language-conditioning | `make train-mini-ablation TAG=lang_cond --bilingual-data` produces JSON |
+| E2.5.4 Bilingual coherence improvement gate | val_loss(ID) and val_loss(EN) ratio improvement ≥+0.10× toward 1.5× absolute at Mini scale (vs Q5 baseline 1.77×) |
 
-#### E2.6 Combined ablation (4 features post-E2.4 closure)
+#### E2.6 Combined ablation — **REMOVED under Path A**
 
-Mini run with the **four** remaining features ON (Hadamard + FP8 LM head + distillation + lang-cond) — E2.4 balanced_calib excluded after empirical FAIL (decision doc `FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md`). Compared against Q5 baseline (val_loss(EN) 4.73, ratio 1.77×). Goal: ≥+0.10 nat aggregate val_loss improvement on bilingual task; coherence ratio improvement ≥+0.10× toward 1.5× absolute (i.e. final ratio ≤1.67× given Q5 baseline 1.77×, per refined gate from `_E2_FINDINGS.md` v1.1 §5.1).
+> **Path A status (v1.10):** REMOVED entirely. Only 2 features were attempted (E2.4 + E2.1), both FAIL. Combined ablation moot. The Q5 baseline alone serves as the Phase E paper's bilingual headline; combined ablation as written assumed ≥3 of 5 features helping individually, which empirical evidence has refuted. If F.5/F.6/F.7/F.8/F.9 follow-up work in Phase F demonstrates 2+ features do help under post-hoc / different-scale regimes, a combined ablation may be revisited as a separate Phase F deliverable.
+
+(Original §E2.6 + Gate E2 specification archived below for Phase F lift if needed):
+
+Mini run with the **four** remaining features ON (Hadamard + FP8 LM head + distillation + lang-cond) — E2.4 balanced_calib excluded after empirical FAIL. Compared against Q5 baseline (val_loss(EN) 4.73, ratio 1.77×). Goal: ≥+0.10 nat aggregate val_loss improvement on bilingual task; coherence ratio improvement ≥+0.10× toward 1.5× absolute.
 
 **Prevention layer:** `scripts/verify_paper_tables.py` extended with E2 ablation row checks; `--strict` mode enforces pre-publication audit (§6.9 R7). Pre-commit hook rejects E2 result-row commits without corresponding `*_DECISION.md`.
 
-**Gate E2 (recalibrated post-E2.4):**
-- **PASS:** all 4 ablation decision docs committed (E2.1+E2.2+E2.3+E2.5) AND aggregate val_loss improvement ≥+0.10 nat vs Q5 AND coherence ratio improvement ≥+0.10× toward 1.5×
-- **OBSERVATION (5-10% on either):** flag for re-evaluation at Base/Medium scale before paper claim
-- **FAIL path:** if aggregate <0 nat OR coherence regresses → write `FJQ_PHASE_E_E2_ABORT.md`, fall back to Q5 baseline as Phase E primary deliverable; mark paper headline as "bilingual baseline + honest negative results on outlier-handling features at Mini scale"
-
-**Calibration of expectation post-E2.4:** the all-time-max calibration approach failed by ~80×. This is a STRONG signal that the original "5-feature combined improvement" expectation was over-aggressive. With 4 features (E2.4 removed), aggregate improvement of ≥+0.10 nat is a more realistic gate; the original ≥+0.15 nat target is RETRACTED.
+**Gate E2 (was specified, now MOOT under Path A):**
+- **PASS:** all 4 ablation decision docs committed AND aggregate val_loss improvement ≥+0.10 nat vs Q5 AND coherence ratio improvement ≥+0.10× toward 1.5× — **NEVER REACHED, Path A cut sequence at 2 ablations.**
+- **OBSERVATION:** flag for re-evaluation at Base/Medium scale before paper claim — **Path A's actual outcome: 2/2 FAIL at Mini scale documented honestly; no Base/Medium re-evaluation pursued in V31; deferred to Phase F.**
+- **FAIL path:** Path A IS this fall-back path: "Q5 baseline as Phase E primary deliverable; paper headline = bilingual baseline + honest negative results on outlier-handling features at Mini scale." See `FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0.
 
 ---
 
@@ -1240,6 +1262,6 @@ When Phase F kicks off (or is decided NOT to kick off), update this plan footer 
 *Plan version: 1.8 (2026-04-26). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
 *v1.8 patch: Tier 3 tax-vertical DEFERRED to Phase F. Phase E v1.8 ships Tier 1 (kernel-context LLM) + Tier 2 (Indonesian + English bilingual ternary) only. Calendar reduced ~13 mo → ~10 mo. Total Phase E cash: $0.*
 *Predecessor: FJQ_PHASE_D_PRODUCTION_PLAN.md v1.2. Companions: FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md v1.1 (Phase F roadmap) + FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md (NEW v1.8) + 10 E0 decision docs (E0.0.2 deferred).*
-*v1.0→v1.1 closed 8 gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing + BeyondWeb recipe + Bartz fair-use precedent. v1.3→v1.4: Phase E E0 100% COMPLETE; laptop-only adopted. v1.4→v1.5 added Lapis 2.5 (Claude filter/audit/meta-design). v1.5→v1.6: founder solo-execution mode; Tier 3 scope-down. v1.6→v1.7: Option B $0 minimalism (Lapis 2 deferred to Phase F; DVC/S3 dropped). v1.7→v1.8: Tier 3 (tax-vertical) entirely deferred to Phase F; Phase E ships clean bilingual base + kernel paper. **v1.8→v1.9 (this version): post-E2.4 closure sync — E2.4 documented as honest negative result; implementation order revised to E2.1 → E2.2 → E2.3 → E2.5 → E2.6; combined gate recalibrated to 4 features and softened thresholds.***
+*v1.0→v1.1 closed 8 gaps via empirical verification. v1.1→v1.2 added TaxPrime data ownership + 3-lapis policy. v1.2→v1.3 corrected synthetic generator licensing + BeyondWeb recipe + Bartz fair-use precedent. v1.3→v1.4: Phase E E0 100% COMPLETE; laptop-only adopted. v1.4→v1.5 added Lapis 2.5 (Claude filter/audit/meta-design). v1.5→v1.6: founder solo-execution mode; Tier 3 scope-down. v1.6→v1.7: Option B $0 minimalism (Lapis 2 deferred to Phase F; DVC/S3 dropped). v1.7→v1.8: Tier 3 (tax-vertical) entirely deferred to Phase F; Phase E ships clean bilingual base + kernel paper. v1.8→v1.9: post-E2.4 closure sync — E2.4 documented as honest negative result; implementation order revised to E2.1 → E2.2 → E2.3 → E2.5 → E2.6; combined gate recalibrated. **v1.9→v1.10 (this version): PATH A scope decision — STOP Phase E2 after 2 negative results (E2.4 + E2.1 BOTH FAIL); CUT E2.2/E2.3/E2.5 (deferred to Phase F.7/F.8/F.9); REMOVE E2.6 combined; pivot directly to E4 paper writeup. Companion: `FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0.***
 *Cross-repo coordination: fajarquant (primary) + fajar-lang (compiler features for kernel-side tokenizer + IntLLM ops) + fajaros-x86 (deployment runtime + kernel-path Makefile gates).*
 *Subject to revision per phase findings; major scope changes require new Plan version (v1.x → v2.0).*
