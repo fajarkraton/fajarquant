@@ -231,6 +231,95 @@ def fake_quantize_absmax_ste(x: torch.Tensor, n_bits: int = 8) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
+# §4.5. Per-channel adaptive quantization (E2.4.C.2)
+# ---------------------------------------------------------------------------
+
+def activation_quant_per_channel(
+    x: torch.Tensor,
+    running_max: torch.Tensor,
+    bits_per_channel: torch.Tensor,
+    *,
+    eps: float = 1e-5,
+) -> torch.Tensor:
+    """Per-channel calibrated quantize-cast-dequantize.
+
+    Implements `q_calibrated` from `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md`
+    §3.2:
+
+      scale_c   = (2^(bits_c - 1) - 1) / max(running_max[c], eps)
+      clip_lo_c = -(2^(bits_c - 1))
+      clip_hi_c = (2^(bits_c - 1) - 1)
+      y[..., c] = round(x[..., c] * scale_c).clamp(clip_lo_c, clip_hi_c) / scale_c
+
+    Args:
+        x: Activation tensor of shape `(..., in_features)`. Last
+            dimension is the channel axis. Any leading shape is
+            preserved (caller should `.reshape(-1, in_features)` if a
+            flat 2D view is preferred for streaming SSE accumulation,
+            but this function does NOT require it).
+        running_max: Float tensor of shape `(in_features,)`; per-channel
+            absmax accumulated during calibration (output of
+            `BitLinearStatTracker.running_max`).
+        bits_per_channel: Int tensor of shape `(in_features,)`;
+            per-channel bit width (e.g. 8 for the bulk, 10 for the
+            top-K outlier channels). Output of
+            `compute_bit_allocation`.
+        eps: Floor on `running_max` to avoid division by zero on
+            channels that never saw nonzero activation. Default 1e-5
+            matches upstream `activation_quant`.
+
+    Returns:
+        Tensor of the same shape and dtype as `x`, quantized then
+        dequantized.
+
+    Notes:
+        - Standalone math function; does NOT modify `BitLinear.forward`.
+          Used only by `intllm.eval.compute_quant_error_per_channel`
+          for offline metric evaluation under E2.4 Option C scope.
+          Wiring this into `BitLinear.forward` is Option B work,
+          deferred per `FJQ_PHASE_E_E2_4_FINDINGS.md` v1.2 §6.1.
+        - No autograd customization; `round()` is non-differentiable.
+          STE training-time use should go through
+          `fake_quantize_absmax_ste` instead. This function is for
+          INFERENCE-time error measurement only.
+        - All ops broadcast over the leading dims of `x`.
+    """
+    if x.shape[-1] != running_max.shape[0]:
+        raise ValueError(
+            f"channel-dim mismatch: x.shape[-1]={x.shape[-1]} but "
+            f"running_max.shape[0]={running_max.shape[0]}",
+        )
+    if x.shape[-1] != bits_per_channel.shape[0]:
+        raise ValueError(
+            f"channel-dim mismatch: x.shape[-1]={x.shape[-1]} but "
+            f"bits_per_channel.shape[0]={bits_per_channel.shape[0]}",
+        )
+
+    # Move calibration tensors onto x's device once (no-op if already
+    # there). Caller usually attaches via `.to(device)` before the
+    # streaming loop; this is defense in depth.
+    rmax = running_max.to(device=x.device, dtype=torch.float32)
+    bits = bits_per_channel.to(device=x.device, dtype=torch.long)
+
+    # Use long arithmetic for `1 << (bits - 1)` to avoid float silently
+    # being produced via Python `**` semantics on tensors. Cast to
+    # x.dtype only at the multiplicative-scale step.
+    pow2_minus_1 = (1 << (bits - 1)).to(dtype=torch.float32)  # 2^(bits-1)
+    qmax = pow2_minus_1 - 1                                   # high clip = 2^(bits-1) - 1
+    qmin = -pow2_minus_1                                       # low  clip = -2^(bits-1)
+
+    scale = qmax / rmax.clamp(min=eps)                        # shape (in_features,)
+    # Promote to x.dtype for arithmetic; clamp params stay float32
+    scale_x = scale.to(dtype=x.dtype)
+
+    # Quantize, clamp per-channel (broadcast over leading dims), dequant.
+    q = (x * scale_x).round()
+    q = torch.maximum(q, qmin.to(dtype=x.dtype))
+    q = torch.minimum(q, qmax.to(dtype=x.dtype))
+    return q / scale_x
+
+
+# ---------------------------------------------------------------------------
 # §5. Spec-compliance constants (read by tests)
 # ---------------------------------------------------------------------------
 
@@ -256,6 +345,7 @@ __all__ = [
     "SIGMOID_LUT_SIZE",
     "SIGMOID_LUT_STEP",
     "SILU_LUT_MAX_ABS_ERROR",
+    "activation_quant_per_channel",
     "fake_quantize_absmax_ste",
 ]
 

@@ -102,10 +102,22 @@ class BitLinearStatTracker:
         self.n_calls += 1
 
 
-def _is_bitlinear(module: nn.Module) -> bool:
+def is_bitlinear(module: nn.Module) -> bool:
     """Detect upstream `BitLinear` / `FusedBitLinear` regardless of which
-    code path imports them (bitnet.py vs fusedbitnet.py)."""
+    code path imports them (bitnet.py vs fusedbitnet.py).
+
+    Matched by class name rather than `isinstance` so a model that wraps
+    or subclasses upstream BitLinear without preserving the exact import
+    path still gets recognized. This is the canonical surface for any
+    code that needs to walk a model's BitLinear-family layers.
+    """
     return module.__class__.__name__ in {"BitLinear", "FusedBitLinear", "BitLinear_wonorm_bmm"}
+
+
+# Backwards-compat alias — the leading-underscore form was internal to
+# this module before E2.4.C.2; downstream code that imported the
+# private form keeps working until the next refactor sweep.
+_is_bitlinear = is_bitlinear
 
 
 def attach_stat_trackers(model: nn.Module) -> dict[str, BitLinearStatTracker]:
@@ -289,5 +301,6 @@ __all__ = [
     "compute_bit_allocation",
     "compute_channel_permutation",
     "detach_stat_trackers",
+    "is_bitlinear",
     "save_calibration_maps",
 ]

@@ -205,7 +205,15 @@ def compute_quant_error_per_channel(
 
 **Performance contract:** 1000-batch sweep on Mini at RTX 4090 ≤ 5 minutes wall (forward-only, batch_size=8, seq_len=1024 ≈ Q5 val rate × 20). Beyond 10 minutes → investigate (likely accidental tensor copy in the streaming accumulator).
 
-**Cross-reference test:** when both quantizers are applied to a tensor whose `running_max` exactly matches its per-call max (i.e. calibration is "honest" for this batch), `q_calibrated` with `bits_per_channel == 8` everywhere must equal `q_baseline` to within 1e-6. This is a unit-test invariant for E2.4.C.2.
+**Math invariants (unit-test surface for E2.4.C.2.2):** the v1.0 draft of this section claimed `q_calibrated` with `bits=8` everywhere ≡ `q_baseline`. That is **mathematically incorrect** — `q_baseline` uses a per-token (per-row) scale derived from the row's own max, while `q_calibrated` uses a per-channel scale derived from the calibration `running_max`. The two only coincide in the degenerate case where every row's per-channel max equals the calibration `running_max` for every channel — which never holds for real activations. The corrected invariants the unit tests actually enforce:
+
+  1. **Hand-computed reference:** for a tiny known `(x, running_max, bits)`, `q_calibrated` output matches a hand-derived expected tensor within 1e-4 (banker's rounding on tensor-half values).
+  2. **Shape preservation:** input shape `(..., in_features)` is preserved across 2D and 3D input.
+  3. **Clip behavior:** values with `|x| > running_max[c]` are clamped to `±qmax/scale_c`, never blown up.
+  4. **Bit-width effect:** with input held inside the calibrated range (no clipping), 10-bit MSE is ≥4× smaller than 8-bit MSE — uniform-quantizer step² scaling, the property the adoption gate exploits.
+  5. **Idempotence:** `q_calibrated(q_calibrated(x, ...), ...) ≈ q_calibrated(x, ...)` within 1e-5 — projection onto the per-channel grid.
+  6. **Zero handling:** all-zero input + zero `running_max` returns all-zero (no NaN from divide-by-eps).
+  7. **Channel-dim mismatch:** mismatched `in_features` between `x`, `running_max`, and `bits_per_channel` raises `ValueError` before any compute.
 
 ---
 
