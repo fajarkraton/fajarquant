@@ -1321,38 +1321,34 @@ The three-cause attribution committed in
 
 \begin{enumerate}[leftmargin=*]
 \item \textbf{All-time-max \texttt{running\_max} accumulator captures
-non-stationary peaks (empirically measured).} The accumulator is
-\texttt{torch.maximum} over every forward call across all 24K training
-steps; early training produces activation peaks well above
-steady-state, and the accumulator never decays. We verify this
-mechanism empirically by cross-comparing two existing artifacts: the
+non-stationary peaks (empirically measured, within-model).} The
+accumulator is \texttt{torch.maximum} over every forward call across
+all 24K training steps; early training produces activation peaks well
+above steady-state, and the accumulator never decays. We verify this
+mechanism empirically by within-model cross-comparison: the
 training-time \texttt{running\_max} saved by E2.4 in
 \texttt{paper/intllm/ablations/mini\_balanced\_calib\_maps.pt} versus
 the steady-state per-channel \texttt{channel\_max} from F.6.1 on the
-trained Phase~D Mini in
-\texttt{outlier\_concentration\_mini.json}.\footnote{The two
-artifacts come from different models (E2.4 is bilingual at 24K~steps;
-F.6.1 evaluates the EN-only Phase~D Mini at 60K~steps). A clean
-within-model test would F.6.1-measure the balanced\_calib checkpoint
-itself, but balanced\_calib's training run did not save a final
-checkpoint (24K not divisible by \texttt{ckpt\_every}=10K). The
-cross-model comparison is therefore weaker evidence than F.6.1
-alone, but the gap magnitudes (per-layer-mean ratios of 67$\times$
-and 210$\times$ on max-to-max and median-to-median) are large enough
-that minor model differences are unlikely to flip the qualitative
-conclusion.}
-Per-layer measurement on \texttt{attn.o\_proj} (the rotated site):
-training-time \texttt{running\_max} per-layer max ranges $11.28$ to
-$19.80$ across the 6 layers; steady-state \texttt{channel\_max}
-per-layer max averages $\sim$$0.34$ across the same layers.
-Per-layer-mean training-to-steady ratio is $67\times$ on the
-max-to-max comparison and $\mathbf{210\times}$ on the
-median-to-median comparison. The calibrated scale
-$=127/\text{running\_max}\approx 6$-$12$ is locked to the
-training-time peaks; the baseline per-token scale at typical
+\emph{same} trained balanced\_calib checkpoint
+(\texttt{ckpt\_step\_020000.pt}, the closest-to-final checkpoint
+saved by Track~B's \texttt{ckpt\_every=10K}; an exact step-24K
+checkpoint was not saved because $24000\bmod 10000 \neq 0$).
+Per-layer measurement on \texttt{attn.o\_proj} (the rotated site of
+E2.1): training-time \texttt{running\_max} per-layer max ranges
+$11.28$ to $19.80$ across the 6 layers; steady-state
+\texttt{channel\_max} per-layer max averages $\sim$$0.85$ across the
+same layers. Per-layer-mean training-to-steady ratio is
+$\mathbf{27.6\times}$ on the max-to-max comparison and
+$\mathbf{64\times}$ on the median-to-median comparison. The
+calibrated scale $=127/\text{running\_max}\approx 6$-$12$ is locked
+to the training-time peaks; the baseline per-token scale at typical
 steady-state $|x|\sim 0.5$ produces $\sim$$254$, far finer.
 Reproducible via
-\texttt{python/phase\_d/scripts/compare\_running\_max\_train\_vs\_steady.py}.
+\texttt{python/phase\_d/scripts/compare\_running\_max\_train\_vs\_steady.py}
+\texttt{--label~within-model}; cross-model variant against the
+EN-only Phase~D Mini c.1 final checkpoint produces consistent but
+larger ratios (67$\times$ / 210$\times$), supporting the within-model
+finding without depending on it.
 
 \item \textbf{RMSNorm-bounded BitLinear inputs reward per-token
 adaptation, not per-channel calibration.} Upstream BitLinear runs
@@ -1405,49 +1401,95 @@ budget is far less than the budgets where weight-learning saturates
 against the rotation handicap.
 
 \item \textbf{HGRN attention output DOES have outlier concentration —
-and it is dramatically stronger than transformer-QKV-style.} A
-post-hoc Phase~F.6.1 measurement on the trained Phase~D Mini
-checkpoint (100 batches of \texttt{bilingual\_stream(seed=42)} through
-\texttt{model.eval()}, capturing per-channel max-to-mean activation
-ratios) refutes the original hypothesis that HGRN's gated linear
-recurrence might smooth out outliers. Per-channel max/mean ratios
-measured on the trained Mini at each BitLinear site:
+and the property is invariant across all three trained Mini
+variants we measured.} A post-hoc Phase~F.6.1 measurement on three
+checkpoints (Phase~D Mini c.1 EN-only at 60K~steps; balanced\_calib
+bilingual at 20K~steps; hadamard-rotated bilingual at 20K~steps),
+each fed 100 batches of \texttt{bilingual\_stream(seed=42)} through
+\texttt{model.eval()}, refutes the original hypothesis that HGRN's
+gated linear recurrence might smooth out outliers.
+Table~\ref{tab:outlier-concentration-by-site} reports per-role
+per-channel max/mean ratios:
 
-\begin{itemize}
-\item \textbf{\texttt{o\_proj} (the site we rotated):} mean across
-6 layers = $\mathbf{51.6\times}$, max = $\mathbf{421\times}$ —
-massive outlier concentration, far beyond what published
-QuaRot~\citep{ashkboos2024quarot} measurements on transformer-QKV
-inputs at the same scale typically show.
-\item \texttt{mlp.down\_proj}: mean = $40.2\times$, max = $250\times$
-— similarly concentrated.
-\item \texttt{i\_proj}, \texttt{f\_proj}, \texttt{g\_proj} (the QKV-
-equivalent post-RMSNorm hidden state inputs): mean $5.30\times$,
-max $7.76\times$ — moderate concentration of the size canonical
-QuaRot literature targets.
-\item \texttt{mlp.gate\_proj}: mean $5.43\times$, \texttt{lm\_head}:
-mean $5.98\times$.
-\end{itemize}
+\begin{table}[t]
+\centering
+\small
+\caption{F.6.1 outlier-concentration measurement across three
+trained Mini variants. Per-role = mean across the 6 HGRN layers.
+\emph{Mean ratio} is mean of per-channel max/mean activation magnitude.
+The bottom row ``hadamard \texttt{o\_proj}'' is below the others
+because the Hadamard rotation pre-hook actually does spread the
+energy in eval (see §3 of cause~3 below). Source: per-checkpoint
+\texttt{outlier\_concentration\_*.json}.}
+\label{tab:outlier-concentration-by-site}
+\begin{tabular}{l rrr rrr}
+\toprule
+                  & \multicolumn{3}{c}{Mean ratio (per-role)} & \multicolumn{3}{c}{Max ratio (per-role)} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+Site              & Phase D & balanced\_calib & hadamard
+                  & Phase D & balanced\_calib & hadamard \\
+\midrule
+\texttt{o\_proj}       & 51.6  & 54.3  & \textbf{22.2}
+                       & 421   & 381   & \textbf{127} \\
+\texttt{mlp.down\_proj} & 40.2  & 47.8  & \textbf{22.1}
+                       & 250   & 159   & \textbf{89}  \\
+\texttt{i/f/g\_proj}    & 5.30  & 5.25  & 5.41
+                       & 7.76  & 8.78  & 7.79 \\
+\texttt{mlp.gate\_proj} & 5.43  & 5.35  & 5.41
+                       & 8.36  & 8.92  & 7.57 \\
+\texttt{lm\_head}       & 5.98  & 5.67  & 5.34
+                       & 8.43  & 7.09  & 7.55 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The Hadamard rotation we applied had $51\times$ mean energy
-concentration available to spread on the very site (\texttt{o\_proj})
-we targeted. The cause-2 hypothesis ``HGRN doesn't have outlier
-concentration'' is empirically FALSE; therefore the negative result
-must attribute to cause-1 (training-from-scratch losing post-hoc
-benefit) and cause-3 (rotating only \texttt{o\_proj} when at least
-\texttt{mlp.down\_proj} is similarly concentrated). The full F.6.1
-measurement is committed at
-\texttt{paper/intllm/ablations/outlier\_concentration\_mini.json}.
+Three observations from the table:
+\textbf{(i)}~\texttt{o\_proj} mean ratios across both unrotated models
+($\sim$$50$$\times$ for Phase~D and balanced\_calib) are far beyond what
+published QuaRot~\citep{ashkboos2024quarot} measurements on
+transformer-QKV inputs at the same scale typically show, refuting the
+original ``HGRN doesn't have transformer-style outlier concentration''
+hypothesis.
+\textbf{(ii)}~The architectural property is stable across the three
+training variants: same per-role pattern (o\_proj highest, then
+mlp.down\_proj, then everything else $\sim$$5\times$), regardless of
+training data or feature flag.
+\textbf{(iii)}~The hadamard model shows reduced concentration on
+o\_proj ($22.2\times$ vs $51\times$, $-57\%$) and on
+mlp.down\_proj ($22.1\times$ vs $40\times$, $-45\%$, propagating
+through residual + RMSNorm even though we did not rotate
+mlp.down\_proj directly) — see cause~3 below for the implication.
 
-\item \textbf{Q1 closure's ``rotate \texttt{o\_proj} only'' may have
-been overly conservative.} The full QuaRot recipe rotates inputs to
-ALL projections including QKV-equivalent paths; HGRN's
-\texttt{i\_proj}/\texttt{f\_proj}/\texttt{g\_proj} inputs are also
-post-RMSNorm hidden states, just like QKV inputs in transformers.
-The same outlier pattern \emph{could} be present there. Our ablation
-tested only $1/4$ of the candidate rotation sites in HGRN attention;
-a future ablation that rotates all four sites might recover the
-literature's positive result.
+The cause-2 hypothesis ``HGRN doesn't have outlier concentration'' is
+empirically FALSE; therefore the negative result must attribute to
+cause-1 + cause-3. Source artifacts:
+\texttt{outlier\_concentration\_mini.json} (Phase~D),
+\texttt{outlier\_concentration\_balanced\_calib.json}, and
+\texttt{outlier\_concentration\_hadamard.json}.
+
+\item \textbf{Hadamard rotation worked mechanistically but
+training-from-scratch dominated the benefit (sharper after
+within-model F.6.1 evidence).} Comparing the hadamard column of
+Table~\ref{tab:outlier-concentration-by-site} to balanced\_calib's
+column (the closest no-rotation control we measured at the same
+training step): the rotation reduced \texttt{o\_proj} mean
+concentration from $54.3\times$ to $22.2\times$
+($\boldsymbol{-59\%}$), and propagated through residual + RMSNorm to
+also reduce \texttt{mlp.down\_proj} concentration from $47.8\times$
+to $22.1\times$ ($\boldsymbol{-54\%}$). The math worked exactly as
+QuaRot~\citep{ashkboos2024quarot} predicts. \emph{And val\_loss
+still regressed by} $+0.12$~nat. The intended mechanism executed and
+the activation distribution was visibly tamed; cause~1 must therefore
+be the dominant driver, not the rotation-recipe choice.
+A weaker secondary observation: \texttt{i\_proj}/\texttt{f\_proj}/\texttt{g\_proj}
+inputs (which we did not rotate per Q1 closure's ``QKV-equivalent
+distinction'' argument) maintain concentration at the
+$\sim$$5\times$ level even after o\_proj rotation, suggesting full
+QuaRot-recipe rotation of all four attention projections might
+provide additional outlier-spreading benefit; whether that
+incremental spread translates to val\_loss improvement under the
+training-from-scratch handicap is the open question Phase~F.6.3
+tests directly.
 \end{enumerate}
 
 Figure~\ref{fig:hadamard-spike} (deferred to Week~3) plots a synthetic

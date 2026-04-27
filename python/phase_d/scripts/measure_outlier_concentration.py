@@ -153,8 +153,20 @@ def main() -> int:
 
     print("[2/5] loading checkpoint")
     ckpt = torch.load(args.checkpoint, weights_only=False, map_location=device)
-    arch_dict = ckpt["arch"]
-    arch = MiniArchConfig(**arch_dict)
+    # Support two checkpoint formats:
+    #   (a) Phase D final ckpts: {arch, train, state_dict, result}
+    #   (b) Track B training-loop ckpts: {step, state_dict, optimizer,
+    #       scheduler, config, loss_trace_tail} — no arch key, must
+    #       infer from MiniArchConfig defaults (these are produced by
+    #       the Mini-scale ablation harness).
+    if "arch" in ckpt:
+        arch_dict = ckpt["arch"]
+        arch = MiniArchConfig(**arch_dict)
+    else:
+        # Track B format — assume MiniArchConfig defaults; the ablation
+        # harness uses Mini scale by construction.
+        print("      (no arch key in ckpt; assuming MiniArchConfig defaults)")
+        arch = MiniArchConfig()
     cfg = HGRNBitConfig(
         vocab_size=arch.vocab_size,
         hidden_size=arch.hidden_size,
@@ -165,6 +177,8 @@ def main() -> int:
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     print(f"      params: {sum(p.numel() for p in model.parameters()):,}")
+    if "step" in ckpt:
+        print(f"      step: {ckpt['step']}")
 
     # ── attach pre-hooks on every BitLinear ─────────────────────────
     print("[3/5] attaching forward pre-hooks on BitLinear sites")

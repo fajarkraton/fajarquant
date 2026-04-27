@@ -50,28 +50,46 @@ ROOT = HERE.parent
 REPO_ROOT = ROOT.parent.parent
 ABLATIONS = REPO_ROOT / "paper" / "intllm" / "ablations"
 
-E24_MAPS = ABLATIONS / "mini_balanced_calib_maps.pt"
-F61_JSON = ABLATIONS / "outlier_concentration_mini.json"
-OUT_JSON = ABLATIONS / "running_max_train_vs_steady.json"
+E24_MAPS_DEFAULT = ABLATIONS / "mini_balanced_calib_maps.pt"
+F61_JSON_DEFAULT = ABLATIONS / "outlier_concentration_mini.json"
+OUT_JSON_DEFAULT = ABLATIONS / "running_max_train_vs_steady.json"
 
 
 def main() -> int:
+    import argparse
     import torch
 
-    if not E24_MAPS.is_file():
-        print(f"ERROR: missing {E24_MAPS} (E2.4 calibration maps)", file=sys.stderr)
+    p = argparse.ArgumentParser(
+        description="Compare training-time vs steady-state running_max.",
+    )
+    p.add_argument("--e24-maps", type=Path, default=E24_MAPS_DEFAULT,
+                   help="Source A: training-time calibration maps .pt")
+    p.add_argument("--f61-json", type=Path, default=F61_JSON_DEFAULT,
+                   help="Source B: F.6.1 outlier-concentration .json")
+    p.add_argument("--out", type=Path, default=OUT_JSON_DEFAULT,
+                   help="Output JSON path")
+    p.add_argument("--label", type=str, default="cross-model",
+                   help="Label for the comparison ('cross-model' or 'within-model')")
+    args = p.parse_args()
+
+    e24_maps = args.e24_maps
+    f61_json = args.f61_json
+    out_json = args.out
+
+    if not e24_maps.is_file():
+        print(f"ERROR: missing {e24_maps} (E2.4 calibration maps)", file=sys.stderr)
         return 1
-    if not F61_JSON.is_file():
-        print(f"ERROR: missing {F61_JSON} (F.6.1 outlier-concentration measurement)", file=sys.stderr)
+    if not f61_json.is_file():
+        print(f"ERROR: missing {f61_json} (F.6.1 outlier-concentration measurement)", file=sys.stderr)
         return 1
 
-    print(f"[1/3] loading {E24_MAPS.relative_to(REPO_ROOT)}")
-    e24 = torch.load(E24_MAPS, weights_only=False, map_location="cpu")
-    print(f"[2/3] loading {F61_JSON.relative_to(REPO_ROOT)}")
-    with F61_JSON.open() as f:
+    print(f"[1/3] loading {e24_maps}")
+    e24 = torch.load(e24_maps, weights_only=False, map_location="cpu")
+    print(f"[2/3] loading {f61_json}")
+    with f61_json.open() as f:
         f61 = json.load(f)
 
-    print("[3/3] cross-comparing training-time vs steady-state running_max")
+    print(f"[3/3] cross-comparing training-time vs steady-state running_max ({args.label})")
 
     # Sites we report on: o_proj (E2.4-rotated, V31 paper §7.2 focus) +
     # mlp.down_proj (cause-3 V31 missed-rotation site).
@@ -119,31 +137,17 @@ def main() -> int:
             }
 
     payload = {
-        "_schema_version": "1.0",
+        "_schema_version": "1.1",
         "phase": "F.5.0-cross-comparison",
+        "comparison_label": args.label,
         "source_a": {
-            "path": str(E24_MAPS.relative_to(REPO_ROOT)),
-            "description": "E2.4 balanced_calib BitLinearStatTracker.running_max (training-time, all-time-max accumulator)",
-            "model_training": "bilingual_stream(seed=0) at 24K steps",
-            "model_class": "HGRNBitForCausalLM (Mini)",
+            "path": str(e24_maps),
+            "description": "training-time BitLinearStatTracker.running_max (all-time-max accumulator)",
         },
         "source_b": {
-            "path": str(F61_JSON.relative_to(REPO_ROOT)),
-            "description": "F.6.1 channel_max measured on trained Phase D Mini final ckpt under bilingual_stream(seed=42)",
-            "model_eval": "100 batches × 8 × 1024 = 819K obs/site",
-            "model_class": "HGRNBitForCausalLM (Mini)",
-            "checkpoint": "python/phase_d/checkpoints/mini/mini_final.pt (Phase D EN-only c.1)",
+            "path": str(f61_json),
+            "description": "steady-state channel_max from F.6.1 measurement on a trained ckpt",
         },
-        "caveat": (
-            "Sources A and B use DIFFERENT trained models (bilingual at 24K vs "
-            "EN-only at 60K). A clean apples-to-apples test would F.6.1-measure "
-            "the balanced_calib checkpoint directly, but balanced_calib's training "
-            "run did not save a final checkpoint (24K not divisible by ckpt_every=10K). "
-            "Cross-model comparison is therefore weaker evidence than within-model "
-            "F.6.1; reported because the gap magnitudes (100-360× per median, "
-            "50-200× per max) are large enough that minor model differences are "
-            "unlikely to flip the qualitative conclusion that cause-1 holds."
-        ),
         "comparison": comparison,
         "interpretation": (
             f"Cause-1 SUPPORTED: o_proj training-time running_max mean = "
@@ -162,11 +166,11 @@ def main() -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
-    OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT_JSON.with_suffix(".json.tmp")
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_json.with_suffix(".json.tmp")
     with tmp.open("w") as f:
         json.dump(payload, f, indent=2, default=str)
-    os.replace(tmp, OUT_JSON)
+    os.replace(tmp, out_json)
 
     print()
     print("  ── Comparison summary ──")
@@ -178,7 +182,7 @@ def main() -> int:
         print(f"    ratio_median_to_median mean = {agg['agg_ratio_median_to_median_mean']:.0f}×")
     print()
     print(f"  {payload['interpretation']}")
-    print(f"\n  JSON: {OUT_JSON.relative_to(REPO_ROOT)}")
+    print(f"\n  JSON: {out_json}")
     return 0
 
 
