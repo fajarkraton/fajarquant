@@ -56,16 +56,39 @@
 % ═══════════════════════════════════════════════════════════════════════
 
 \begin{abstract}
-\textit{[Abstract pending — drafted Week 3 of Path A calendar after the
-results sections (§5-§7) land. Will summarize the five contributions:
-(C1) Phase D scaling chain at training-time-quant validates
-Chinchilla-style behavior at 22M-74M parameter range; (C2) bilingual
-ID+EN extension via Phase E1 corpus v1.0 (25.67~B tokens at 60:40);
-(C3) in-kernel deployment via FajarOS Nova v3.9.0 IntLLM kernel-path;
-(C4) honest negative results on outlier-handling features
-(\texttt{balanced\_calib} and Hadamard rotation) at this regime, with
-3-cause attribution; (C5) compiler-verified safety via
-\texttt{@kernel}/\texttt{@device}/\texttt{@noinline} annotations.]}
+We present \textbf{IntLLM}, a 1.58-bit ternary language model family
+(22-74~M parameters) trained from scratch and deployed inside the
+FajarOS Nova~v3.9.0 operating-system kernel. Five contributions:
+(C1)~a three-point scaling chain with monotonically widening
+calibrated-gate margins ($0.118 \to 0.279$ nat over a $\sim$3.5$\times$
+parameter range) extends BitNet-style ternary training validation
+downward from the literature's 2~B+ regime into the kernel-context-
+relevant 22-74~M range;
+(C2)~a 25.67~B-token bilingual Indonesian + English corpus
+(60:40 mix, 0\%~synthetic) and a Q5 Mini-scale baseline establish
+the first fully-public bilingual ternary LM resources at this scale,
+reproducible in $\sim$42~minutes on commodity laptop hardware;
+(C3)~deployment of the Phase~D Medium checkpoint via three Fajar Lang
+\texttt{@kernel} modules under a 4-invariant CI regression gate, with
+binary footprint within the $\leq 16$~MB design budget at the Mini
+and Base scales;
+(C4)~two outlier-handling features ported from the post-hoc-quantization
+literature (per-channel calibration after SmoothQuant; Hadamard
+rotation after QuaRot) FAIL their mechanical adoption gates by
+$-82.13$ and $-0.12$~nat respectively, with three-cause attributions
+identifying a common pattern that we hypothesize generalizes:
+post-hoc-literature precedents do not transfer cleanly to
+training-from-scratch ternary at small scale;
+(C5)~a four-context Fajar Lang type system enforces the C3
+kernel-context invariants at compile time via seven domain-specific
+error codes. The combination of these five — none individually a
+breakthrough — is the contribution; we do not claim frontier
+benchmark performance, FP16 parity at the same parameter count, or
+formal verification at the seL4 level. The five-entry Phase~F
+research agenda (post-training PTQ, post-hoc QuaRot, and three more)
+informs by the C4 negative-results and constitutes a more well-posed
+follow-up than the original five-feature Phase~E plan that the
+empirical evidence has refuted.
 \end{abstract}
 
 % ═══════════════════════════════════════════════════════════════════════

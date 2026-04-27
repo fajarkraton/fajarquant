@@ -13,6 +13,14 @@ paper/*.toc
 paper/*.synctex.gz
 paper/arxiv_v*/
 paper/fajarquant_arxiv_*.tar.gz
+# IntLLM paper build intermediates (intllm.tex + refs.bib + intllm.pdf are tracked)
+paper/intllm/*.aux
+paper/intllm/*.bbl
+paper/intllm/*.blg
+paper/intllm/*.log
+paper/intllm/*.out
+paper/intllm/*.toc
+paper/intllm/*.synctex.gz
 
 # Python (reproducibility scripts)
 __pycache__/

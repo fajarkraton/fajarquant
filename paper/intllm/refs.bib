@@ -1,0 +1,134 @@
+% ═══════════════════════════════════════════════════════════════════════
+% IntLLM paper bibliography
+%
+% 15 entries matching cite-keys used in intllm.tex; arXiv IDs verified
+% against docs/INTLLM_RELATED_WORK.md §10 References list (which is the
+% canonical authority for citation accuracy per CLAUDE §6.9 R7).
+%
+% Maintenance: when adding a new \citep{key} to intllm.tex, ALSO add
+% the entry here AND register it in the corresponding §10 References
+% list. CI fails the verify_paper_tables.py audit gate if cite-keys
+% diverge between the .tex source and refs.bib.
+% ═══════════════════════════════════════════════════════════════════════
+
+% ── Ternary / MatMul-Free LMs ──────────────────────────────────────
+
+@article{wang2023bitnet,
+  title         = {{BitNet}: Scaling 1-bit Transformers for Large Language Models},
+  author        = {Wang, Hongyu and Ma, Shuming and Dong, Li and Huang, Shaohan and Wang, Huaiyu and Ma, Lingxiao and Yang, Fan and Wang, Ruiping and Wu, Yi and Wei, Furu},
+  journal       = {arXiv preprint arXiv:2310.11453},
+  year          = {2023},
+}
+
+@article{ma2024era,
+  title         = {The Era of 1-bit {LLM}s: All Large Language Models are in 1.58 Bits},
+  author        = {Ma, Shuming and Wang, Hongyu and Ma, Lingxiao and Wang, Lei and Wang, Wenhui and Huang, Shaohan and Dong, Li and Wang, Ruiping and Xue, Jilong and Wei, Furu},
+  journal       = {arXiv preprint arXiv:2402.17764},
+  year          = {2024},
+  note          = {Companion 2~B parameter Microsoft release: {\tt microsoft/bitnet-b1.58-2B-4T}.},
+}
+
+@article{zhu2024matmulfree,
+  title         = {Scalable {MatMul}-free Language Modeling},
+  author        = {Zhu, Rui-Jie and Zhang, Yu and Sifferman, Ethan and Sheaves, Tyler and Wang, Yiqiao and Richmond, Dustin and Zhou, Peng and Eshraghian, Jason K.},
+  journal       = {arXiv preprint arXiv:2406.02528},
+  year          = {2024},
+  note          = {NeurIPS 2024.},
+}
+
+@article{xu2025bitnet,
+  title         = {{Bitnet.cpp}: Efficient Edge Inference for Ternary {LLM}s},
+  author        = {Xu, Jinheng and Wang, Hongyu and Ma, Shuming and Wei, Furu},
+  journal       = {arXiv preprint arXiv:2502.11880},
+  year          = {2025},
+}
+
+% ── Post-hoc activation-outlier handling (Phase E2 negative-result framing) ──
+
+@article{xiao2022smoothquant,
+  title         = {{SmoothQuant}: Accurate and Efficient Post-Training Quantization for Large Language Models},
+  author        = {Xiao, Guangxuan and Lin, Ji and Seznec, Mickael and Wu, Hao and Demouth, Julien and Han, Song},
+  journal       = {arXiv preprint arXiv:2211.10438},
+  year          = {2022},
+}
+
+@article{frantar2022gptq,
+  title         = {{GPTQ}: Accurate Post-Training Quantization for Generative Pre-trained Transformers},
+  author        = {Frantar, Elias and Ashkboos, Saleh and Hoefler, Torsten and Alistarh, Dan},
+  journal       = {arXiv preprint arXiv:2210.17323},
+  year          = {2022},
+}
+
+@article{lin2023awq,
+  title         = {{AWQ}: Activation-aware Weight Quantization for {LLM} Compression and Acceleration},
+  author        = {Lin, Ji and Tang, Jiaming and Tang, Haotian and Yang, Shang and Chen, Wei-Ming and Wang, Wei-Chen and Xiao, Guangxuan and Dang, Xingyu and Gan, Chuang and Han, Song},
+  journal       = {arXiv preprint arXiv:2306.00978},
+  year          = {2023},
+}
+
+@article{ashkboos2024quarot,
+  title         = {{QuaRot}: Outlier-Free 4-Bit Inference in Rotated {LLM}s},
+  author        = {Ashkboos, Saleh and Mohtashami, Amirkeivan and Croci, Maximilian L. and Li, Bo and Jaggi, Martin and Alistarh, Dan and Hoefler, Torsten and Hensman, James},
+  journal       = {arXiv preprint arXiv:2404.00456},
+  year          = {2024},
+}
+
+@article{liu2024spinquant,
+  title         = {{SpinQuant}: {LLM} Quantization with Learned Rotations},
+  author        = {Liu, Zechun and Zhao, Changsheng and Fedorov, Igor and Soran, Bilge and Choudhary, Dhruv and Krishnamoorthi, Raghuraman and Chandra, Vikas and Tian, Yuandong and Blankevoort, Tijmen},
+  journal       = {arXiv preprint arXiv:2405.16406},
+  year          = {2024},
+}
+
+% ── Small-scale LM scaling (Phase D scaling-chain context) ──
+
+@article{hoffmann2022chinchilla,
+  title         = {Training Compute-Optimal Large Language Models},
+  author        = {Hoffmann, Jordan and Borgeaud, Sebastian and Mensch, Arthur and Buchatskaya, Elena and Cai, Trevor and Rutherford, Eliza and de Las Casas, Diego and Hendricks, Lisa Anne and Welbl, Johannes and Clark, Aidan and others},
+  journal       = {arXiv preprint arXiv:2203.15556},
+  year          = {2022},
+  note          = {NeurIPS 2022 (Chinchilla).},
+}
+
+@article{biderman2023pythia,
+  title         = {{Pythia}: A Suite for Analyzing Large Language Models Across Training and Scaling},
+  author        = {Biderman, Stella and Schoelkopf, Hailey and Anthony, Quentin and Bradley, Herbie and O'Brien, Kyle and Hallahan, Eric and Khan, Mohammad Aflah and Purohit, Shivanshu and Prashanth, USVSN Sai and Raff, Edward and others},
+  journal       = {arXiv preprint arXiv:2304.01373},
+  year          = {2023},
+  note          = {ICML 2023.},
+}
+
+@misc{allal2024smollm2,
+  title         = {{SmolLM2}: When Smol Goes Big — A Suite of Small Language Models},
+  author        = {Allal, Loubna Ben and Lozhkov, Anton and Penedo, Guilherme and Wolf, Thomas and von Werra, Leandro},
+  year          = {2024},
+  howpublished  = {{HuggingFace} {TB} technical report; checkpoint family {\tt HuggingFaceTB/SmolLM2-*}},
+}
+
+% ── Multilingual / bilingual quantization (Phase E1+Q5 context) ──
+
+@article{calibrating2026beyond,
+  title         = {Calibrating Beyond English: Language Diversity for Better Quantized Multilingual {LLM}s},
+  author        = {Anonymous},
+  journal       = {arXiv preprint arXiv:2601.18306},
+  year          = {2026},
+  note          = {Citation deferred to camera-ready for verified author list.},
+}
+
+% ── Kernel-resident ML / formal-verified OS (C3+C5 context) ──
+
+@inproceedings{klein2009sel4,
+  title         = {{seL4}: Formal Verification of an {OS} Kernel},
+  author        = {Klein, Gerwin and Elphinstone, Kevin and Heiser, Gernot and Andronick, June and Cock, David and Derrin, Philip and Elkaduwe, Dhammika and Engelhardt, Kai and Kolanski, Rafal and Norrish, Michael and Sewell, Thomas and Tuch, Harvey and Winwood, Simon},
+  booktitle     = {Proceedings of the {ACM} {SIGOPS} 22nd Symposium on Operating Systems Principles ({SOSP})},
+  pages         = {207--220},
+  year          = {2009},
+}
+
+@misc{starovoitov2014ebpf,
+  title         = {{eBPF}: Extended {Berkeley} Packet Filter for {Linux} Kernel-Side Programmability},
+  author        = {Starovoitov, Alexei and others},
+  year          = {2014},
+  howpublished  = {{Linux} kernel mainline; documentation at \url{https://www.kernel.org/doc/html/latest/bpf/}},
+  note          = {Cited as the canonical reference for kernel-side bytecode execution; eBPF-AI line of work derives from this primitive.},
+}
