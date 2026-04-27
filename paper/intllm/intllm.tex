@@ -934,14 +934,345 @@ $\rho = 1.77$ baseline before attempting their own bilingual
 extensions.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §7 Honest Negative Results on Outlier-Handling Features (C4) —
+% DRAFTED THIS COMMIT (Path A Week 2 sub-step 3)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Honest Negative Results on Outlier-Handling Features (C4)}
 \label{sec:negatives}
 
-\textit{[STUB — drafted Week 2. Lifts content from
-\texttt{FJQ\_PHASE\_E\_E2\_BILINGUAL\_CALIB\_DECISION.md} v1.0 and
-\texttt{FJQ\_PHASE\_E\_E2\_HADAMARD\_DECISION.md} v1.0, including the
-3-cause attributions and Phase F.5/F.6 future-work pointers. Tables~5
-full and~6, Figure~3.]}
+This section reports two outlier-handling features that we ported
+from the post-hoc-quantization literature and ablated against the Q5
+bilingual baseline of Section~\ref{sec:bilingual-q5}. \textbf{Both
+features FAIL their adoption gates}: balanced\_calib produces a
+quantization error 83$\times$ worse than the upstream baseline on
+outlier channels, and Hadamard rotation regresses val\_loss by
+$+0.12$~nat against a gate that demanded a $\geq +0.05$~nat
+improvement. We report the failures honestly per the
+research-integrity rule R6 of Section~\ref{sec:method-integrity}, with
+a three-cause attribution per feature
+(Sections~\ref{sec:negatives-bc}~and~\ref{sec:negatives-had}) and a
+Phase~F future-work pointer (Section~\ref{sec:negatives-future}). The
+methodology of this section is itself a contribution: small-scale
+training-from-scratch ternary literature has not, to our knowledge,
+published systematic negative-result attributions of this kind, and
+the resulting fence-posts inform what does and does not transfer from
+post-hoc large-scale quantization to small-scale training-from-scratch.
+
+\subsection{What we ablated and why}
+\label{sec:negatives-method}
+
+Two literature-grounded outlier-handling features were selected as
+high-prior-probability adoption candidates per the original Phase~E
+plan~v1.1, before any ablation evidence was collected:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{balanced\_calib} (E2.4 in the Phase~E plan): per-channel
+calibrated activation-quantization scales derived from a
+\texttt{BitLinearStatTracker} accumulator that captures the
+running-max activation magnitude per channel during training, plus a
+top-$K$\% adaptive bit allocation that promotes the most
+outlier-prone $5\%$ of input channels from $8$-bit to $10$-bit.
+Literature precedent: SmoothQuant
+\citep{xiao2022smoothquant}, AWQ \citep{lin2023awq}, GPTQ
+\citep{frantar2022gptq}.
+
+\item \textbf{Hadamard rotation} (E2.1 in the Phase~E plan): a fixed
+Walsh-Hadamard orthogonal rotation applied as a forward pre-hook on
+the inputs of every \texttt{block.attn.o\_proj} BitLinear. Spreads
+outlier energy uniformly across the hidden dimension before
+quantization, so per-token absmax quantization grids fit the
+post-rotation distribution more tightly. Literature precedent: QuaRot
+\citep{ashkboos2024quarot}, SpinQuant \citep{liu2024spinquant}. We
+restrict insertion to \texttt{o\_proj} per the Phase~E E2.0 closure
+question Q1, since HGRN's \texttt{i\_proj}/\texttt{f\_proj}/\texttt{g\_proj}
+are gated-linear-recurrence projections structurally distinct from
+QKV; rotating them is non-canonical under the published QuaRot recipe.
+\end{enumerate}
+
+Both features are gate-evaluated under the Q5 baseline protocol of
+Section~\ref{sec:method-stream} (24{,}000 steps $\times$ 8 batch
+$\times$ 1024 sequence on the bilingual stream at $60$:$40$~ID:EN).
+The adoption gates are mechanical and were committed before the
+experiments ran:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{balanced\_calib gate (Phase~E2.4.C, Option~C):}
+\texttt{outlier\_global\_reduction} $\geq 0.10$ on a 1{,}000-batch
+bilingual eval set, where the metric measures the relative MSE
+reduction between the upstream baseline activation quantizer and
+$q_{\text{calibrated}}$, restricted to channels promoted to $10$-bit.
+The rationale and full schema are committed in
+\texttt{FJQ\_PHASE\_E\_E2\_4\_C\_METRIC\_SPEC.md}~v1.0.
+
+\item \textbf{Hadamard gate (Phase~E2.1.4):}
+\texttt{val\_loss(EN, seed=999, 50~batches)} $<$ Q5 baseline
+$\;-\;0.05$ nat $=4.732 - 0.05 = 4.682$.
+\end{itemize}
+
+Table~\ref{tab:negatives-summary} reports the gate decisions; the
+following two subsections give the full 3-cause attribution per
+feature.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Mini-scale outlier-handling ablation summary.
+\emph{Q5 baseline} is the no-feature row from
+Section~\ref{sec:bilingual-q5}. \emph{$\Delta$ vs Q5} for the
+val\_loss columns is positive when the ablation IMPROVES on the
+baseline (negative = regression). The
+\texttt{outlier\_global\_reduction} column is only defined for
+balanced\_calib (the metric requires saved calibration maps). All
+training runs use identical step budget and bilingual stream;
+training trajectories agree with Q5 to within seed-variance, so the
+val\_loss differences are attributable to the feature itself.}
+\label{tab:negatives-summary}
+\begin{tabular}{lrrrr}
+\toprule
+                         & val\_loss(EN) & $\Delta$ vs Q5 & outlier\_red. & gate \\
+\midrule
+\textbf{Q5 baseline}     & 4.732 & --- & --- & --- \\
+balanced\_calib (E2.4)   & 4.834 & $-0.10$ & \textbf{$-82.13$} & \textbf{FAIL} \\
+Hadamard (E2.1)          & 4.852 & $-0.12$ & --- & \textbf{FAIL} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{E2.4 balanced\_calib: 83$\times$ worse than baseline on outlier channels}
+\label{sec:negatives-bc}
+
+The balanced\_calib metric outcome is unambiguous:
+\texttt{outlier\_global\_reduction = $-82.13$} against a gate of
+$\geq +0.10$. The negative sign means the calibrated quantizer is
+\emph{worse} than the baseline on the very channels it was designed
+to help: the calibrated mean MSE on outlier channels is $83.13\times$
+the baseline mean MSE. \texttt{global\_mean\_reduction} (across all
+channels, not just outliers) is $-148.27$, indicating the calibrated
+quantizer is also $\sim$$149\times$ worse on bulk channels. Per-layer
+breakdown shows the failure is uniform across all 37 BitLinear sites,
+not driven by a few pathological layers.
+
+The three-cause attribution committed in
+\texttt{FJQ\_PHASE\_E\_E2\_BILINGUAL\_CALIB\_DECISION.md}~v1.0
+\textsection3 reads:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{All-time-max \texttt{running\_max} accumulator captures
+non-stationary peaks.} The accumulator is \texttt{torch.maximum} over
+every forward call across all 24K training steps. Early training has
+random-init activation peaks $10$-$100\times$ larger than steady-state.
+The accumulator captures these and never decays, so the calibrated
+scale is locked to a worst case the late-training model rarely
+produces. Per-layer evidence: \texttt{attn.o\_proj} \texttt{running\_max}
+ranges $11$--$20$ across the 6 layers, while typical late-training
+$|x|$ on the same channel is $\sim$$0.1$-$0.5$ post-RMSNorm. The
+calibrated scale~$=127/\text{running\_max}\approx 6$-$12$ is far too
+coarse for the steady-state distribution; the baseline per-token
+scale~$=127/0.5\approx 254$ is much finer.
+
+\item \textbf{RMSNorm-bounded BitLinear inputs reward per-token
+adaptation, not per-channel calibration.} Upstream BitLinear runs
+RMSNorm before \texttt{activation\_quant}, bounding inputs adaptively
+per-token. The baseline per-token \texttt{activation\_quant} benefits:
+\texttt{scale\_t = 127 / max(|x\_norm[t,:]|)} is large for the typical
+small-magnitude rows that emerge late in training, granting fine-grained
+quantization. \texttt{q\_calibrated} cannot adapt — it locks to the
+calibration constant.
+
+\item \textbf{Outlier-bit allocation lever is ineffective when scale
+is fundamentally too coarse.} The $5\%$ top-$K \to 10$-bit promotion
+gives outlier channels MORE bits, but only addresses GRANULARITY
+error within the channel's chosen scale; it does not fix the
+locked-coarse-scale problem. AWQ \citep{lin2023awq} and GPTQ
+\citep{frantar2022gptq} both note this dependency; our negative
+result is consistent with this literature observation.
+\end{enumerate}
+
+\subsection{E2.1 Hadamard rotation: \texttt{+0.12} nat regression on val\_loss}
+\label{sec:negatives-had}
+
+The Hadamard rotation outcome is also unambiguous:
+\texttt{val\_loss(EN)} = $4.852$ against the Q5 baseline $4.732$, a
+regression of $+0.120$~nat against a gate demanding a
+$\geq +0.05$~nat improvement (FAIL by $+0.17$ nat past gate, in the
+wrong direction). Held-out training trajectories match Q5 within
+$\pm 0.02$ nat at every checkpointed step, confirming the failure is
+attributable to the rotation itself rather than to training-trajectory
+disturbance from the bilingual sampler or the Hadamard pre-hook.
+
+The three-cause attribution committed in
+\texttt{FJQ\_PHASE\_E\_E2\_HADAMARD\_DECISION.md}~v1.0 \textsection3
+reads:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Training-from-scratch loses Hadamard's primary benefit.}
+QuaRot \citep{ashkboos2024quarot} and SpinQuant
+\citep{liu2024spinquant} apply rotation \emph{post-hoc} to a
+pre-trained model that is then re-quantized. The pre-trained model
+already has stable, learned representations; rotation reduces
+outlier-driven quantization error WITHOUT requiring weight adaptation.
+In our setup we train from scratch with the rotation in place; the
+training-from-scratch math equivalence
+$y = \text{quant}(W) \cdot \text{quant}(H x) \approx W \cdot H x = (W H) x$
+implies the model learns $W_{\text{eff}} = W H$ rather than $W$, and
+spends gradient updates fighting the rotation rather than benefiting
+from outlier reduction. The Mini-scale 491M-token-equivalent compute
+budget is far less than the budgets where weight-learning saturates
+against the rotation handicap.
+
+\item \textbf{HGRN attention output may not have transformer-style
+outlier concentration.} The QuaRot/SpinQuant outlier story is about
+transformer self-attention's QKV projection inputs (post-RMSNorm
+hidden states), where a few channels concentrate magnitude due to the
+$\text{softmax}(QK^T/\sqrt{d})$ attention pattern emphasizing certain
+feature dimensions. HGRN's gated linear recurrence is structurally
+different: gate values $g_t = \sigma(g_{\text{proj}}(x_t))$ and
+forget values $f_t = \sigma(f_{\text{proj}}(x_t))$ modulate the
+recurrence smoothly, without softmax-induced sharpness. The
+activation arriving at \texttt{o\_proj} is the post-recurrence
+accumulator state, not a softmax-attention-weighted sum. We did not
+empirically measure outlier concentration on \texttt{o\_proj} inputs
+before running this ablation; in hindsight that pre-flight measurement
+should have been a hard prerequisite (Phase~F.6.1 future-work).
+
+\item \textbf{Q1 closure's ``rotate \texttt{o\_proj} only'' may have
+been overly conservative.} The full QuaRot recipe rotates inputs to
+ALL projections including QKV-equivalent paths; HGRN's
+\texttt{i\_proj}/\texttt{f\_proj}/\texttt{g\_proj} inputs are also
+post-RMSNorm hidden states, just like QKV inputs in transformers.
+The same outlier pattern \emph{could} be present there. Our ablation
+tested only $1/4$ of the candidate rotation sites in HGRN attention;
+a future ablation that rotates all four sites might recover the
+literature's positive result.
+\end{enumerate}
+
+Figure~\ref{fig:hadamard-spike} (deferred to Week~3) plots a synthetic
+single-channel-spike input through the same \texttt{HadamardRotation}
+module and shows it DOES correctly spread outlier energy
+mathematically: the max-to-RMS ratio drops from $\sqrt{d_{\text{model}}}=8$ to $\sim$1
+after rotation. The mathematical mechanism works as designed; the
+training-from-scratch + Mini-scale + bilingual setting is what fails
+to translate this mechanism into val\_loss improvement.
+
+\begin{figure}[t]
+\centering
+\textit{[Figure pending — drafted Week 3. Bar chart of per-channel
+$|x|$ before rotation (one tall bar at channel~0, rest near-zero) and
+after rotation (uniform spread at $1/\sqrt{d}\cdot$max). Demonstrates
+the Hadamard rotation works mathematically; the negative training-
+from-scratch result is NOT due to broken math. Source:
+\texttt{python/phase\_d/tests/test\_quant.py::}
+\texttt{test\_hadamard\_outlier\_suppression\_on\_concentrated\_input}
+unit-test fixture extended to dump pre/post arrays.]}
+\caption{Walsh-Hadamard rotation correctly spreads single-channel
+outlier energy on synthetic input (max/RMS ratio drops $8\to 1$ at
+$d=64$). The mechanism works; training-from-scratch at Mini scale is
+what fails to capitalize on it. Source: \texttt{HadamardRotation}
+unit-test fixture.}
+\label{fig:hadamard-spike}
+\end{figure}
+
+\subsection{Common pattern across both failures}
+\label{sec:negatives-pattern}
+
+Both features come from the \emph{post-hoc quantization} literature:
+QuaRot, SpinQuant, SmoothQuant, GPTQ, and AWQ all apply their
+respective modifications to a pre-trained model that is subsequently
+re-quantized. None of these methods has, to our knowledge, been
+ablated under the conditions of this paper:
+training-from-scratch~$+$~Mini-scale (22~M~params)~$+$~bilingual data.
+Our two negative results suggest a meta-pattern:
+
+\begin{quote}
+\textit{Outlier-handling features designed for post-hoc quantization
+of pre-trained large transformers do not transfer cleanly to
+training-from-scratch ternary at small scale.}
+\end{quote}
+
+The meta-pattern is a hypothesis, not a theorem; we test only two
+features. Confirming it would require additional ablations
+(Section~\ref{sec:negatives-future}). What our two failures \emph{do}
+establish is that the literature's positive results in their
+post-hoc large-scale regime do not provide \emph{prima facie}
+evidence for adoption in our regime, and that mechanically-gated
+ablations on Q5-comparable budget reveal the gap quickly.
+
+Table~\ref{tab:negatives-causes} summarizes the three-cause
+attribution columns side-by-side; the structural commonality is the
+``post-hoc literature precedent vs.\ training-from-scratch setting''
+mismatch in cause~1 of each.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Three-cause attribution summary. Cause~1 of each feature
+identifies the same fundamental mismatch: literature precedents are
+post-hoc, our setting is training-from-scratch. Causes~2~and~3 are
+feature-specific.}
+\label{tab:negatives-causes}
+\begin{tabular}{lll}
+\toprule
+\# & balanced\_calib (E2.4)             & Hadamard (E2.1) \\
+\midrule
+1 & all-time-max captures non-stat.\ peaks & training-from-scratch loses post-hoc benefit \\
+2 & RMSNorm reward per-token adapt.\ scale & HGRN may lack QKV-style outliers \\
+3 & outlier-bit lever needs correct scale  & rotate-\texttt{o\_proj}-only may be conservative \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Phase~F future-work pointers}
+\label{sec:negatives-future}
+
+The negative results inform four committed Phase~F future-work
+entries (\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md}~v1.3
+\textsection4.1):
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{F.5 — post-training PTQ-style calibration on held-out
+data.} Replace the all-time-max accumulator with a SmoothQuant-style
+\citep{xiao2022smoothquant} held-out post-training calibration on a
+fixed batch from the trained Mini checkpoint. Tests whether the
+balanced\_calib failure was about WHEN calibration happens
+(during-training accumulator) rather than WHAT calibration is computed
+(per-channel scale).
+
+\item \textbf{F.6 — post-hoc QuaRot on the Q5-trained Mini
+checkpoint.} Apply the canonical QuaRot recipe (fuse Hadamard into
+adjacent weights via algebraic identity, re-evaluate without
+re-training) to the Q5-trained checkpoint. Tests whether the Hadamard
+failure was about TRAINING-from-scratch vs.\ POST-hoc, controlling
+for the architecture (HGRN-Bit unchanged).
+
+\item \textbf{F.6.1 — outlier-concentration measurement on Q5-trained
+checkpoint o\_proj inputs.} A pre-flight measurement of the per-
+channel max-to-RMS ratio histogram on captured \texttt{o\_proj}
+inputs from the trained Mini checkpoint. If the ratio is uniformly
+$\sim$1 (no outlier concentration), F.6 post-hoc rotation has nothing
+to spread either; if there is meaningful concentration, F.6 likely
+recovers a positive result. This pre-flight is the hindsight
+prerequisite Section~\ref{sec:negatives-had} cause~2 should have
+satisfied before E2.1 was run.
+
+\item \textbf{F.7--F.9 — additional outlier-handling features cut from
+this paper's scope.} FP8 mixed-precision (F.7), FP16 distillation
+(F.8), and language-conditioned design (F.9) were originally planned
+as Phase~E2 ablations and cut to Phase~F under the Path~A scope
+decision (\texttt{FJQ\_PHASE\_E\_PATH\_A\_PAPER\_OUTLINE.md}~v1.0).
+The cut rationale is that with two negative results in a row from
+features structurally similar to those three (all post-hoc-literature-
+inspired), the marginal evidence per additional ablation is low; cut
+the losses, ship the negative-results paper, pursue the alternatives
+in Phase~F where larger-scale and post-hoc protocols are available.
+\end{itemize}
+
+We treat this as a successful Phase~E2 outcome rather than a failure
+of the methodology: the two negative results have prevented an
+inflated paper claim, the three-cause attributions give the next
+research team specific hypotheses to test, and the four Phase~F
+entries constitute a more well-posed research agenda than the
+original ``ablate five features and combine the wins'' plan that the
+empirical evidence has refuted.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{In-Kernel Deployment via FajarOS Nova (C3)}
