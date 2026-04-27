@@ -457,6 +457,32 @@ CLAIMS: list[Claim] = [
           source_loader=lambda: ablation_row("hadamard", "training_seconds"),
           tolerance=10.0,
           paper_ref="§7.3 / Hadamard training_seconds"),
+
+    # ── §7.3 F.6.1 outlier-concentration measurement (NEW 2026-04-27 post-V31) ──
+    Claim("F.6.1: o_proj per-layer-max max/mean ratio (paper says 421×)",
+          paper_value=421.08,
+          source_loader=lambda: float(load_ablation("outlier_concentration_mini.json")
+                                      ["by_role"]["o_proj"]["max_of_ratio_max"]),
+          tolerance=0.5,
+          paper_ref="§7.3 cause-2 measured F.6.1 / o_proj max_of_ratio_max"),
+    Claim("F.6.1: o_proj mean ratio across 6 layers (paper says 51.6×)",
+          paper_value=51.63,
+          source_loader=lambda: float(load_ablation("outlier_concentration_mini.json")
+                                      ["by_role"]["o_proj"]["mean_of_ratio_mean"]),
+          tolerance=0.05,
+          paper_ref="§7.3 cause-2 measured F.6.1 / o_proj mean_of_ratio_mean"),
+    Claim("F.6.1: mlp.down_proj mean ratio (paper says 40.2×)",
+          paper_value=40.18,
+          source_loader=lambda: float(load_ablation("outlier_concentration_mini.json")
+                                      ["by_role"]["mlp.down_proj"]["mean_of_ratio_mean"]),
+          tolerance=0.05,
+          paper_ref="§7.3 cause-2 measured F.6.1 / mlp.down_proj mean_of_ratio_mean"),
+    Claim("F.6.1: i_proj/f_proj/g_proj mean ratio (paper says 5.30×)",
+          paper_value=5.30,
+          source_loader=lambda: float(load_ablation("outlier_concentration_mini.json")
+                                      ["by_role"]["i_proj"]["mean_of_ratio_mean"]),
+          tolerance=0.05,
+          paper_ref="§7.3 cause-2 measured F.6.1 / i_proj mean_of_ratio_mean"),
 ]
 
 

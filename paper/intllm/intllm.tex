@@ -1383,20 +1383,40 @@ from outlier reduction. The Mini-scale 491M-token-equivalent compute
 budget is far less than the budgets where weight-learning saturates
 against the rotation handicap.
 
-\item \textbf{HGRN attention output may not have transformer-style
-outlier concentration.} The QuaRot/SpinQuant outlier story is about
-transformer self-attention's QKV projection inputs (post-RMSNorm
-hidden states), where a few channels concentrate magnitude due to the
-$\text{softmax}(QK^T/\sqrt{d})$ attention pattern emphasizing certain
-feature dimensions. HGRN's gated linear recurrence is structurally
-different: gate values $g_t = \sigma(g_{\text{proj}}(x_t))$ and
-forget values $f_t = \sigma(f_{\text{proj}}(x_t))$ modulate the
-recurrence smoothly, without softmax-induced sharpness. The
-activation arriving at \texttt{o\_proj} is the post-recurrence
-accumulator state, not a softmax-attention-weighted sum. We did not
-empirically measure outlier concentration on \texttt{o\_proj} inputs
-before running this ablation; in hindsight that pre-flight measurement
-should have been a hard prerequisite (Phase~F.6.1 future-work).
+\item \textbf{HGRN attention output DOES have outlier concentration —
+and it is dramatically stronger than transformer-QKV-style.} A
+post-hoc Phase~F.6.1 measurement on the trained Phase~D Mini
+checkpoint (100 batches of \texttt{bilingual\_stream(seed=42)} through
+\texttt{model.eval()}, capturing per-channel max-to-mean activation
+ratios) refutes the original hypothesis that HGRN's gated linear
+recurrence might smooth out outliers. Per-channel max/mean ratios
+measured on the trained Mini at each BitLinear site:
+
+\begin{itemize}
+\item \textbf{\texttt{o\_proj} (the site we rotated):} mean across
+6 layers = $\mathbf{51.6\times}$, max = $\mathbf{421\times}$ —
+massive outlier concentration, far beyond what published
+QuaRot~\citep{ashkboos2024quarot} measurements on transformer-QKV
+inputs at the same scale typically show.
+\item \texttt{mlp.down\_proj}: mean = $40.2\times$, max = $250\times$
+— similarly concentrated.
+\item \texttt{i\_proj}, \texttt{f\_proj}, \texttt{g\_proj} (the QKV-
+equivalent post-RMSNorm hidden state inputs): mean $5.30\times$,
+max $7.76\times$ — moderate concentration of the size canonical
+QuaRot literature targets.
+\item \texttt{mlp.gate\_proj}: mean $5.43\times$, \texttt{lm\_head}:
+mean $5.98\times$.
+\end{itemize}
+
+The Hadamard rotation we applied had $51\times$ mean energy
+concentration available to spread on the very site (\texttt{o\_proj})
+we targeted. The cause-2 hypothesis ``HGRN doesn't have outlier
+concentration'' is empirically FALSE; therefore the negative result
+must attribute to cause-1 (training-from-scratch losing post-hoc
+benefit) and cause-3 (rotating only \texttt{o\_proj} when at least
+\texttt{mlp.down\_proj} is similarly concentrated). The full F.6.1
+measurement is committed at
+\texttt{paper/intllm/ablations/outlier\_concentration\_mini.json}.
 
 \item \textbf{Q1 closure's ``rotate \texttt{o\_proj} only'' may have
 been overly conservative.} The full QuaRot recipe rotates inputs to
@@ -2197,15 +2217,18 @@ the balanced\_calib failure was about WHEN calibration happens
 (per-channel scale). Cheapest of the five; entry condition is
 sub-day smoke showing $\geq +10\%$ MSE reduction on outlier channels.
 
-\item \textbf{F.6 Post-hoc QuaRot on Q5-trained Mini checkpoint.}
-Apply the canonical QuaRot \citep{ashkboos2024quarot} recipe (load
-checkpoint, fuse Hadamard into adjacent weights via algebraic
-identity, re-evaluate without re-training) to the Q5-trained
-checkpoint. Tests whether the Hadamard failure was about
-training-from-scratch vs.\ post-hoc, controlling for HGRN-Bit
-architecture. Hard prerequisite F.6.1: pre-flight outlier-concentration
-measurement on \texttt{o\_proj} inputs (the hindsight measurement
-Section~\ref{sec:negatives-had} cause~2 should have run before E2.1).
+\item \textbf{F.6 Post-hoc QuaRot on Q5-trained Mini checkpoint —
+NOW RECOMMENDED.} The Phase~F.6.1 prerequisite measurement
+(Section~\ref{sec:negatives-had} cause~2) ran POST the V31 cycle and
+found very strong outlier concentration on \texttt{o\_proj} inputs
+(mean $51\times$ max-to-mean ratio, max $421\times$), far above the
+$\geq 3\times$ threshold the F.6 entry condition requires. Post-hoc
+QuaRot \citep{ashkboos2024quarot} on the Q5-trained checkpoint —
+load, fuse Hadamard into adjacent weights via algebraic identity,
+re-evaluate without re-training — is therefore RECOMMENDED rather
+than gated. Whether the published positive results transfer to our
+HGRN-Bit setting at this small scale becomes the next concrete
+empirical question.
 
 \item \textbf{F.7 FP8 (E4M3) mixed-precision for \texttt{lm\_head}~+~\texttt{attn.W\_o}.}
 Original Phase~E2.2 sub-feature, cut to Phase~F under Path~A. Tests
