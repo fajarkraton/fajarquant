@@ -47,6 +47,16 @@ PYTHONPATH_PD := PYTHONPATH=$(PHASE_D)
 verify-intllm-tables:
 	@$(PYTHON) scripts/verify_intllm_tables.py --strict
 
+# ─── Path A Week 4 ─── arXiv submission tarball + standalone verify ──
+.PHONY: arxiv-tarball
+arxiv-tarball:
+	@bash scripts/build_intllm_arxiv_tarball.sh
+
+# ─── Path A Week 4 ─── regenerate paper figures from JSON artifacts ──
+.PHONY: paper-figures
+paper-figures:
+	@$(PYTHON) scripts/generate_paper_figures.py
+
 # ─── Phase 4 test suite ─── all phase_d unit tests ──────────────────
 .PHONY: test-phase-d
 test-phase-d:

@@ -320,23 +320,23 @@ If you use FajarQuant in academic work, please cite:
 | Phase D paper (Table 2 wikitext + hellaswag rows) | Real numbers populated |
 | Phase D paper LaTeX writeup (full §4) | **Deferred to Phase E paper (one combined MLSys submission)** |
 
-### Arm C — Phase E Bilingual Kernel-LLM (in flight, post-V31.E2.4)
+### Arm C — Phase E Bilingual Kernel-LLM (Path A submission-ready)
 
-Phase D extends to Indonesian + English bilingual ternary LLM in kernel context. Plan v1.9 (Tier 1+2 only; Tier 3 tax-vertical deferred to Phase F per founder solo-execution mode).
+Phase D extends to Indonesian + English bilingual ternary LLM in kernel context. **Plan v1.10 — Path A scope decision** committed 2026-04-27: STOP Phase E2 after 2 honest negative results, CUT E2.2/E2.3/E2.5 (deferred to Phase F.7/F.8/F.9), pivot to paper. **Manuscript drafted, compiled, and submission-ready** (founder actions remain — see [`docs/ARXIV_SUBMISSION.md`](docs/ARXIV_SUBMISSION.md)).
 
 | Component | Status |
 |---|---|
-| **Phase E1 Bilingual corpus v1.0** | **CLOSED 2026-04-27.** 25.67 B tokens at 60:40 ID:EN (15.40 B ID + 10.27 B EN). 0% synthetic, 0.0254% exact-hash dedup. `make verify-bilingual-corpus` 8/8 invariants. |
-| Phase E2.0 pre-flight + Q5 baseline | **CLOSED 2026-04-27.** Q5 = 24K-step Mini bilingual training: val_loss(ID)=2.68, val_loss(EN)=4.73, ratio=1.77×. |
-| **Phase E2.4 BilingualCalibrationSampler** | **CLOSED with HONEST NEGATIVE RESULT 2026-04-27.** `outlier_global_reduction = −82.13` (gate ≥ 0.10) — calibrated quantizer is 83× WORSE than upstream baseline. Demoted to Phase D infra-diagnostic; NOT a Phase E2 ablation feature. See `docs/FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md`. |
-| Phase E2.1 Hadamard rotation | **NEXT** (~3-5 days human + 3-5h GPU). E2.1.0 ablation harness scaffold already shipped. |
-| Phase E2.2 FP8 mixed-precision (lm_head + attn.W_o) | Pending (after E2.1) |
-| Phase E2.3 FP16 distillation during QAT | Pending (after E2.2) |
-| Phase E2.5 Language-conditioned design (per-lang RMSNorm γ preliminary) | Pending (after E2.3) |
-| Phase E2.6 Combined ablation (4 features post-E2.4 closure) | Pending (after E2.1-2.5) |
-| Phase E3 Bilingual pretrain (Base/Medium scale) | Pending (after E2 gate decision) |
-| Phase E4 Paper draft + verification | Pending (after E2+E3) |
-| Phase F (tax-vertical TaxPrime) | **Deferred** (gated on Phase E paper acceptance + 2 weeks; review checkpoint 2026-05-24) |
+| **Phase E1 Bilingual corpus v1.0** | ✅ **CLOSED.** 25.67 B tokens at 60:40 ID:EN (15.40 B ID + 10.27 B EN). 0% synthetic, 0.0254% exact-hash dedup. `make verify-bilingual-corpus` 8/8 invariants. |
+| **Phase E2.0 pre-flight + Q5 baseline** | ✅ **CLOSED.** Q5 = 24K-step Mini bilingual training: val_loss(ID)=2.68, val_loss(EN)=4.73, ratio=1.77×. |
+| **Phase E2.4 balanced_calib** | ✅ **CLOSED with HONEST NEGATIVE RESULT.** `outlier_global_reduction = −82.13` (gate ≥ 0.10) — calibrated quantizer 83× WORSE than upstream baseline. See [`docs/FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md`](docs/FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md). |
+| **Phase E2.1 Hadamard rotation** | ✅ **CLOSED with HONEST NEGATIVE RESULT.** val_loss(EN) = 4.852 vs Q5 4.732, regression +0.12 nat (gate required ≥+0.05 nat improvement). See [`docs/FJQ_PHASE_E_E2_HADAMARD_DECISION.md`](docs/FJQ_PHASE_E_E2_HADAMARD_DECISION.md). |
+| **Path A scope decision** | ✅ **DONE.** Cut E2.2/E2.3/E2.5 to Phase F; pivot to paper. See [`docs/FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md`](docs/FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md) v1.0. |
+| **Paper §1-§10 + abstract LaTeX** | ✅ **DRAFTED with REAL data.** [`paper/intllm/intllm.tex`](paper/intllm/intllm.tex) 2435 LOC; [`intllm.pdf`](paper/intllm/intllm.pdf) 20 pages 787 KB; 5 figures via [`scripts/generate_paper_figures.py`](scripts/generate_paper_figures.py); refs.bib v1.0 with 15 verified citations; `verify_intllm_tables.py --strict` 32/32 PASS. |
+| **arXiv submission tarball** | ✅ **BUILT + standalone-verified.** `make arxiv-tarball` produces [`paper/intllm/intllm-arxiv.tar.gz`](paper/intllm/intllm-arxiv.tar.gz) (77 KB); verification cycle (extract to /tmp + pdflatex×3 + bibtex) green. |
+| **Founder actions for arXiv upload** | ⏳ PENDING — see [`docs/ARXIV_SUBMISSION.md`](docs/ARXIV_SUBMISSION.md): ORCID register, Zenodo DOI mint, arxiv.org account+endorsement, first-draft review, upload. |
+| Phase E2.2 / E2.3 / E2.5 / E2.6 | **Deferred to Phase F.7 / F.8 / F.9** under Path A scope decision; original sub-task tables preserved in plan v1.10 §3 PHASE E2 for Phase F lift. |
+| Phase E3 Bilingual pretrain (Base/Medium scale) | Pending (post-paper-acceptance; ~30-50h GPU) |
+| Phase F (Tier 3 tax-vertical TaxPrime + F.5/F.6 post-hoc PTQ/QuaRot follow-ups) | Pending (gated on Phase E paper acceptance + 2 weeks; see [`docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md`](docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md) v1.3) |
 
 ### Arm B — v3.1 KV Cache Quant (mature paper artifact)
 
