@@ -13,6 +13,7 @@ from intllm.quant import (
     SIGMOID_LUT_MAX_ABS_ERROR,
     SIGMOID_LUT_MIN,
     SILU_LUT_MAX_ABS_ERROR,
+    HadamardRotation,
     IntRMSNorm,
     SigmoidLUT,
     SiLULUT,
@@ -322,3 +323,130 @@ def test_activation_quant_per_channel_channel_dim_mismatch_raises() -> None:
     bits_bad = torch.full((4,), 8, dtype=torch.int32)
     with pytest.raises(ValueError, match="channel-dim mismatch"):
         activation_quant_per_channel(x, running_max_ok, bits_bad)
+
+
+# -----------------------------------------------------------------
+# E2.1.1 — HadamardRotation
+# -----------------------------------------------------------------
+
+def test_hadamard_orthogonality_identity() -> None:
+    """H · H^T = I (Hadamard is orthogonal; symmetric → H^T = H)."""
+    for dim in (2, 4, 8, 16, 256):
+        h = HadamardRotation(dim)
+        prod = h.H @ h.H.T
+        identity = torch.eye(dim)
+        assert torch.allclose(prod, identity, atol=1e-5), (
+            f"H·H^T != I at dim={dim}; max abs diff "
+            f"{(prod - identity).abs().max().item():.2e}"
+        )
+
+
+def test_hadamard_norm_preservation() -> None:
+    """||H x|| = ||x|| for any input — orthogonal transform property."""
+    torch.manual_seed(0)
+    h = HadamardRotation(64)
+    x = torch.randn(32, 64)
+    y = h(x)
+    norm_x = x.pow(2).sum(dim=-1).sqrt()
+    norm_y = y.pow(2).sum(dim=-1).sqrt()
+    assert torch.allclose(norm_x, norm_y, atol=1e-4), (
+        f"norm not preserved; max abs diff "
+        f"{(norm_x - norm_y).abs().max().item():.2e}"
+    )
+
+
+def test_hadamard_round_trip_recovers_input() -> None:
+    """x ≈ H^T (H x) — inverse rotation recovers the original."""
+    torch.manual_seed(0)
+    h = HadamardRotation(32)
+    x = torch.randn(16, 32)
+    y = h(x)
+    x_back = y @ h.H.T
+    assert torch.allclose(x, x_back, atol=1e-5), (
+        f"round-trip mismatch; max abs diff "
+        f"{(x - x_back).abs().max().item():.2e}"
+    )
+
+
+def test_hadamard_outlier_suppression_on_concentrated_input() -> None:
+    """Synthetic outlier-heavy input → after rotation → reduced max/RMS ratio.
+
+    This is the core property the QuaRot/SpinQuant literature exploits:
+    a single-channel-spike input has max/RMS = sqrt(dim); after Hadamard,
+    energy spreads, max/RMS ≈ 1. This is what reduces quantization
+    error on outlier-prone activations.
+    """
+    dim = 64
+    h = HadamardRotation(dim)
+    # Single-channel spike: x = [10, 0, 0, ..., 0]. max/RMS = sqrt(64) = 8.
+    x = torch.zeros(1, dim)
+    x[0, 0] = 10.0
+    y = h(x)
+    max_x = x.abs().max().item()
+    rms_x = x.pow(2).mean().sqrt().item()
+    max_y = y.abs().max().item()
+    rms_y = y.pow(2).mean().sqrt().item()
+    ratio_x = max_x / rms_x
+    ratio_y = max_y / rms_y
+    # Spike: ratio = sqrt(dim) = 8. After Hadamard: ratio = 1 (uniform spread).
+    assert ratio_x > 7.0, f"expected concentrated input ratio ≈ 8, got {ratio_x:.3f}"
+    assert ratio_y < 1.5, (
+        f"Hadamard failed to spread energy: ratio_y = {ratio_y:.3f} "
+        f"(expected <1.5; before rotation: {ratio_x:.3f})"
+    )
+
+
+def test_hadamard_shape_preservation_2d_and_3d() -> None:
+    """Input shape (..., dim) → same shape, dtype preserved."""
+    h = HadamardRotation(16)
+    x_2d = torch.randn(8, 16)
+    y_2d = h(x_2d)
+    assert y_2d.shape == x_2d.shape
+    assert y_2d.dtype == x_2d.dtype
+
+    x_3d = torch.randn(2, 4, 16)
+    y_3d = h(x_3d)
+    assert y_3d.shape == x_3d.shape
+    assert y_3d.dtype == x_3d.dtype
+
+
+def test_hadamard_dim_must_be_power_of_2() -> None:
+    """Non-power-of-2 dim → ValueError before any allocation."""
+    for bad_dim in (0, 3, 5, 6, 7, 100, 255):
+        with pytest.raises(ValueError, match="power of 2"):
+            HadamardRotation(bad_dim)
+    # Negative is also rejected (caught by power-of-2 check)
+    with pytest.raises(ValueError, match="power of 2"):
+        HadamardRotation(-4)
+
+
+def test_hadamard_forward_dim_mismatch_raises() -> None:
+    """If x.shape[-1] != module.dim → ValueError, not a silent shape error."""
+    h = HadamardRotation(8)
+    x_wrong = torch.randn(4, 16)  # last dim 16 != 8
+    with pytest.raises(ValueError, match="dim=8"):
+        h(x_wrong)
+
+
+def test_hadamard_dtype_passthrough_fp32_and_fp16() -> None:
+    """H matrix is stored fp32 but cast to x's dtype during forward."""
+    h = HadamardRotation(16)
+    x_fp16 = torch.randn(4, 16, dtype=torch.float16)
+    y_fp16 = h(x_fp16)
+    assert y_fp16.dtype == torch.float16
+
+    x_bf16 = torch.randn(4, 16, dtype=torch.bfloat16)
+    y_bf16 = h(x_bf16)
+    assert y_bf16.dtype == torch.bfloat16
+
+
+def test_hadamard_buffer_not_a_parameter() -> None:
+    """H is registered as buffer, NOT parameter — no gradient, no
+    optimizer step, no checkpoint bloat from including it as
+    learnable. (Also verifies it moves with .to(device) correctly.)"""
+    h = HadamardRotation(8)
+    # Buffer present but not in parameters()
+    assert "H" in dict(h.named_buffers())
+    assert "H" not in dict(h.named_parameters())
+    # No grad on the buffer
+    assert h.H.requires_grad is False

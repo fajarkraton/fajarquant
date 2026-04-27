@@ -231,6 +231,100 @@ def fake_quantize_absmax_ste(x: torch.Tensor, n_bits: int = 8) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
+# §4.4. Walsh-Hadamard rotation for outlier suppression (E2.1)
+# ---------------------------------------------------------------------------
+
+def _walsh_hadamard_matrix(dim: int) -> torch.Tensor:
+    """Build the dim×dim normalized Walsh-Hadamard matrix H.
+
+    Construction by recursive doubling:
+      H_1 = [[1]]
+      H_{2n} = (1/sqrt(2)) [[H_n, H_n], [H_n, -H_n]]
+
+    Properties (verified by unit tests):
+      - Orthogonal: H @ H^T = I (symmetric → H^T = H)
+      - Norm-preserving: ||H x|| = ||x|| for any x
+      - Energy-spreading: per-coordinate variance of H x is bounded by
+        the *average* per-coordinate variance of x, regardless of how
+        concentrated x's energy is. This is the property QuaRot/SpinQuant
+        exploit to reduce activation outliers before quantization.
+
+    `dim` must be a power of 2; raises ValueError otherwise. Matrix is
+    constructed in float32 and stored on CPU; caller moves to device
+    via the parent module's `.to(device)`.
+    """
+    if dim < 1 or (dim & (dim - 1)) != 0:
+        raise ValueError(f"Hadamard dim must be a positive power of 2, got {dim}")
+    h = torch.tensor([[1.0]])
+    while h.shape[0] < dim:
+        n = h.shape[0]
+        top = torch.cat([h, h], dim=1)
+        bot = torch.cat([h, -h], dim=1)
+        h = torch.cat([top, bot], dim=0) / math.sqrt(2.0)
+    return h
+
+
+class HadamardRotation(nn.Module):
+    """Fixed (non-learned) orthogonal rotation by the Walsh-Hadamard matrix.
+
+    Per QuaRot (arxiv 2404.00456) and SpinQuant (arxiv 2405.16406),
+    rotating activations by an orthogonal matrix BEFORE quantization
+    spreads outlier energy across coordinates. The fixed Walsh-Hadamard
+    rotation is the canonical no-learnable-params baseline; SpinQuant
+    extends with a learned rotation on top, deferred for a future
+    iteration.
+
+    Mathematical equivalence (training-from-scratch case):
+
+      Original:    y = quant(W) · quant(x)
+      Rotated:     y' = quant(W) · quant(H x)
+                      ≈ W · H x = (W H) x
+
+    For end-to-end training from random init, the model learns
+    W_eff = W H instead of W. The OUTPUT semantics are identical at
+    convergence; the QUANTIZATION error is reduced because (H x) has
+    flatter per-coordinate magnitude distribution than x.
+
+    For inference-time application to a pre-trained model (NOT this
+    sub-task — see E2.1.4 deferred), one would fuse H into the upstream
+    weights to preserve numerics; that's the QuaRot inference recipe.
+
+    Wiring: this module is a pure forward function. It does NOT modify
+    any BitLinear; E2.1.2 attaches an instance via `register_forward_pre_hook`
+    on `block.attn.o_proj` so the rotation runs as a transparent
+    pre-processing step. The Q1 closure in `FJQ_PHASE_E_E2_FINDINGS.md`
+    v1.1 §4 establishes that ONLY o_proj should be rotated in HGRNBit
+    (the i/f/g_proj are gated-linear-recurrence projections, structurally
+    distinct from QKV — rotating them is non-canonical).
+
+    Args:
+        dim: Hidden dimension to rotate over (must be a power of 2).
+
+    Buffers:
+        H: (dim, dim) float32 normalized Walsh-Hadamard matrix.
+    """
+
+    def __init__(self, dim: int) -> None:
+        super().__init__()
+        if dim < 1 or (dim & (dim - 1)) != 0:
+            raise ValueError(f"HadamardRotation dim must be a positive power of 2, got {dim}")
+        self.dim = dim
+        self.register_buffer("H", _walsh_hadamard_matrix(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Rotate `x` along its last dim: returns x @ H, shape unchanged."""
+        if x.shape[-1] != self.dim:
+            raise ValueError(
+                f"HadamardRotation: x.shape[-1]={x.shape[-1]} but module dim={self.dim}",
+            )
+        # Cast H to x's dtype for fp16/bf16 training compatibility.
+        return x @ self.H.to(dtype=x.dtype)
+
+    def extra_repr(self) -> str:
+        return f"dim={self.dim}"
+
+
+# ---------------------------------------------------------------------------
 # §4.5. Per-channel adaptive quantization (E2.4.C.2)
 # ---------------------------------------------------------------------------
 
@@ -336,6 +430,7 @@ SILU_LUT_MAX_ABS_ERROR: float = 1.6e-2
 
 
 __all__ = [
+    "HadamardRotation",
     "IntRMSNorm",
     "SiLULUT",
     "SigmoidLUT",
