@@ -1,0 +1,21 @@
+{
+  "_schema_version": "1.0",
+  "phase": "E2.0+Q5",
+  "id_share": 0.6,
+  "n_steps": 24000,
+  "training_seconds": 2519.1708002090454,
+  "initial_loss": 10.428041458129883,
+  "final_loss": 3.048732280731201,
+  "val_loss_id": 2.6786239433288572,
+  "val_loss_en": 4.731682691574097,
+  "ratio": 1.7664602391681017,
+  "ppl_id": 14.565037183290258,
+  "ppl_en": 113.4863643222226,
+  "ratio_gate_threshold": 1.5,
+  "ratio_gate_pass": false,
+  "higher_loss_language": "EN",
+  "model_params": 21907968,
+  "proof_of_life": false,
+  "val_steps_each": 50,
+  "timestamp": "2026-04-27T02:12:11+00:00"
+}
