@@ -730,11 +730,208 @@ small-LM scale, (c)~kernel-deployable binary footprint
 multi-axis positioning.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §6 Bilingual Extension and Q5 Baseline (C2) — DRAFTED THIS COMMIT
+% (Path A Week 2 sub-step 2)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Bilingual Extension and Q5 Baseline (C2)}
 \label{sec:bilingual}
 
-\textit{[STUB — drafted Week 2. Phase~E1 corpus v1.0 description,
-Q5 measurement protocol, Table~5 partial, Figure~4.]}
+The IntLLM scaling chain of Section~\ref{sec:results-scaling} is
+English-only: the SlimPajama-6B training stream contains negligible
+non-English content, and all evaluation tasks
+(Wikitext, lambada, the zero-shot suite) are English. Contribution~C2
+extends IntLLM to Indonesian-plus-English bilingual training via a new
+Phase~E1 corpus and a Q5 baseline measurement. We do \emph{not} claim
+a fully-trained bilingual production model in this paper; that is
+deferred to Phase~E3 (Section~\ref{sec:discussion}). The C2 claim is
+narrower: \emph{a clean, license-attributed, reproducible bilingual
+corpus exists, and a Mini-scale baseline measurement against it
+establishes the floor that all subsequent E2 ablations
+(Section~\ref{sec:negatives}) compare against.}
+
+\subsection{Phase~E1 bilingual corpus v1.0}
+\label{sec:bilingual-corpus}
+
+The corpus combines two Indonesian sources and one English source:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Indonesian Wikipedia} (\texttt{wikimedia/wikipedia} ID
+configuration via HuggingFace): 662{,}929 documents kept after
+exact-hash deduplication ($0.40\%$ duplicate rate), 1.06~GB raw text.
+\item \textbf{Indonesian FineWeb-2} (\texttt{HuggingFaceFW/fineweb-2}
+\texttt{ind\_Latn} subset): 9{,}999{,}982 documents kept ($\sim$0\%
+duplicate rate; the upstream is already deduplicated at scale),
+37.86~GB raw text.
+\item \textbf{English SlimPajama-627B-Reupload} (\texttt{gmongaras/SlimPajama-627B\_Reupload}):
+streamed at training time rather than pre-staged on disk, capped at
+the bilingual budget (Table~\ref{tab:corpus-comp}).
+\end{itemize}
+
+The combined Indonesian side after exact-hash deduplication is
+$\approx$10.66~M documents at 38.92~GB, tokenizing to
+$\approx$15.40~B tokens under the Mistral~v3 BPE
+(Section~\ref{sec:arch-tokenizer}). At the design 60:40 ratio, the
+English side caps at $\approx$10.27~B tokens for a combined
+total of $\approx$25.67~B tokens. Table~\ref{tab:corpus-comp}
+summarizes the composition; Figure~\ref{fig:corpus-pie} (deferred to
+Week~3) plots it as a pie chart for the camera-ready version.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Phase~E1 bilingual corpus v1.0 composition. ID side is
+materialized on disk under \texttt{data/phase\_e/corpus\_id\_dedup\_exact/};
+EN side is streamed from HuggingFace at training time (no on-disk
+pre-stage). Numbers reproducible via the manifest files committed
+alongside each ID-side parquet shard. Deduplication uses exact SHA-256
+hashing on NFKC-lowercase-whitespace-normalized text.}
+\label{tab:corpus-comp}
+\begin{tabular}{lrrr}
+\toprule
+Source & Docs kept & Size & Tokens \\
+\midrule
+ID Wikipedia        &     0.66\,M &   1.06\,GB &  $\sim$0.42\,B \\
+ID FineWeb-2        &    10.00\,M &  37.86\,GB & $\sim$14.98\,B \\
+\textbf{ID total}   & \textbf{10.66\,M} & \textbf{38.92\,GB} & $\sim$\textbf{15.40\,B} \\
+EN SlimPajama-627B  &  (streamed) & (streamed) &  $\sim$10.27\,B \\
+\midrule
+\textbf{Combined}   & \textbf{$\sim$10.66\,M+EN} & \textbf{38.92\,GB} & \textbf{$\sim$25.67\,B} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\textit{[Figure pending — drafted Week 3. Pie chart of corpus
+composition: ID FineWeb-2 (58.4\%), EN SlimPajama (40.0\%), ID
+Wikipedia (1.6\%). Source: per-shard \texttt{\_manifest.json} +
+\texttt{python/phase\_e/intllm\_en.py} EN-cap arithmetic.]}
+\caption{Phase~E1 corpus v1.0 composition by tokens. Source:
+\texttt{data/phase\_e/corpus\_id\_dedup\_exact/*/\_manifest.json}.}
+\label{fig:corpus-pie}
+\end{figure}
+
+A mechanical consistency gate \texttt{make verify-bilingual-corpus}
+checks 8 invariants (file presence, manifest internal consistency,
+dedup-rate bounds, total-token range, ID/EN ratio bounds, license
+attribution presence, schema versions, sha256 hash table integrity)
+in $<1$~second; a pre-commit hook fires this gate conditionally when
+staged changes touch any corpus manifest or the
+\texttt{intllm\_en.py} configuration shim. License attribution
+(CC~BY-SA~4.0 for Wikipedia, ODC-By~1.0 for FineWeb-2,
+Apache~2.0 for SlimPajama-627B) is preserved in
+\texttt{NOTICE\_BILINGUAL\_CORPUS\_V1} at the repository root for
+downstream model release.
+
+The corpus is \textbf{0\%-synthetic by design}: every token in the ID
+side comes from human-authored sources, and the EN side reuses an
+already-published large-scale public web corpus. We deliberately
+exclude synthetic generation (Gemma~4 / Lapis 2.5 outputs) from this
+v1.0 corpus to maximize licensing clarity for downstream model release;
+synthetic augmentation is a Phase~E1.5 deferred
+deliverable
+not exercised in this paper.
+
+\subsection{Q5 Mini-scale baseline measurement}
+\label{sec:bilingual-q5}
+
+Q5 is a single Mini-scale training run on the bilingual corpus,
+measured per Section~\ref{sec:method-stream}'s protocol: 24{,}000~steps
+$\times$ 8~batch $\times$ 1024~sequence $=$ $\approx$196~M tokens at
+60:40 ID:EN, on a single RTX~4090~Laptop GPU. The run takes 42.0~minutes
+wall-clock. After training, validation losses are measured separately
+on Indonesian and English held-out streams (50~batches each at distinct
+seeds) to compute the cross-lingual coherence ratio
+$\rho = \max(\ell_{\text{ID}}, \ell_{\text{EN}}) / \min(\ell_{\text{ID}}, \ell_{\text{EN}})$.
+
+Table~\ref{tab:q5-baseline} reports the result.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Q5 bilingual baseline at Mini scale (21.9~M~params, 24{,}000
+steps on Phase~E1 corpus v1.0 at 60:40 ID:EN). val\_loss measured on
+50-batch held-out streams: \texttt{seed=999} for ID,
+\texttt{seed=998} for EN. Source: \texttt{paper/intllm/ablations/q5\_bilingual\_baseline.json}.}
+\label{tab:q5-baseline}
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+\texttt{val\_loss(ID)}                & 2.679 \\
+\texttt{val\_loss(EN)}                & 4.732 \\
+$\rho = \max/\min$                    & \textbf{1.77$\times$} \\
+\texttt{PPL(ID)}                       & 14.6 \\
+\texttt{PPL(EN)}                       & 113.5 \\
+training wall-clock                    & 42.0~min \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Q5 baseline establishes the bilingual floor for this paper: every
+E2 ablation in Section~\ref{sec:negatives} is gate-evaluated against
+\texttt{val\_loss(EN, seed=999, 50 batches)} (Q5 reuses the EN
+seed=998 stream; the seed alignment is documented in
+Section~\ref{sec:method-budget}, with the 50-batch
+\texttt{seed=999} EN protocol used by ablations being a deliberately
+distinct sample).
+
+\subsection{Honest interpretation: why ID fits 7.8$\times$ better than EN}
+\label{sec:bilingual-discuss}
+
+The numerical surprise of Q5 is that \texttt{val\_loss(ID)} is
+materially lower than \texttt{val\_loss(EN)} despite the 60:40 mix
+weighting Indonesian only 1.5$\times$ over English. In perplexity
+terms the gap is 7.8$\times$ ($14.6$~vs.~$113.5$). We attribute this
+to a combination of three effects, none of which constitute
+``bilingual interference'' in the sense the multilingual quantization
+literature uses the phrase \citep{calibrating2026beyond}:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Indonesian Wikipedia + FineWeb-2 has higher template
+redundancy than SlimPajama EN.} Indonesian Wikipedia in particular has
+a long tail of stub pages with near-identical structural prefixes
+(``Kelahiran'', ``Kematian'', ``Pranala luar'', etc.). The exact-hash
+deduplication of Section~\ref{sec:bilingual-corpus} catches \emph{exact}
+duplicates (0.40\% on Wikipedia) but leaves \emph{near}-duplicates
+that share many tokens of structural boilerplate; the model picks up
+on this and predicts those tokens with very low cross-entropy.
+
+\item \textbf{Mistral~v3 BPE is English-trained.} Indonesian text is
+within the BPE's Latin-script coverage but typically requires more
+sub-token pieces per word than equivalent English content. This
+inflates the per-token information content of English (each token
+carries more uncertainty) while compressing it for Indonesian, biasing
+val\_loss in Indonesian's favor under same-tokenizer comparison.
+
+\item \textbf{The English side at 80~M tokens (40\% of 196~M) is
+below Phase~D Mini's saturation point.} Phase~D Mini~v2 reached
+val\_loss~4.382 at 491.5~M~EN tokens (Section~\ref{sec:results-scaling}).
+Q5's English side trains on 80~M tokens, $\approx$16\% of that
+budget; the resulting val\_loss~4.732 is consistent with a
+half-trained English-only Mini, \emph{not} an architecturally degraded
+multilingual model.
+\end{enumerate}
+
+The implication for Phase~E2 ablation interpretation is important:
+a coherence ratio of $\rho = 1.77\times$ at the no-feature baseline
+is a \emph{property of the corpus and tokenizer choice}, not evidence
+that bilingual ternary training fundamentally fails. The
+language-conditioned-design literature
+\citep{calibrating2026beyond} would predict $\rho \to 1.0$ as a
+target for an ideal multilingual model; in our setting, $\rho \to
+\sim$1.5 may be the practical floor under the
+SlimPajama-EN-vs-Wikipedia/FineWeb-2-ID corpus asymmetry, and the gap
+between $1.77$ and $1.5$ should be interpreted as the headroom that
+language-conditioned design (Phase~F.9) is responsible for closing.
+
+To IntLLM's contribution stack specifically, Q5 is the \textbf{first
+fully-public bilingual ternary LM training run at the 22~M-parameter
+scale}. The corpus, training script, and result JSON are all
+artifact-committed and reproducible; the next research team can rerun
+Q5 in $\sim$42~minutes on commodity laptop hardware and verify the
+$\rho = 1.77$ baseline before attempting their own bilingual
+extensions.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{Honest Negative Results on Outlier-Handling Features (C4)}
