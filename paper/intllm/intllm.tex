@@ -201,15 +201,168 @@ and methodology and Section~\ref{sec:discussion} closing with the
 Phase~F follow-up agenda.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §2 Background — DRAFTED THIS COMMIT (Path A Week 4 sub-step 2)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Background}
 \label{sec:background}
 
-\textit{[STUB — drafted Week 3 of Path A calendar. Covers BitNet
-\citep{wang2023bitnet}, BitNet~b1.58~2B4T \citep{ma2024era},
-MatMul-Free LLM \citep{zhu2024matmulfree}, and the
-kernel-context constraints (no heap allocation during inference,
-$\leq$16~MB total binary footprint, deterministic
-execution, Fajar Lang \texttt{@kernel} annotation system).]}
+This section establishes the prior work that IntLLM extends along
+three axes: ternary language modeling (Section~\ref{sec:background-ternary}),
+kernel-context deployment constraints
+(Section~\ref{sec:background-kernel}), and the Fajar Lang
+context-annotation system that the architecture of
+Section~\ref{sec:arch} uses without further explanation
+(Section~\ref{sec:background-fajarlang}). Readers familiar with one
+or more of these axes may skip directly to Section~\ref{sec:arch};
+the cross-reference graph is self-contained.
+
+\subsection{Ternary language models}
+\label{sec:background-ternary}
+
+The lineage of weight-quantized language models that IntLLM extends
+runs from \citet{wang2023bitnet}'s BitNet through
+\citet{ma2024era}'s BitNet~b1.58 to \citet{zhu2024matmulfree}'s
+MatMul-Free LLM (MMfreeLM). The line of evolution is straightforward
+to summarize at a high level:
+
+\begin{description}[leftmargin=*]
+\item[BitNet \citep{wang2023bitnet}] introduces \texttt{BitLinear},
+a drop-in replacement for \texttt{nn.Linear} that quantizes weights
+to $\{-1, +1\}$ during pretraining via the straight-through estimator
+(STE) and quantizes activations to 8-bit per-token absmax. Validates
+that 1-bit weights can match FP16 baselines at $\geq 700$~M
+parameters.
+
+\item[BitNet b1.58 \citep{ma2024era}] extends the weight quantization
+grid from $\{-1, +1\}$ to $\{-1, 0, +1\}$ (ternary), recovering one
+extra dynamic-range degree of freedom for an effective $\log_2 3
+\approx 1.58$~bits per weight. Reports parity with full-precision
+baselines on standard zero-shot benchmarks at the 2~B-parameter
+scale (BitNet~b1.58~2B4T release on HuggingFace as
+\texttt{microsoft/bitnet-b1.58-2B-4T}). The ternary recipe defines
+the absmean weight scale~$s_w = 1 / \overline{|W|}$ that we adopt
+verbatim in Equation~\ref{eq:wquant}.
+
+\item[MatMul-Free LLM \citep{zhu2024matmulfree}] structurally
+eliminates the matmul-heavy softmax-attention block by replacing it
+with a gated linear recurrence (HGRN — Hierarchically Gated Recurrent
+Network) that uses four BitLinear projections per attention block
+(\texttt{i\_proj}, \texttt{f\_proj}, \texttt{g\_proj}, \texttt{o\_proj}).
+The MLP block reduces from three FP matmuls to two BitLinear projections
+(\texttt{gate\_proj}, \texttt{down\_proj}) plus an element-wise gate.
+Result: the only matmul in the forward path is the output projection
+to vocabulary (\texttt{lm\_head}), and even that is BitLinear; the
+forward path has zero FP matmuls in the inference hot path. Validates
+the architecture at 370~M, 1.3~B, and 2.7~B parameters; ships an
+FPGA accelerator at 13~W.
+\end{description}
+
+The literature gap that IntLLM closes is downward in scale: BitNet
+b1.58 validates at 2~B; MMfreeLM at $\geq 370$~M. Neither validates
+at the 22-74~M parameter range that is binding for kernel-context
+deployment. Whether the BitNet/MMfreeLM scaling-law assumptions
+extend down to that range is an empirical question we address in
+Section~\ref{sec:results-scaling}.
+
+A parallel post-hoc-quantization line of research (SmoothQuant
+\citep{xiao2022smoothquant}, GPTQ \citep{frantar2022gptq}, AWQ
+\citep{lin2023awq}, QuaRot \citep{ashkboos2024quarot}, SpinQuant
+\citep{liu2024spinquant}) compresses pre-trained large transformers
+to 4-8~bit weights without retraining. We do not compete with this
+line directly: the IntLLM problem is to TRAIN ternary from scratch
+at small scale, not to compress a pre-trained large model. We do
+draw on this line for outlier-handling features
+(Section~\ref{sec:negatives}); the empirical observation that those
+features fail in our regime is contribution~C4.
+
+\subsection{Kernel-context deployment constraints}
+\label{sec:background-kernel}
+
+Kernel-context deployment of language models is not just userspace
+deployment with a smaller memory budget; the constraints are
+structurally different in three ways that bear on every architectural
+choice in this paper:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{No heap allocation during inference.} Most kernel
+schedulers explicitly forbid heap allocation in interrupt-handler
+context (a deadlock would result if the heap allocator's lock is
+already held by the interrupted code) and discourage it in
+non-interrupt kernel context for predictability reasons. This rules
+out PyTorch-style dynamic tensor allocation, dynamic-vocabulary
+tokenizers, and any inference path that constructs new objects per
+forward pass. IntLLM's \texttt{@kernel} forward path uses only
+statically-allocated buffers sized at boot time.
+
+\item \textbf{Floating-point hot path unreliability.} Most x86
+microkernels save the FPU/SSE/AVX register state lazily on context
+switches; gratuitous FP arithmetic in interrupt context can corrupt
+the userspace process's FP state. Convention on Linux and most
+microkernels is to either (a)~explicitly save/restore FP state
+around any kernel-side FP arithmetic (with significant per-call
+cost) or (b)~simply not do FP arithmetic in kernel hot paths.
+IntLLM's \texttt{@kernel} forward path uses i64 fixed-point
+arithmetic throughout; the only FP-stored values are RMSNorm
+$\beta$~scales and 257-entry sigmoid/SiLU lookup-table endpoints,
+both decoded to fixed-point at \texttt{model-load} time and never
+multiplied as FP at inference (Section~\ref{sec:arch-pipeline}).
+
+\item \textbf{Binary footprint constraints.} Kernel-resident binary
+budgets pre-date the gigabyte-scale weights of modern transformer
+LMs by decades. Typical embedded-kernel images target $\leq 4$~MB
+(seL4 reference~\citep{klein2009sel4}, ~6~kLoC); $\leq 16$~MB is
+generous. The IntLLM $\leq 16$~MB design budget targets ``can fit
+on commodity ARM-class kernel-image-friendly hardware'' rather
+than ``smallest possible''; even at this generous budget BitNet
+b1.58~2B4T ($\sim 500$~MB packed) is two orders of magnitude over.
+\end{enumerate}
+
+The eBPF~/~eBPF-AI line of work \citep{starovoitov2014ebpf} bridges
+some of these constraints by allowing limited userspace-loaded
+bytecode to run inside kernel-event handlers, but the model weights
+themselves typically remain in a userspace process that the eBPF
+program calls into. The user/kernel transition cost on every
+inference is what our \texttt{@kernel} resident model avoids.
+
+\subsection{Fajar Lang \texttt{@kernel} annotation system}
+\label{sec:background-fajarlang}
+
+The IntLLM kernel-path implementation uses Fajar Lang's four-context
+type system to enforce the constraints of
+Section~\ref{sec:background-kernel} at compile time. We give a
+preview here so that the annotations in
+Section~\ref{sec:arch}'s code listings are self-explanatory; the
+type system itself is the subject of contribution~C5
+(Section~\ref{sec:safety}).
+
+Every Fajar Lang function is annotated with one of four contexts:
+
+\begin{itemize}[leftmargin=*]
+\item \texttt{@safe} (default): userspace business logic, no
+hardware access, no raw pointers.
+\item \texttt{@kernel}: kernel-resident code; allowed stack allocation
+and hardware-register intrinsics, forbidden heap allocation, tensor
+construction, and \texttt{@device} function calls.
+\item \texttt{@device}: tensor-runtime / accelerator code; allowed
+tensor operations, forbidden raw pointers and \texttt{@kernel}
+function calls.
+\item \texttt{@unsafe}: escape hatch for FFI shims, audited block-by-block.
+\end{itemize}
+
+Calls that would cross domain boundaries inappropriately are
+mechanically rejected at compile time with one of the seven
+KE001-KE004~/~DE001-DE003 error codes
+(Table~\ref{tab:kernel-errors}). The IntLLM kernel-path orchestrator
+\texttt{tfm\_matmulfree.fj}, the kernel ops module \texttt{matmulfree.fj},
+and the model-format parser \texttt{fjm\_v9.fj} are all
+\texttt{@kernel}-annotated; the bridge from kernel-side I/O to
+device-side tensor construction (when used outside kernel deployment,
+e.g.\ during training) goes through \texttt{@safe} glue functions
+following the pattern of Section~\ref{sec:safety-bridge}. Readers can
+treat the \texttt{@kernel} annotations in Section~\ref{sec:arch} as
+``this function will compile to a kernel-resident binary, and the
+analyzer has verified it does not violate the constraints of
+Section~\ref{sec:background-kernel}.''
 
 % ═══════════════════════════════════════════════════════════════════════
 % §3 IntLLM Architecture — DRAFTED THIS COMMIT (Path A Week 1 sub-step 2)
