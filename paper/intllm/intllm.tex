@@ -28,12 +28,18 @@
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{natbib}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=0.85in]{geometry}
 \usepackage{enumitem}
 \usepackage{listings}
 \usepackage{makecell}
 \usepackage{multirow}
 \usepackage{balance}
+\usepackage{microtype}              % Better text packing without quality loss
+
+% Tighter spacing throughout
+\setlength{\parskip}{2pt plus 1pt}  % was default 0pt
+\setlist{leftmargin=*,nosep,topsep=2pt}  % compact lists by default
+\renewcommand{\arraystretch}{0.95}  % tighter table rows
 
 % ── Code listings (consistent with v3.1 paper) ──
 \lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,frame=single}
@@ -46,7 +52,7 @@
 % ── Title ──
 \title{IntLLM: Compiler-Verified 1.58-Bit Ternary Language Models for\\
        Operating-System Kernel Inference}
-\author{Muhamad Fajar Putranto\\TaxPrime / PrimeCore.id, Jakarta, Indonesia}
+\author{Muhamad Fajar Putranto\thanks{ORCID: 0000-0000-0000-0000 (placeholder; activate at camera-ready). Code + corpus archived at Zenodo: DOI~10.5281/zenodo.PLACEHOLDER (activate at camera-ready).}\\TaxPrime / PrimeCore.id, Jakarta, Indonesia}
 \date{}
 
 \begin{document}
@@ -678,70 +684,37 @@ which all E2.x ablation rows are measured.
 \subsection{Track~B six-layer interruption safety}
 \label{sec:method-trackb}
 
-A Phase~D Base~c.1 training run on
-2026-04-22 hung for 8.5~hours after a laptop suspension event killed
-the HuggingFace CDN socket beneath the streaming dataloader. The
-training loop continued executing but produced zero step progress; no
-checkpoint had been saved and no watchdog detected the hang. The
-incident motivated a six-layer interruption-safety rule that we
-codify here for any training script in the IntLLM~/ FajarQuant tree:
-
-\begin{enumerate}[leftmargin=*]
-\item \textbf{Periodic atomic checkpointing.} Every $N$~steps
-($N=10{,}000$ for the Phase~D Mini/Base/Medium runs), the model,
-optimizer, and LR-scheduler states are serialized via
-\texttt{torch.save} to \texttt{ckpt\_step\_\{step:06d\}.pt.tmp},
-then renamed via \texttt{os.replace}, which is POSIX-atomic on the
-same filesystem. The next-write-wins property of \texttt{os.replace}
-guarantees no half-written checkpoint is observed by a resuming
-reader, even under SIGKILL during the write.
-
-\item \textbf{Bit-exact resume.} A \texttt{--resume <path>} CLI flag
-loads the model state-dict, optimizer state, and LR-scheduler state
-from a checkpoint and continues training with the step counter
-restored. The unit test \texttt{test\_train\_watchdog.py::}
-\texttt{test\_resume\_bit\_exact\_loss} verifies that pre-save and
-post-resume one-step losses match within $10^{-4}$.
-
-\item \textbf{Step-idle watchdog.} A daemon thread polls the step
-counter every 30~seconds; if the counter has not advanced for
-1{,}800~seconds (30~minutes), it sends \texttt{SIGTERM} to the main
-process. Combined with layer~1 and layer~2 above, the operator can
-restart the training script with \texttt{--resume-auto} and lose at
-most $\sim$1.5~$\times$ \texttt{ckpt\_every} steps of compute per
-incident.
-
-\item \textbf{Per-chunk read timeouts on streaming sources.} The
-environment variables
-\texttt{HF\_DATASETS\_DOWNLOAD\_TIMEOUT=60} and
-\texttt{HF\_HUB\_DOWNLOAD\_TIMEOUT=60} are set on import of
-\texttt{intllm.data}, capping any single HTTP chunk read at 60~s; a
-dead socket raises a timeout instead of hanging indefinitely.
-
-\item \textbf{Streaming retry on transient network errors.} A wrapper
-\texttt{intllm.data.\_retry\_iter} reconstructs the streaming
-iterator on transient exceptions (\texttt{ConnectionError},
-\texttt{OSError}, \texttt{requests.Timeout},
-\texttt{urllib3.ReadTimeoutError}, et al.), with exponential backoff
-capped at 60~s and a per-retry seed offset so retries see a
-different shuffle order. Non-retryable exceptions (\texttt{ValueError},
-\texttt{KeyError}) propagate immediately.
-
-\item \textbf{Regression gate.} A Makefile target
-\texttt{make test-train-watchdog} runs $\sim$24~unit tests covering
-the watchdog real-thread fire path, default \texttt{SIGTERM}
-delivery, checkpoint rotation, \texttt{--resume} bit-exact load, and
-\texttt{retry\_iter} on a synthetic transient exception. A
-pre-push hook gates training-code changes on this target's pass.
-\end{enumerate}
+A Phase~D Base~c.1 training run on 2026-04-22 hung for 8.5~hours after
+a laptop suspension event killed the HuggingFace CDN socket beneath the
+streaming dataloader; the training loop produced zero step progress, no
+checkpoint had been saved, no watchdog detected the hang. The incident
+motivated a six-layer interruption-safety rule we codify for every
+training script in the tree:
+(L1)~periodic atomic checkpointing every $N=10{,}000$~steps
+(\texttt{.tmp}~+~\texttt{os.replace}, POSIX-atomic);
+(L2)~bit-exact \texttt{--resume <path>} CLI restoring model + optimizer +
+LR-scheduler state, with one-step-loss equality within $10^{-4}$ verified
+by \texttt{test\_resume\_bit\_exact\_loss};
+(L3)~step-idle watchdog (daemon thread, 1{,}800~s threshold $\to$ SIGTERM)
+that combined with L1+L2 caps compute loss per incident at
+$\sim$$1.5\times$\texttt{ckpt\_every};
+(L4)~HF read timeouts (\texttt{HF\_DATASETS\_DOWNLOAD\_TIMEOUT=60}~+
+\texttt{HF\_HUB\_DOWNLOAD\_TIMEOUT=60} set on \texttt{intllm.data}
+import), turning a dead socket into a timeout exception;
+(L5)~streaming-retry wrapper \texttt{\_retry\_iter} that rebuilds the
+iterator on transient errors (\texttt{ConnectionError},
+\texttt{requests.Timeout}, \texttt{urllib3.ReadTimeoutError}, etc.) with
+exponential backoff and per-retry seed offset; non-retryable exceptions
+(\texttt{ValueError}, \texttt{KeyError}) propagate;
+(L6)~regression gate \texttt{make test-train-watchdog} ($\sim$$24$ unit
+tests covering the L1-L5 invariants) wired as a pre-push hook so
+training-code changes cannot regress the harness.
 
 The harness was validated end-to-end during a manual laptop-shutdown
-event on 2026-04-23 mid-Medium-training: the watchdog fired, the
-checkpoint was preserved, \texttt{--resume-auto} bit-exact-restored
-the model, and only $\sim$36~minutes of compute was lost out of a
-$\sim$10~hour run. Subsequent Phase~E2 ablations
-(Sections~\ref{sec:bilingual} and~\ref{sec:negatives}) used the same
-harness without modification.
+on 2026-04-23 mid-Medium training: watchdog fired, checkpoint preserved,
+\texttt{--resume-auto} bit-exact-restored, $\sim$36~min compute lost
+out of a $\sim$10~h run. All Phase~E2 ablations
+(Sections~\ref{sec:bilingual}+\ref{sec:negatives}) used the same harness.
 
 \subsection{Like-for-like ablation budget}
 \label{sec:method-budget}
@@ -2263,81 +2236,48 @@ sub-feature.
 \subsection{Longer-term roadmap}
 \label{sec:discussion-longer-term}
 
-Beyond the immediate Phase~F entries, three longer-horizon items are
-acknowledged but explicitly out-of-scope for this paper:
-
-\begin{itemize}[leftmargin=*]
-\item \textbf{Phase~E3 bilingual scale-up to Base and Medium.} Q5 is a
-Mini-scale single-run baseline (Section~\ref{sec:bilingual-q5}); the
-full bilingual scaling chain (Phase~D's Mini~$\to$~Base~$\to$~Medium
-on the bilingual corpus rather than SlimPajama) would multiply the
-24K-step Mini budget by $\sim$$5\times$ for Base and $\sim$$10\times$
-for Medium. Estimated $\sim$30-50~hours GPU on RTX~4090~Laptop;
-deferred until Path~A paper acceptance frees calendar.
-
-\item \textbf{Phase~D Stretch training (15~B tokens).} A fourth
-data point on the Phase~D scaling-law curve. The $\sim$17-day
-continuous-GPU budget at the laptop's throughput is the binding
-constraint; nice-to-have but not required for the C1 scaling-law
-claim. Path~A explicitly defers this in
-\texttt{FJQ\_PHASE\_D\_PRODUCTION\_PLAN.md}~v1.10 \textsection2.3.
-
-\item \textbf{Tier~3 Phase~F.1-F.4 tax-vertical
-TaxPrime fine-tuning.}
-The original Phase~E plan included a tax-domain Indonesian fine-tune
-as a third deliverable (alongside Tier~1 kernel-context and Tier~2
-bilingual base); the Path~A scope decision deferred this entirely to
-Phase~F under
-\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md}~v1.3
-\textsection F.1-F.4. Founder-bandwidth + NDA-pending TaxPrime archive
-ingest are the binding constraints; Phase~F activation gates on
-this paper's acceptance.
-\end{itemize}
+Three longer-horizon items are acknowledged but out-of-scope for this
+paper: \textbf{(i)} Phase~E3 bilingual scale-up to Base and Medium —
+the full Mini~$\to$~Base~$\to$~Medium chain on the Phase~E1 corpus
+rather than SlimPajama, $\sim$30-50~hours GPU; deferred until paper
+acceptance. \textbf{(ii)} Phase~D Stretch (15~B tokens, fourth
+scaling-chain point) — $\sim$17-day continuous-GPU laptop budget;
+not required for the C1 claim. \textbf{(iii)} Tier~3 Phase~F.1-F.4
+tax-vertical TaxPrime fine-tuning, deferred per
+\texttt{FJQ\_PHASE\_F\_TAX\_VERTICAL\_ROADMAP.md}~v1.3 \textsection F.1-F.4
+on founder-bandwidth + NDA constraints; gates on this paper's
+acceptance.
 
 \subsection{Methodological reflection: Path~A as a methodology contribution}
 \label{sec:discussion-methodology}
 
 The decision to STOP Phase~E2 after two ablations both FAILED, rather
-than pushing through three more ablations to fill out the original
+than push through three more ablations to fill the original
 five-feature combined-ablation table, is itself a methodology choice
-that this paper claims as part of contribution~C4. The reasoning chain
-that motivated the cut, committed in
-\texttt{FJQ\_PHASE\_E\_PATH\_A\_PAPER\_OUTLINE.md}~v1.0:
+this paper claims as part of contribution~C4. The reasoning chain
+(\texttt{FJQ\_PHASE\_E\_PATH\_A\_PAPER\_OUTLINE.md}~v1.0):
+\textbf{(i)}~the 0/2 prior is empirical evidence about the
+\emph{regime}, not just two features — both failures share a common
+attribution (post-hoc literature applied to training-from-scratch) so
+the prior probability of structurally-similar features (F.7 FP8, F.8
+distillation, F.9 lang-cond) succeeding under the same regime is
+lower than the original plan assumed;
+\textbf{(ii)}~continuing under that updated prior costs $\sim$3~weeks
+and $\sim$3-5~h GPU per ablation against an expected $\leq 1$ PASS
+yield — marginal evidence is low, marginal cost is high;
+\textbf{(iii)}~two clean failures with three-cause attributions and
+four Phase~F future-work pointers is sufficient material for the C4
+narrative; running three more ablations adds bulk, not structural insight;
+\textbf{(iv)}~cutting losses redirects calendar to paper LaTeX, the
+binding path to arXiv-and-MLSys submission.
 
-\begin{enumerate}[leftmargin=*]
-\item \textbf{The 0/2 prior result is empirical evidence about the
-regime, not just about the two specific features.} Both failures
-attributed to the same root cause (post-hoc-literature features
-applied to training-from-scratch); the prior probability that
-features structurally similar to those (F.7 FP8, F.8 distillation,
-F.9 lang-cond — all originally Phase~E ablation candidates) succeed
-under the same regime is therefore lower than the original Phase~E
-plan~v1.0 assumed.
-
-\item \textbf{Continuing under that updated prior costs $\sim$3 weeks
-and $\sim$3-5 hours of GPU per ablation, against an expected paper
-yield of $\leq 1$ row likely to PASS.} The marginal evidence per
-additional ablation is low; the marginal cost is high.
-
-\item \textbf{The negative-results paper is publishable as written.}
-Two clean failures with three-cause attributions and four future-work
-pointers (F.5-F.8) is enough material for a contribution-C4 narrative
-that the next research team can build on; running three more
-ablations adds bulk but not new structural insight.
-
-\item \textbf{Cutting losses redirects the same calendar to paper
-LaTeX writing,} which Path~A's outline shows is the binding path to
-arXiv-and-MLSys submission.
-\end{enumerate}
-
-We treat this as a successful Phase~E2 outcome rather than a failure
-of the original plan: the methodology of mechanical gates committed
-before experiments ran (R6) and honest reporting of negative results
-(R3) is what allowed the cut decision to be made on empirical evidence
-rather than sunk-cost reasoning. The kind of paper that emerges —
-honest negative results plus deployable positive contributions — is
-the kind of paper the field needs more of, not fewer of, at the
-small-scale ternary intersection where literature is currently
+We treat this as a \emph{successful} Phase~E2 outcome rather than a
+failure of the original plan: mechanical gates committed before
+experiments ran (R6) plus honest negative-result reporting (R3) is
+what allowed the cut to be made on empirical evidence rather than
+sunk-cost reasoning. Honest negative results plus deployable positive
+contributions is the kind of paper the field needs more of at the
+small-scale ternary intersection where the literature is currently
 sparse.
 
 % ═══════════════════════════════════════════════════════════════════════
