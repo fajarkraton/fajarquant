@@ -1551,15 +1551,290 @@ mechanically, leave gaps explicit, and avoid implying claims for
 which we lack the measurement infrastructure.
 
 % ═══════════════════════════════════════════════════════════════════════
+% §9 Compiler-Verified Safety (C5) — DRAFTED THIS COMMIT
+% (Path A Week 3 sub-step 2)
+% ═══════════════════════════════════════════════════════════════════════
 \section{Compiler-Verified Safety (C5)}
 \label{sec:safety}
 
-\textit{[STUB — drafted Week 3. \texttt{@kernel} / \texttt{@device} /
-\texttt{@noinline} annotations; type-system enforcement of the
-no-heap, no-tensor, no-raw-pointer invariants at the kernel-LLM
-deployment boundary; Table~7 compile-time error examples (KE001
-HeapAllocInKernel, KE002 TensorInKernel, etc.); Figure~5 compilation
-pipeline diagram with the @kernel analyzer pass.]}
+The Fajar Lang compiler enforces a four-context type system that
+rules out kernel-context safety violations at compile time. The
+\texttt{@kernel}, \texttt{@device}, \texttt{@safe}, and
+\texttt{@unsafe} annotations partition functions and call sites into
+deployment domains; the analyzer pass between parser and code
+generator validates that no function-call edge crosses a domain
+boundary in a way that would violate the target deployment's
+invariants. This is the contribution that distinguishes IntLLM from
+``ternary in userspace'' deployments
+\citep{ma2024era,xu2025bitnet}: the kernel-context invariants of
+Section~\ref{sec:results-kernel} are mechanically enforced by the
+compiler rather than relied on as a documentation-grade convention.
+
+\subsection{The four-context type system}
+\label{sec:safety-contexts}
+
+Every function in a Fajar Lang program carries exactly one of four
+context annotations, with the following operational meaning:
+
+\begin{itemize}[leftmargin=*]
+\item \texttt{@safe} (default if no annotation specified):
+unrestricted within the safe-by-default subset; no hardware access,
+no raw pointers, no kernel privileged operations, no direct tensor
+construction. Userspace business-logic code lives here.
+
+\item \texttt{@kernel}: kernel-context. Allowed: stack allocation,
+raw pointer dereference, page-map and IRQ-register intrinsics
+(\texttt{alloc!()}, \texttt{irq\_register!()}, etc.), syscalls
+\emph{into} the kernel from \texttt{@kernel} functions. Forbidden:
+heap allocation (\texttt{String}, \texttt{Vec}), tensor construction
+(\texttt{zeros}, \texttt{ones}, \texttt{relu}, etc.), calls to
+\texttt{@device}-marked functions.
+
+\item \texttt{@device}: device / accelerator context (GPU, NPU,
+embedded inference accelerator). Allowed: tensor operations and
+device-side intrinsics. Forbidden: raw pointer dereference outside
+explicit \texttt{@unsafe} blocks, hardware-register intrinsics
+(\texttt{irq\_register!}, \texttt{port\_write!}, \texttt{map\_page!}),
+calls to \texttt{@kernel}-marked functions.
+
+\item \texttt{@unsafe}: full access; bypasses all of the above
+restrictions. Used only at deliberate intent points (FFI shims,
+specialized kernel modules) and clearly delimited.
+\end{itemize}
+
+Table~\ref{tab:safety-matrix} reproduces the operation-by-context
+matrix from the Fajar Lang specification (CLAUDE.md~§5.3) showing
+which operations are allowed in each context. The
+type-system-enforcement of this matrix is what gives the kernel-LLM
+deployment of Section~\ref{sec:results-kernel} its safety guarantees:
+\textbf{any IntLLM kernel-path code that violates the matrix fails to
+compile, before a kernel binary is ever produced.}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Fajar Lang context-operation matrix. \texttt{OK}~=~allowed,
+\texttt{ERROR~XXNNN}~=~rejected with the indicated error code. The
+\texttt{@safe} column is the most restrictive subset; \texttt{@unsafe}
+allows all operations; \texttt{@kernel} and \texttt{@device} are the
+two specialized contexts that the IntLLM kernel-path
+(Section~\ref{sec:results-kernel}) and the training-time
+\texttt{@device} tensor operations (Section~\ref{sec:method}) live
+in respectively. Source: CLAUDE.md~§5.3, ERROR\_CODES.md~§5.}
+\label{tab:safety-matrix}
+\begin{tabular}{lcccc}
+\toprule
+Operation                & \texttt{@safe} & \texttt{@kernel} & \texttt{@device} & \texttt{@unsafe} \\
+\midrule
+\texttt{let x = 42}             & OK       & OK       & OK       & OK \\
+\texttt{String::new()}          & OK       & KE001    & OK       & OK \\
+\texttt{zeros(3,4)} / \texttt{relu()}        & TE       & KE002    & OK       & OK \\
+\texttt{alloc!(4096)}                        & ERROR    & OK       & DE002    & OK \\
+\texttt{*mut T} dereference                  & ERROR    & OK       & DE001    & OK \\
+\texttt{irq\_register!()}                    & ERROR    & OK       & DE002    & OK \\
+Call \texttt{@device fn}                     & OK       & KE003    & OK       & OK \\
+Call \texttt{@kernel fn}                     & OK       & OK       & DE002    & OK \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The bottom two rows are particularly load-bearing: a
+\texttt{@kernel} function calling a \texttt{@device} function would
+cross a deployment-domain boundary (kernel-resident code suddenly
+needing tensor runtime support), and conversely a \texttt{@device}
+function calling a \texttt{@kernel} function would invert the
+privileged/unprivileged direction. Both are mechanically rejected.
+
+\subsection{Compile-time enforcement — error catalog}
+\label{sec:safety-errors}
+
+Table~\ref{tab:kernel-errors} reproduces the kernel- and
+device-context error codes that the Fajar Lang compiler emits when
+the matrix of Table~\ref{tab:safety-matrix} is violated. Each error
+code corresponds to a specific check in the analyzer pass between
+the parser and the code generator, runs at compile time, and is a
+hard error (not a warning).
+
+\begin{table}[t]
+\centering
+\small
+\caption{Kernel and Device context error codes from
+\texttt{docs/ERROR\_CODES.md} \textsection5.1-5.2. Total: 4 kernel
+errors (KE001-KE004) + 3 device errors (DE001-DE003).}
+\label{tab:kernel-errors}
+\begin{tabular}{llp{4cm}}
+\toprule
+Code  & Name                 & Trigger example \\
+\midrule
+KE001 & HeapAllocInKernel    & \texttt{String::new()}, \texttt{Vec::new()} in \texttt{@kernel} \\
+KE002 & TensorInKernel       & \texttt{zeros()}, \texttt{relu()}, \texttt{.backward()} in \texttt{@kernel} \\
+KE003 & DeviceCallInKernel   & \texttt{@device fn} called from \texttt{@kernel} \\
+KE004 & InvalidKernelOp      & Operations requiring heap (e.g. \texttt{format!()}) \\
+DE001 & RawPointerInDevice   & \texttt{*mut T} dereference outside \texttt{@unsafe} block \\
+DE002 & HardwareInDevice     & \texttt{irq\_register!}, \texttt{port\_write!}, \texttt{map\_page!} \\
+DE003 & InvalidDeviceOp      & \texttt{asm!()}, raw-memory access in \texttt{@device} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A representative compile-time output for KE001 (HeapAllocInKernel):
+
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+error[KE001]: heap allocation not allowed
+              in @kernel context
+  --> kernel.fj:8:5
+   |
+7  | @kernel
+8  | fn init_kernel() {
+9  |     let s = String::new();
+   |             ^^^^^^^^^^^^^ heap alloc
+   |
+   = note: @kernel operates without heap
+   = help: use stack-allocated arrays or
+           alloc!() for raw memory
+\end{lstlisting}
+
+The error includes the source-span pointer to the offending call
+site, a note explaining the kernel-context invariant being violated,
+and a help suggestion pointing at the kernel-safe alternative
+(\texttt{alloc!()} for raw memory). All seven error codes follow the
+same source-span + note + help template, satisfying the
+diagnostic-quality bar of established systems languages
+\citep{klein2009sel4}.
+
+\subsection{Compilation pipeline}
+\label{sec:safety-pipeline}
+
+The four-context type system is enforced by the analyzer pass of
+the Fajar Lang compiler, which sits between parsing and code
+generation. Figure~\ref{fig:compiler-pipeline} (deferred to
+camera-ready) plots the pipeline; the textual description here
+suffices for the contribution claim.
+
+\begin{figure}[t]
+\centering
+\textit{[Figure pending — drafted camera-ready. Pipeline diagram:
+.fj source $\to$ lexer $\to$ tokens $\to$ parser $\to$ AST $\to$
+analyzer (3 sub-passes: type-check, scope-check, \textbf{context-check})
+$\to$ analyzed AST $\to$ codegen (Cranelift / LLVM / interpreter)
+$\to$ kernel binary / userspace binary / interpreted execution. The
+context-check sub-pass is highlighted as the load-bearing C5
+contribution; it operates on the analyzed AST AFTER type-check has
+attached annotations to every function and call site, and BEFORE
+codegen, so violations are caught with full type information but
+without spending codegen effort on rejected programs.]}
+\caption{Fajar Lang compilation pipeline. The context-check sub-pass
+of the analyzer is the load-bearing C5 contribution: it traverses
+the analyzed AST and rejects any call-site edge crossing the
+context-operation matrix of Table~\ref{tab:safety-matrix}.}
+\label{fig:compiler-pipeline}
+\end{figure}
+
+The context-check is implemented as a tree-walk over the analyzed
+AST. For each function definition, it records the function's context
+annotation (or assigns \texttt{@safe} as default); for each call site
+inside that function, it checks whether the called function's
+context is reachable from the calling function's context per the
+matrix; for each operation expression, it checks whether the
+operation is allowed in the calling context. Context violations
+produce a hard compile error with the source span; the program does
+not proceed to code generation.
+
+\subsection{Bridge pattern for cross-domain code}
+\label{sec:safety-bridge}
+
+A common deployment shape combines kernel-side I/O (sensor read,
+hardware register access) with device-side ML inference; the Fajar
+Lang \texttt{@safe} subset serves as the glue layer that bridges the
+two without violating either context's invariants:
+
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+@kernel
+fn read_sensor() -> [f32; 4] {
+    // hardware-register reads here
+    // ...
+    return data
+}
+
+@device
+fn infer(x: Tensor) -> Tensor {
+    // tensor ops here
+    return model.forward(x)
+}
+
+@safe
+fn bridge() -> Action {
+    let raw = read_sensor()
+    let result = infer(
+        Tensor::from_slice(raw))
+    return Action::from_prediction(result)
+}
+\end{lstlisting}
+
+The bridge function is \texttt{@safe} because it constructs a
+\texttt{Tensor} (forbidden in \texttt{@kernel}) and reads sensor
+data (the \texttt{read\_sensor} return type is a stack-allocated
+array, not a raw pointer, so the data crosses the
+\texttt{@kernel}~$\to$~\texttt{@safe} boundary cleanly). The
+type system permits \texttt{@safe} to call both \texttt{@kernel}
+and \texttt{@device} functions because the \texttt{@safe} caller
+itself is not subject to either context's specialized invariants.
+This bridge pattern is the canonical way to compose kernel-side I/O
+with device-side ML in Fajar Lang programs; the IntLLM kernel-path of
+Section~\ref{sec:results-kernel} uses it for the
+\texttt{model-load}~/~\texttt{ask} shell command flow.
+
+\subsection{Honest scope: what the type system does and does not guarantee}
+\label{sec:safety-scope}
+
+What C5 establishes:
+
+\begin{enumerate}[leftmargin=*]
+\item Compile-time rejection of code that would violate the
+kernel-context invariants of Section~\ref{sec:results-kernel} (no
+heap, no tensor, no \texttt{@device} call). Programs that pass the
+analyzer are guaranteed to satisfy these invariants \emph{at the
+language level} for any kernel-path code path.
+
+\item Hard errors (not warnings) — programs with safety violations
+do not produce kernel binaries. This rules out the failure mode where
+a documentation-grade convention is silently violated by a future
+contributor and only discovered at runtime.
+
+\item Source-span + note + help diagnostic quality matching
+established systems-language standards.
+\end{enumerate}
+
+What C5 does NOT establish:
+
+\begin{enumerate}[leftmargin=*]
+\item Formal-verification-grade correctness of the
+\emph{implementation} of the analyzer itself. The seL4 kernel
+\citep{klein2009sel4} extends compile-time invariants with
+machine-checked proofs that the compiler implementation correctly
+discharges those invariants; we do the former, not the latter. A
+sufficiently determined contributor with patch access to the analyzer
+could in principle disable a check.
+
+\item Correctness of \texttt{@unsafe} blocks. The escape hatch
+(intentional, used at FFI boundaries) explicitly opts out of the
+type-system enforcement; kernel-binary safety inside \texttt{@unsafe}
+relies on review-and-audit conventions, not type-system guarantees.
+
+\item Runtime-detectable failures (memory corruption, use-after-free)
+that require dynamic analysis. The type system rules out a class of
+bugs (the seven error codes of Table~\ref{tab:kernel-errors}) but is
+not a substitute for dynamic safety mechanisms (page-table protection,
+canary values) that the FajarOS Nova kernel additionally provides.
+\end{enumerate}
+
+The C5 contribution sits at a specific point on the safety-mechanism
+spectrum: stronger than userspace ML deployment's documentation-grade
+conventions \citep{ma2024era, xu2025bitnet}, weaker than seL4's
+machine-checked proofs \citep{klein2009sel4}. We claim the latter
+position explicitly is out of scope; the former is what existing
+ternary-LLM literature defaults to, and the type-system layer is a
+material improvement over that default.
 
 % ═══════════════════════════════════════════════════════════════════════
 \section{Discussion and Future Work}
