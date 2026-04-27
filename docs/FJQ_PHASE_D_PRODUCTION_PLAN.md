@@ -241,15 +241,22 @@ necessarily coherent — just any token stream).
 - [ ] If FAIL: arch has real ceiling → trigger RWKV-7 ablation
   (FJQ_PHASE_D_ARCH.md §3)
 
-#### 2.3 Stretch training (~17 days GPU, gated)
-- [ ] Conditional on Medium PASS
-- [ ] Pre-stage SlimPajama-627B-Reupload subset (15B tokens ~ 60 GB)
-- [ ] `scripts/cleanup_hf_cache.py --check-free --threshold-gb 30` as
-  crontab during run (prevent disk exhaustion)
-- [ ] Launch with checkpoint every 50K steps
-- [ ] Gate: val_loss < 3.7 (matches Zhu et al. scale expectation)
-- [ ] If Stretch FAIL: paper submits at Medium with Stretch as "future
-  work"
+#### 2.3 Stretch training (~17 days GPU, gated) — **DEFERRED to V32 post-Phase-E2 paper**
+
+> **Status (2026-04-27 sync):** Phase D Mini + Base + Medium scaling gates all PASS (commits in V31.C cycle). Stretch training NOT YET STARTED. **Explicitly deferred** to V32 cycle, AFTER Phase E2 ablations + Phase E paper submission, because:
+> - Mini/Base/Medium chain alone supports the paper's primary scaling-law claim (3 data points monotonically improving).
+> - Stretch is ~17 days continuous GPU on the laptop — can't run in parallel with Phase E2 ablations (which need GPU each ~3-5h).
+> - Phase E2 has higher near-term paper-yield (4 ablation rows + 1 combined → Tables 4 in v3.x paper) than Stretch (1 extra scaling-table row).
+> - If Stretch shows FAIL (val_loss ≥ 3.7), the negative-result framing is weaker as a one-off vs as part of a coherent E2 ablation story.
+>
+> **Re-eligibility condition:** Phase E paper submitted (or accepted) AND laptop GPU has a 2-3 week clear window with no E2 work in flight.
+
+- [ ] (DEFERRED) Conditional on Medium PASS — already TRUE
+- [ ] (DEFERRED) Pre-stage SlimPajama-627B-Reupload subset (15B tokens ~ 60 GB)
+- [ ] (DEFERRED) `scripts/cleanup_hf_cache.py --check-free --threshold-gb 30` as crontab during run
+- [ ] (DEFERRED) Launch with checkpoint every 50K steps
+- [ ] (DEFERRED) Gate: val_loss < 3.7 (matches Zhu et al. scale expectation)
+- [ ] (DEFERRED) If Stretch FAIL: paper submits at Medium with Stretch as "future work"
 
 #### 2.4 QAT ablations (sequential, each run ~4h)
 - [ ] Baseline: BitNet-static (no adaptive bits, no permutation, no
@@ -318,15 +325,23 @@ traceable to JSON artifacts.
   mmlu 5-shot acc). `make verify-intllm-tables --strict` → exit 0
   with `21 activated + 22 placeholder(s)` report.
 
-**Real sweep (~13 GPU-hours, PEND):**
-- [ ] `make bench-baselines-real-all` run on all 7 repos
+**Real sweep (~13 GPU-hours, PEND)** — **DEFERRED to V32 post-Phase-E2 paper.**
+
+> **Status (2026-04-27 sync):** §3.4 scaffold + 7-repo registry shipped (V31.C cycle); 21 placeholder claims wired into `verify_intllm_tables.py`. Real sweep NOT YET RUN. **Explicitly deferred** to V32 because:
+> - 13 GPU-hours fits a single RTX 4090 day, but the laptop is currently committed to Phase E2 ablations (E2.1 next, ~3-5h GPU; then E2.2/E2.3/E2.5 each similar).
+> - Phase E paper Tables 2-7 (the eventual consumers) are deferred to V32 anyway (paper §4 deferred — see §4 below).
+> - Running the sweep now produces real numbers that go stale if the model checkpoints change between now and paper submission (e.g. if any of the Phase E2 features lands and is incorporated into a Phase D Medium re-run).
+>
+> **Re-eligibility condition:** Phase E2 ablations COMPLETE (E2.1 + E2.2 + E2.3 + E2.5 all decided) AND Phase D Medium model state frozen for paper submission.
+
+- [ ] (DEFERRED) `make bench-baselines-real-all` run on all 7 repos
   - BitNet b1.58 2B4T (`microsoft/bitnet-b1.58-2B-4T`)
   - MatMul-Free 370M / 1.3B / 2.7B (`ridger/MMfreeLM-*`)
   - SmolLM2-135M / 360M (`HuggingFaceTB/SmolLM2-*`)
   - Pythia-160M (`EleutherAI/pythia-160m`)
-- [ ] Bump `eval/HARNESS_SHA` from `v0.4.11` tag to full 40-char SHA
+- [ ] (DEFERRED) Bump `eval/HARNESS_SHA` from `v0.4.11` tag to full 40-char SHA
   (§3.1 carry-over; capture at first real run)
-- [ ] Activate all 21 placeholder claims in `verify_intllm_tables.py`
+- [ ] (DEFERRED) Activate all 21 placeholder claims in `verify_intllm_tables.py`
   by setting `paper_value` → measured + `tolerance` → 0.01 (same commit
   as the real JSONs)
 
@@ -339,7 +354,16 @@ traceable to JSON artifacts.
 
 ---
 
-### PHASE 4: Paper draft + verification script (~2 weeks, 20-30h human)
+### PHASE 4: Paper draft + verification script (~2 weeks, 20-30h human) — **DEFERRED to V32 post-Phase-E2**
+
+> **Status (2026-04-27 sync):** Phase D paper §4 LaTeX writeup NOT STARTED. **Explicitly deferred** to V32 because:
+> - Phase E2 ablations (4 sub-features remaining + 1 combined) will produce Tables 4 ablation rows that the paper depends on. Drafting before Phase E2 lands means rewriting Tables 4 + the methodology section.
+> - The "MLSys 10-page PDF" deliverable is most cohesive when it includes both Phase D scaling-law + Phase E ablation results in one submission (rather than two separate papers).
+> - Phase E paper plan v1.9 §3 PHASE E4 (paper) is the actual venue for this writeup, NOT Phase D §4.
+>
+> **Re-eligibility condition:** Phase E2 + E2.6 combined ablation COMPLETE (4 features decided + combined gate result) AND Phase D Stretch decision made (run or skip).
+>
+> **What gets archived from Phase D §4 to Phase E §E4:** Tables 2-7 contents listed below; verify_paper_tables.py infrastructure (already shipped); related-work doc `INTLLM_RELATED_WORK.md` (when written).
 
 **Deliverable:** MLSys 10-page PDF; `verify_paper_tables.py --strict`
 exit 0.

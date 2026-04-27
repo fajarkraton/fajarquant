@@ -309,15 +309,34 @@ If you use FajarQuant in academic work, please cite:
 | **Mini c.1 training (491M tokens)** | **PASS gate by 0.12 nat margin** |
 | **Base c.1 training (982M Chinchilla-optimal tokens)** | **PASS gate by 0.21 nat margin** |
 | **Medium c.1 training (1.819B tokens, ~Chinchilla)** | **PASS gate by 0.28 nat margin** |
-| Stretch c.1 training | Unblocked, not yet launched |
+| Stretch c.1 training | **Deferred to V32 post-Phase-E2 paper** |
 | Track B 5+1-layer interruption-safety (V31.C.P6.1-P6.6) | Production, validated end-to-end |
 | `make test-train-watchdog` regression gate (24 tests + signal delivery) | Green |
 | Bench canonical real (8 lm-eval tasks × Mini/Base/Medium) | Complete |
 | `make verify-intllm-tables --strict` (12/13 claims PASS) | 1 pending: kernel E2E Mini tok/s (FajarOS-side artifact) |
-| Bench knowledge real (mmlu, triviaqa, boolq) | Pending scaffold |
-| BitNet 2B4T baseline comparison | Pending scaffold |
+| Bench knowledge real (mmlu, triviaqa, boolq) | **Deferred to V32 post-Phase-E2 paper** |
+| BitNet 2B4T baseline comparison | **Deferred to V32 post-Phase-E2 paper** |
 | In-kernel deployment via FajarOS Nova IntLLM kernel-path | Production (FajarOS v3.9.0) |
 | Phase D paper (Table 2 wikitext + hellaswag rows) | Real numbers populated |
+| Phase D paper LaTeX writeup (full §4) | **Deferred to Phase E paper (one combined MLSys submission)** |
+
+### Arm C — Phase E Bilingual Kernel-LLM (in flight, post-V31.E2.4)
+
+Phase D extends to Indonesian + English bilingual ternary LLM in kernel context. Plan v1.9 (Tier 1+2 only; Tier 3 tax-vertical deferred to Phase F per founder solo-execution mode).
+
+| Component | Status |
+|---|---|
+| **Phase E1 Bilingual corpus v1.0** | **CLOSED 2026-04-27.** 25.67 B tokens at 60:40 ID:EN (15.40 B ID + 10.27 B EN). 0% synthetic, 0.0254% exact-hash dedup. `make verify-bilingual-corpus` 8/8 invariants. |
+| Phase E2.0 pre-flight + Q5 baseline | **CLOSED 2026-04-27.** Q5 = 24K-step Mini bilingual training: val_loss(ID)=2.68, val_loss(EN)=4.73, ratio=1.77×. |
+| **Phase E2.4 BilingualCalibrationSampler** | **CLOSED with HONEST NEGATIVE RESULT 2026-04-27.** `outlier_global_reduction = −82.13` (gate ≥ 0.10) — calibrated quantizer is 83× WORSE than upstream baseline. Demoted to Phase D infra-diagnostic; NOT a Phase E2 ablation feature. See `docs/FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md`. |
+| Phase E2.1 Hadamard rotation | **NEXT** (~3-5 days human + 3-5h GPU). E2.1.0 ablation harness scaffold already shipped. |
+| Phase E2.2 FP8 mixed-precision (lm_head + attn.W_o) | Pending (after E2.1) |
+| Phase E2.3 FP16 distillation during QAT | Pending (after E2.2) |
+| Phase E2.5 Language-conditioned design (per-lang RMSNorm γ preliminary) | Pending (after E2.3) |
+| Phase E2.6 Combined ablation (4 features post-E2.4 closure) | Pending (after E2.1-2.5) |
+| Phase E3 Bilingual pretrain (Base/Medium scale) | Pending (after E2 gate decision) |
+| Phase E4 Paper draft + verification | Pending (after E2+E3) |
+| Phase F (tax-vertical TaxPrime) | **Deferred** (gated on Phase E paper acceptance + 2 weeks; review checkpoint 2026-05-24) |
 
 ### Arm B — v3.1 KV Cache Quant (mature paper artifact)
 

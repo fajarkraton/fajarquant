@@ -119,13 +119,43 @@ From Phase E v1.8 §F.3:
 ## 4. Companion docs (preserved verbatim for Phase F lift)
 
 - `docs/FJQ_PHASE_E_TAXPRIME_DATASET_SPEC.md` v1.2 — authoritative dataset spec (header marks Phase F deferral; body unchanged)
-- `docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §11 — eval methodology spec (DEFERRED header; body preserved)
-- `docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.8 §F — Phase F roadmap section (this doc's parent)
+- `docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.9 §11 — eval methodology spec (DEFERRED header; body preserved)
+- `docs/FJQ_PHASE_E_BILINGUAL_KERNEL_PRODUCTION_PLAN.md` v1.9 §F — Phase F roadmap section (this doc's parent)
 
 When Phase F activates, the natural sequence is:
 1. Cut `FJQ_PHASE_F_PRODUCTION_PLAN.md` v1.0 — lift §F + §11 + this doc's §2 verbatim
 2. Bump TaxPrime spec to v1.3 with "Phase F active" header
 3. Start F.0.1 (dataset acceptance audit)
+
+---
+
+## 4.1 Additional Phase F future-work entries (from Phase E negative results)
+
+Items deferred to Phase F because the Phase E investigation surfaced specific algorithmic gaps that need post-Phase-E-paper investigation:
+
+### F.5 Post-training PTQ-style activation calibration on held-out data
+
+**Origin:** Phase E E2.4 closure 2026-04-27 (`FJQ_PHASE_E_E2_BILINGUAL_CALIB_DECISION.md` v1.0 §4.3). The all-time-max `running_max` accumulator for `BitLinearStatTracker` produced an 83× WORSE quantization error on outlier channels vs upstream baseline — calibration scale locked to early-training peaks 10-100× larger than steady-state activations.
+
+**What to investigate in Phase F:**
+
+| Sub-task | Description | Risk / cost |
+|---|---|---|
+| F.5.1 | Post-training PTQ calibration on a fixed held-out batch (SmoothQuant arxiv 2211.10438 Algorithm 1 pattern) | Standard literature approach; should match or beat upstream `q_baseline` if implemented correctly. ~1 week solo + 1 Mini ablation. |
+| F.5.2 | Exponential moving average for `running_max` (e.g. `ema_alpha = 0.99`) | Late-training stability dominates over early-training peaks; partial mitigation only. ~1 day implementation + 1 ablation. |
+| F.5.3 | Skip calibration during warmup (only accumulate `running_max` after `warmup_steps`) | Cheapest mitigation; addresses early-peak issue most directly. ~½ day. **WORTH TRYING FIRST** before F.5.1. |
+| F.5.4 | Option B (`IntLLMBitLinear` wrapper applying maps at forward-time) — was deferred per E2.4.0 Q10 | Independent of calibration source — wrapper consumes whatever maps are saved. Re-evaluate once F.5.3 demonstrates the calibrated path can beat baseline. |
+
+**Entry condition for F.5:** Phase E paper accepted (or at least submitted) AND at least one of F.5.1–F.5.3 shows ≥+10% MSE reduction on outlier channels in a sub-day-effort smoke run. This filters out the case where the all-time-max issue isn't the dominant cause of E2.4's failure — if the cheap fixes don't help, the problem is deeper than calibration scheme and Option C decision stands.
+
+**Reusable infrastructure already shipped** (does NOT need to be re-built in Phase F):
+- `intllm.qat.{BitLinearStatTracker, attach_stat_trackers, save_calibration_maps, compute_bit_allocation, compute_channel_permutation}` — production-integrated since E2.4.A
+- `intllm.quant.activation_quant_per_channel` — standalone math helper, dtype-agnostic
+- `intllm.eval.compute_quant_error_per_channel` — driver, atomic JSON output, gate-checking logic
+- `bilingual_stream` for calibration data
+- `train_mini_ablation.py --balanced-calib` flag for smoke runs
+
+Phase F.5 work is purely about replacing `running_max` accumulator semantics and re-running the metric.
 
 ---
 
@@ -141,5 +171,6 @@ Either way, the decision is committed as code per CLAUDE §6.8 R6 (mechanical de
 
 ---
 
-*Document version: 1.0 (NEW v1.8). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Document version: 1.1 (post-E2.4 sync — F.5 PTQ calibration entry added). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*v1.0→v1.1 (2026-04-27): added §4.1 F.5 sub-tasks for post-training PTQ calibration as future-work entry from E2.4 negative result.*
 *Origin: created alongside Phase E v1.7 → v1.8 surgical revision (2026-04-26) to preserve Tier 3 work as Phase F roadmap rather than delete.*
