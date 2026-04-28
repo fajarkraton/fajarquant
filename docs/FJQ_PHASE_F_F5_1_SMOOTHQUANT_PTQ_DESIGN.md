@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Design (v0.1 SKELETON)
+# Phase F F.5.1 — SmoothQuant PTQ Design (v0.2)
 
-> **Status:** SKELETON — §1 Motivation + §2 Background fleshed; §3-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
+> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant fleshed; §4-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
 > **Origin:** Phase F roadmap §4.1 F.5.1 + post-F.6.2 strategic pivot (2026-04-28)
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` v1.3 §4.1 F.5
@@ -177,12 +177,195 @@ parameters to sweep but each is locally simpler).
 
 ## 3. Adaptation to FajarQuant BitLinear
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - How `s_j` integrates with BitLinear's existing γ_x (per-channel input scale)
-> - Which BitLinear sites benefit most per F.6.1 outlier measurement (o_proj 51.6×, mlp.down_proj 40×)
-> - Whether to apply `s` ON TOP of γ_x or REPLACE γ_x calibration
-> - Storage format for per-BitLinear `s` vectors (extends `save_calibration_maps` v1.2 schema)
-> - Static (one-time PTQ calibration) vs dynamic (per-sequence recalibration)
+### 3.1 What BitLinear actually does (correction vs §1/§2 placeholder)
+
+Reading the upstream `mmfreelm/ops/bitnet.py:64-87` shows BitLinear's
+forward is:
+
+```python
+def forward(self, x):
+    x_norm = self.norm(x)                                        # RMSNorm — has per-channel γ
+    x_quant = activation_quant(x_norm)                           # per-TOKEN INT8, NOT per-channel
+    w_quant = weight_quant(w)                                    # per-tensor ternary
+    y = F.linear(x_quant, w_quant)
+    return y
+```
+
+with:
+
+```python
+def activation_quant(x):
+    scale = 127.0 / x.abs().max(dim=-1, keepdim=True).values     # dim=-1 ⇒ per-token max
+    y = (x * scale).round().clamp_(-128, 127) / scale
+    return y
+```
+
+**Key correction:** BitLinear has **no per-channel γ_x quantization
+scale**. The per-channel parameter is RMSNorm's γ (`self.norm.weight`,
+shape `[in_features]`), which is a *normalization* scale — applied
+BEFORE quantization, learnable during training. The actual
+quantization uses a per-TOKEN max (one scalar per row of the
+`[batch×seq, hidden]` tensor), computed dynamically at every forward
+pass.
+
+This is *more* favorable to SmoothQuant integration, not less:
+
+1. There is no existing per-channel quantization-scale parameter to
+   fight with. `s` slots in cleanly without conflicting against an
+   already-calibrated γ_x.
+
+2. RMSNorm's per-channel γ is the natural fusion target (§3.3 below).
+   SmoothQuant becomes a *one-line edit* to two existing tensors per
+   BitLinear site — no new state, no forward-time overhead.
+
+3. The known weakness of per-token max — that a single outlier
+   channel forces the entire token's scale to that outlier's
+   magnitude, crushing all other channels — IS exactly the
+   pathology SmoothQuant was designed to fix. Canonical use case.
+
+### 3.2 Why SmoothQuant fits BitLinear better than transformer FP layers
+
+In a standard transformer with FP linear layers + INT8 PTQ
+post-training, SmoothQuant trades ~5-10% activation-quant MSE
+reduction for ~1-2% weight-quant MSE increase. Net positive but
+modest because FP activations have better baseline tolerance.
+
+In FajarQuant BitLinear:
+- Activations are 8-bit but per-TOKEN, so **outlier sensitivity is
+  worse** — one bad channel per token destroys precision in all
+  others.
+- Weights are 1.58-bit (ternary), so **weight scaling tolerance is
+  also worse** — pushing magnitude up via `s · W` may saturate the
+  ternary clipping range earlier.
+
+The α-tuning lever (§2.3) becomes more important here. Literature
+default α=0.5 was tuned for INT8 weights; ternary weights probably
+want α<0.5 (less migration to weights, more activation-side relief),
+and this should be measured empirically (§4 calibration recipe will
+specify the sweep).
+
+### 3.3 The fusion point — RMSNorm γ (one-line PTQ edit)
+
+The mathematical opportunity:
+
+```
+forward (current) :  x  →  RMSNorm(x) = (x / RMS(x)) · γ  →  quant  →  W·(...)  →  y
+forward (smooth)  :  x  →  RMSNorm(x) = (x / RMS(x)) · (γ / s)  →  quant  →  (s·W)·(...)  →  y
+```
+
+Substituting:
+
+```
+y_smooth = (s · W) · activation_quant( (x / RMS(x)) · (γ / s) )
+        ≈ (s · W) · activation_quant( x_norm / s )       (where x_norm has per-token large outliers)
+        = (s · W) · (x_norm_quant / s)                   (per-token quant of x_norm/s)
+        = (s · s⁻¹) · W · x_norm_quant
+        = W · x_norm_quant     (mathematically preserved in FP; in quant, error reduced)
+```
+
+**Implementation as a PTQ edit** (assuming `s_j` per-channel scale already
+computed per §4 calibration recipe):
+
+```python
+# At PTQ time, for each BitLinear instance b:
+b.norm.weight.data /= s         # RMSNorm γ ← γ / s  (in-place, no new state)
+b.weight.data *= s.unsqueeze(0) # W ← W · diag(s)    (broadcasted along output dim)
+```
+
+Two tensor mutations, no new module, no new parameter, no forward-time
+overhead. After mutation, the model runs unchanged through normal
+inference. The `s` vector itself doesn't need to be stored for inference
+— it's been absorbed into the existing parameters.
+
+### 3.4 Storage format — extension of E2.4 `save_calibration_maps`
+
+For ablation reproducibility + α sweep + diagnostic re-evaluation,
+`s` MUST be stored alongside the model. Three storage options:
+
+| Option | Description | Pros | Cons |
+|---|---|---|---|
+| **A: Pure in-place mutation** | Mutate ckpt directly, save modified state_dict | Simplest deploy path | No way to revert, no audit trail of what was applied, breaks reproducibility if α changes |
+| **B: Side-car file** | Save unmutated ckpt + `<ckpt_stem>_smoothquant.pt` containing `{layer_name: s}` dict | Reversible, supports α sweep, separate from model | Two files to ship together; requires loader awareness |
+| **C: Extend E2.4 maps schema** | Add `smoothquant_s` field to `save_calibration_maps` v1.3 schema | Composes with E2.4 outlier maps; one calibration artifact | E2.4 demoted (F.5 future-work); reusing its schema may confuse readers |
+
+**Recommendation: Option B** for V32-prep. Cleanest separation. If F.5.1
+ships into production, the side-car can be optionally fused into the
+ckpt via a one-time tool. E2.4 schema reuse (Option C) would couple
+F.5.1 to a demoted feature, increasing tech-debt risk.
+
+`smoothquant.pt` schema v1.0:
+```python
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "<source ckpt>",
+  "alpha": float,                          # migration strength used
+  "n_calibration_sequences": int,          # e.g. 512
+  "calibration_seed": int,                 # e.g. 42
+  "calibration_stream": str,               # e.g. "bilingual(id_share=0.6)"
+  "per_layer": {
+    "model.layers.0.attn.o_proj": {
+      "s": Tensor[hidden_size],            # per-channel scale
+      "max_act": Tensor[hidden_size],      # diagnostic: max(|X_j|) seen
+      "max_weight": Tensor[hidden_size],   # diagnostic: max(|W_j|) seen
+    },
+    ...
+  },
+  "timestamp": str (ISO 8601)
+}
+```
+
+This format supports the four use cases:
+1. **Apply** — load `s`, mutate model in-place per §3.3
+2. **Sweep** — same calibration data, multiple α values → multiple side-car files
+3. **Diagnose** — inspect per-channel max stats to understand why F.6.1 outlier shape responds (or not) to scaling
+4. **Combine** — composing SmoothQuant + canonical QuaRot or SmoothQuant + balanced_calib could read both side-cars and reason about composition
+
+### 3.5 Site-restriction strategy
+
+Per F.6.1 outlier evidence (`paper/intllm/ablations/outlier_concentration_mini.json`):
+- `o_proj`: 51.6× mean, 421× max ratio — **strongest concentration, primary target**
+- `mlp.down_proj`: 40× mean, 250× max — strong, secondary target
+- `i_proj`, `f_proj`, `g_proj`: 5.3-7.8× — moderate, tertiary
+- `lm_head`: not yet measured (F.6.1 measured 37 BitLinear sites including head; need to confirm)
+
+Recommended sweep ordering:
+1. `--smoothquant-sites o` — test on highest-concentration site only (matches F.6.2 baseline mode)
+2. `--smoothquant-sites o,down` — add MLP down_proj
+3. `--smoothquant-sites all` — every BitLinear gets SmoothQuant
+4. `--smoothquant-sites igfo` — test moderate-concentration attn projs (parallel to F.6.3 site mode)
+
+Expected result if SmoothQuant works as intended: monotonic improvement
+from `o` → `o,down` → `all`, with `igfo` showing modest standalone
+benefit. Non-monotonic result indicates either α was wrong (compensation
+overshoot at some sites) or composition failure (two sites' `s` vectors
+disagree about residual stream's effective distribution).
+
+### 3.6 Static vs dynamic calibration
+
+**Static (one-time PTQ):** compute `s` once on a 512-sequence
+calibration batch, fuse into `norm.weight` and `weight` per §3.3, save
+side-car, ship. All inference uses the static `s`.
+
+**Dynamic (per-batch recalibration):** compute `s` at every forward
+pass from current activation distribution. No side-car needed; model
+adapts to deployment-time data.
+
+**Recommendation: Static.** Reasons:
+1. SmoothQuant paper's experiments are all static — literature-aligned.
+2. Dynamic recalibration requires additional forward-pass cost (max
+   over hidden dim), which negates the "no overhead" win in §3.3.
+3. Phase D Mini final checkpoint was trained on slimpajama EN — its
+   activation distribution at inference on bilingual data is the same
+   distribution used for our calibration batch (`bilingual_stream(seed=42)`),
+   so static calibration is representative.
+4. The side-car artifact (Option B in §3.4) is itself a useful
+   inspection tool. Throwing it away with dynamic recalibration loses
+   reproducibility leverage.
+
+Dynamic could be revisited if F.5.1 ships and deployment-time
+activation distributions differ significantly from calibration
+distributions — but that's a §6 fallback consideration, not the
+primary design.
 
 ---
 
@@ -234,5 +417,7 @@ parameters to sweep but each is locally simpler).
 
 ---
 
-*Document version: 0.1 (skeleton)*
-*Last updated: 2026-04-28 (V32-prep: §1 Motivation + §2 Background fleshed; §3-§7 placeholders for next first-step)*
+*Document version: 0.2*
+*Last updated: 2026-04-28 (V32-prep: §3 Adaptation to FajarQuant BitLinear fleshed; corrects §1/§2 placeholder reference to "γ_x" — BitLinear has no per-channel quant scale, only per-token max + RMSNorm γ. SmoothQuant fusion target is RMSNorm γ. §4-§7 placeholders for next first-step)*
+*v0.1 → v0.2 (2026-04-28): §3 added.*
+*v0.0 → v0.1 (2026-04-28): skeleton + §1 Motivation + §2 Background.*
