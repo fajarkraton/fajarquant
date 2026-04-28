@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.4)
+# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.5)
 
-> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 + §6 Decision per Verdict Tree fleshed; §3 + §7-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
+> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 + §6 Decision per Verdict Tree + §8 Paper Table 4 Implications fleshed; §3 + §7 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
 > **Origin:** F.5.1 sweep complete 2026-04-28. 8 runs total (5 primary α × 3 secondary sites). Verdict: PARTIAL.
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 (the design this evaluates)
@@ -624,19 +624,126 @@ questions for either Branch A pursuit or post-paper revisions.
 
 ## 8. Implications for Paper Table 4
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Adds honest negative row to paper §7 Ablations
-> - Positions SmoothQuant as "tested, doesn't add value to HGRN-ternary"
->   with diagnostic explanation (RMSNorm γ absorption hypothesis)
-> - Updates verify_intllm_tables.py with new ablation data
-> - Strengthens the broader narrative: HGRN ternary saturates
->   activation-outlier-mitigation axis; future gains require structural
->   changes, not better calibration
+### 8.1 Concrete paper §7 Ablations row
+
+Recommend adding to `paper/intllm/intllm.tex` §7 (Ablations) Table 4
+the following row:
+
+```
+\multicolumn{4}{l}{\emph{Activation-outlier mitigation, post-hoc PTQ:}} \\
+\quad SmoothQuant (best: o\_down, $\alpha = 0.3$)
+  & 5.5531 & 258.0 & $+0.0001$ \\
+\quad SmoothQuant (worst: all sites, $\alpha = 0.3$)
+  & 5.8196 & 336.8 & $+0.2665$ \\
+```
+
+with footnote / discussion text:
+
+> "We tested SmoothQuant (Xiao et al., 2023) as a post-training
+> calibration recipe — see Table 4. The best configuration produces
+> +0.0001 nat val\_loss change (within fp16 noise floor); the worst
+> regresses by +0.2665 nat. We attribute the invariance to RMSNorm
+> $\gamma$ pre-absorption: HGRN-BitLinear's per-channel
+> normalization scale, learned during training, has already
+> internalized the outlier rescaling SmoothQuant applies post-hoc.
+> The cumulative evidence across our four outlier-mitigation
+> attempts (E2.1 training-time rotation, F.6.2 post-hoc activation
+> rotation, F.5.1 SmoothQuant, E2.4 calibration accumulator)
+> suggests HGRN-ternary's training procedure saturates the
+> activation-outlier-mitigation axis at the val\_loss resolution
+> we measure. Future quantization-precision gains, if they exist,
+> will likely require structural changes (different normalization,
+> different precision floor, different layer count) rather than
+> calibration recipes applied to existing checkpoints."
+
+### 8.2 verify_intllm_tables.py update plan
+
+Per CLAUDE.md §6.9 R7 (mechanical pre-publication audit gate), every
+quantitative paper claim must have a `verify_intllm_tables.py
+--strict` entry. F.5.1 adds two:
+
+| Claim | Source | Tolerance |
+|---|---|---|
+| `Table 4 SmoothQuant best val_loss = 5.5531` | `paper/intllm/ablations/smoothquant_o_down_a0.3.json:modes.smoothquant.val_loss` | ±0.001 nat |
+| `Table 4 SmoothQuant worst val_loss = 5.8196` | `paper/intllm/ablations/smoothquant_all_a0.3.json:modes.smoothquant.val_loss` | ±0.001 nat |
+
+Optional additional entries (defensive):
+- `Table 4 baseline val_loss = 5.5530` — already exists from F.6.2
+  no_rotation row; cross-check passes
+- `Table 4 SmoothQuant best delta = +0.0001` — derived; verify_*
+  scripts typically validate raw values, not deltas
+
+Verify script update target: ~5 LOC addition. Effort: ~15 min including
+the strict-tolerance unit test. Gated on §6.2 "paper §7 ablation row
+added" decided action.
+
+### 8.3 The broader narrative — saturation claim
+
+The four-attempt failure set (E2.1, F.6.2, F.5.1, E2.4) is, taken
+together, a publishable finding even though all individual
+contributions are negative. The §5.3 narrative draft positions it as:
+
+> "HGRN-ternary's training procedure saturates the activation-
+> outlier-mitigation axis. Post-hoc calibration recipes do not
+> improve val\_loss because the trained model has already done
+> what the recipes would do. Future quantization research on this
+> architecture should look beyond per-channel scaling and
+> rotation-class recipes — toward structural changes such as
+> different normalization (e.g., LayerNorm with learnable bias
+> instead of RMSNorm γ-only), different precision floor (e.g.,
+> 2-bit symmetric instead of ternary), or fewer/more layers
+> trained-from-scratch on the same data with the alternative
+> structure."
+
+This positioning frames the four negative results as a methodology
+contribution: the canonical-protocol benchmarking + per-attempt
+disambiguation reveals a property of the HGRN-ternary training
+procedure, not a gap in the recipes themselves. Per CLAUDE.md §6.6
+R3 (honest documentation) + §6.9 R6 (algorithmic validation
+precedes paper validation), this is exactly the kind of negative
+result the methodology rules exist to surface.
+
+### 8.4 Strategic outlook for next paper revision
+
+If the paper is revised post-arXiv submission (typical for arXiv
+v2 within 3-6 months) to incorporate F.5.1 findings:
+
+**Sections affected:**
+- §7 Ablations: add Table 4 SmoothQuant row + footnote (§8.1)
+- §7.x narrative: update from "single-attempt outlier-mitigation"
+  framing to "four-attempt saturation finding"
+- §8 Discussion: reference the saturation claim (§8.3) as a
+  methodological contribution
+- §6 Future Work: position canonical QuaRot weight-fusion as the
+  remaining hypothesis-test that would either complete the
+  saturation claim or partially refute it
+
+**Sections NOT affected (verified):**
+- §3 Architecture: no architectural change from F.5.1 PARTIAL
+- §4 Training: no training-procedure change (F.5.1.7 deferred)
+- §5 Quantization: SmoothQuant added to "considered but not
+  adopted" list; production recipe unchanged
+- §10 Limitations: F.5.1 invariance becomes a positive claim about
+  training rather than a recipe limitation; minor rewording only
+
+**Decision criteria for v2 revision:**
+- v2 IF paper acceptance / community feedback indicates reviewers
+  would want post-hoc PTQ ablation coverage
+- v2 IF Branch A (canonical QuaRot) ships and produces results
+  worth bundling with F.5.1 in same revision
+- v1.0 stays as-is IF arXiv v1 holds the line and reviewers don't
+  ask about post-hoc PTQ
+
+The arXiv v1 submission tarball (commit `f493ba5`, paper
+`paper/intllm/intllm-arxiv.tar.gz` 77KB) does NOT depend on F.5.1
+findings — paper v1 was sealed before F.5.1 sweep ran. F.5.1
+findings are post-v1 work for v2 revision.
 
 ---
 
-*Document version: 0.4*
-*Last updated: 2026-04-28 (V32-prep: §6 Decision per Verdict Tree fleshed — F.5.1 PARTIAL declared; per-verdict actions table (4 decided, 4 deferred); Branch A canonical QuaRot pursuit BETTER MOTIVATED but NOT auto-triggered; cleanly enumerated what the verdict closes vs leaves open. §3 + §7-§8 placeholders for next first-step)*
+*Document version: 0.5*
+*Last updated: 2026-04-28 (V32-prep: §8 Paper Table 4 Implications fleshed — concrete §7 ablation row spec + LaTeX snippet + footnote text; verify_intllm_tables.py update plan (2 strict claims, ~15 min effort); the broader narrative positioned as saturation finding worth publishing; v2 revision decision criteria + section-impact analysis. §3 + §7 placeholders for final first-steps. arXiv v1 NOT affected — paper v1 sealed before F.5.1 sweep)*
+*v0.4 → v0.5 (2026-04-28): §8 added.*
 *v0.3 → v0.4 (2026-04-28): §6 added.*
 *v0.2 → v0.3 (2026-04-28): §5 added.*
 *v0.1 → v0.2 (2026-04-28): §4 added.*
