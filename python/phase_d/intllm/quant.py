@@ -494,11 +494,17 @@ def _resolve_sites(sites: list[str] | str | None) -> list[str] | None:
 
 def _is_bitlinear(module: nn.Module) -> bool:
     """Local copy of `intllm.qat.is_bitlinear` to avoid a circular
-    import (qat.py imports from quant.py). Matches BitLinear by class
-    name + presence of the `.norm` (RMSNorm) attribute that BitLinear
-    adds in `__init__`.
+    import (qat.py imports from quant.py). Matches BitLinear-family
+    classes by class name regardless of which upstream module path
+    imports them (`bitnet.py` BitLinear vs `fusedbitnet.py`
+    FusedBitLinear vs BitLinear_wonorm_bmm). All have a ``.norm``
+    attribute set in ``__init__`` per upstream impl; the hasattr
+    check is a defensive sanity guard for future variants.
     """
-    return type(module).__name__ == "BitLinear" and hasattr(module, "norm")
+    return (
+        module.__class__.__name__ in {"BitLinear", "FusedBitLinear", "BitLinear_wonorm_bmm"}
+        and hasattr(module, "norm")
+    )
 
 
 class SmoothQuantCalibrator:
