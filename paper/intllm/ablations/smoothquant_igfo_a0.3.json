@@ -1,0 +1,214 @@
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "/home/primecore/Documents/fajarquant/python/phase_d/checkpoints/mini/mini_final.pt",
+  "alpha": 0.3,
+  "sites": "igfo",
+  "calibration": {
+    "n_sequences": 512,
+    "stream": "bilingual(id_share=0.6, seed=42)",
+    "wall_clock_seconds": 23.105557441711426,
+    "validation_gates": {
+      "model.layers.0.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "_aggregate": {
+        "all_layers_pass": true,
+        "n_layers": 24
+      }
+    },
+    "edge_cases_total": {
+      "n_act_clamped": 24,
+      "n_w_clamped": 0,
+      "n_s_clamped_lo": 0,
+      "n_s_clamped_hi": 0
+    },
+    "side_car_maps_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/smoothquant_igfo_a0.3_maps.pt"
+  },
+  "modes": {
+    "no_smoothquant": {
+      "val_loss": 5.553075032234192,
+      "ppl": 258.029787126033
+    },
+    "smoothquant": {
+      "val_loss": 5.561902737617492,
+      "ppl": 260.31768163860926,
+      "delta_vs_baseline": 0.008827705383300355
+    }
+  },
+  "verdict": {
+    "G1_no_regression": true,
+    "G2_quant_error": null,
+    "G3_val_loss_improvement": false,
+    "delta_vs_baseline": 0.008827705383300355,
+    "outcome": "NEUTRAL",
+    "interpretation": "|delta|=0.0088 < gate 0.05; no measurable effect",
+    "gate_nat_threshold": 0.05
+  },
+  "device": "cuda",
+  "timestamp": "2026-04-28T05:41:51+00:00"
+}

@@ -1,0 +1,305 @@
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "/home/primecore/Documents/fajarquant/python/phase_d/checkpoints/mini/mini_final.pt",
+  "alpha": 0.3,
+  "sites": "all",
+  "calibration": {
+    "n_sequences": 512,
+    "stream": "bilingual(id_share=0.6, seed=42)",
+    "wall_clock_seconds": 25.3891179561615,
+    "validation_gates": {
+      "model.layers.0.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.0.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.i_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.f_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.g_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.mlp.gate_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.mlp.down_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "lm_head": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "_aggregate": {
+        "all_layers_pass": true,
+        "n_layers": 37
+      }
+    },
+    "edge_cases_total": {
+      "n_act_clamped": 39,
+      "n_w_clamped": 0,
+      "n_s_clamped_lo": 0,
+      "n_s_clamped_hi": 0
+    },
+    "side_car_maps_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/smoothquant_all_a0.3_maps.pt"
+  },
+  "modes": {
+    "no_smoothquant": {
+      "val_loss": 5.553043818473816,
+      "ppl": 258.0217331717854
+    },
+    "smoothquant": {
+      "val_loss": 5.819588251113892,
+      "ppl": 336.83333432305943,
+      "delta_vs_baseline": 0.2665444326400763
+    }
+  },
+  "verdict": {
+    "G1_no_regression": false,
+    "G2_quant_error": null,
+    "G3_val_loss_improvement": false,
+    "delta_vs_baseline": 0.2665444326400763,
+    "outcome": "HARD-FAIL",
+    "interpretation": "val_loss regressed by +0.2665 nat (gate -+0.05)",
+    "gate_nat_threshold": 0.05
+  },
+  "device": "cuda",
+  "timestamp": "2026-04-28T05:40:44+00:00"
+}
