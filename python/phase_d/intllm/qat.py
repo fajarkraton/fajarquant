@@ -70,24 +70,54 @@ class BitLinearStatTracker:
 
     For every BitLinear forward call, captures:
       - `running_max`  — element-wise max of |input| across all calls
-      - `n_calls`      — total number of forward calls observed
+      - `n_calls`      — total number of forward calls *recorded*
+      - `n_skipped`    — total number of forward calls dropped because
+                        `current_step < start_recording_at_step`
 
     These are the inputs to:
       - `compute_bit_allocation` (§3) — top-K channels by max magnitude
       - `compute_channel_permutation` (§4) — sort output channels
       - periodic γ_x re-calibration — running max tracks the activation
         absmax that BitNet's `activation_quant` uses per-call
+
+    F.5.3 skip-warmup calibration: when `start_recording_at_step > 0`,
+    the tracker drops every forward call until the externally-managed
+    `current_step` field reaches that threshold. Use this to defer
+    accumulator initialization until past the LR-scheduler warmup phase
+    so chaotic early-training peaks do not poison the all-time-max
+    statistic — see `paper/intllm/intllm.tex` §7.2 cause-1 + the F.5.0
+    cross-comparison evidence in
+    `paper/intllm/ablations/running_max_train_vs_steady*.json`.
+
+    The training loop is responsible for advancing `current_step`
+    (typically once per optimizer step). Use `advance_trackers(...)`
+    for the common "advance all attached trackers by 1" path, or set
+    `tracker.current_step = global_step` directly when tighter control
+    is needed.
     """
 
     in_features: int
+    start_recording_at_step: int = 0
     running_max: torch.Tensor = field(init=False)
     n_calls: int = 0
+    n_skipped: int = 0
+    current_step: int = 0
 
     def __post_init__(self) -> None:
         # Live on CPU by default; moved to GPU lazily on first call.
         self.running_max = torch.zeros(self.in_features, dtype=torch.float32)
+        if self.start_recording_at_step < 0:
+            raise ValueError(
+                f"start_recording_at_step must be ≥ 0, got {self.start_recording_at_step}"
+            )
 
     def __call__(self, _module: nn.Module, inputs: tuple, _output: torch.Tensor) -> None:
+        # F.5.3: drop every call before the warmup boundary. We still
+        # increment n_skipped so the audit trail captures the dropped
+        # count; the running_max stays untouched.
+        if self.current_step < self.start_recording_at_step:
+            self.n_skipped += 1
+            return
         x = inputs[0]
         # Reduce over all but the last dim to get per-channel absmax.
         per_channel = x.detach().abs().reshape(-1, x.size(-1)).amax(dim=0).cpu().float()
@@ -120,10 +150,19 @@ def is_bitlinear(module: nn.Module) -> bool:
 _is_bitlinear = is_bitlinear
 
 
-def attach_stat_trackers(model: nn.Module) -> dict[str, BitLinearStatTracker]:
+def attach_stat_trackers(
+    model: nn.Module,
+    *,
+    start_recording_at_step: int = 0,
+) -> dict[str, BitLinearStatTracker]:
     """Walk `model`, install a `BitLinearStatTracker` forward hook on each
     BitLinear-family layer, and return a dict mapping layer-name →
     tracker.
+
+    All installed trackers share the same `start_recording_at_step`
+    threshold (F.5.3 skip-warmup calibration). For per-site warmup,
+    construct trackers manually and call
+    `module.register_forward_hook(tracker)` directly.
 
     The returned trackers stay alive (and the hooks stay registered)
     until `detach_stat_trackers` is called or the model is deleted.
@@ -133,13 +172,45 @@ def attach_stat_trackers(model: nn.Module) -> dict[str, BitLinearStatTracker]:
         if not _is_bitlinear(module):
             continue
         in_features: int = getattr(module, "in_features")
-        tracker = BitLinearStatTracker(in_features=in_features)
+        tracker = BitLinearStatTracker(
+            in_features=in_features,
+            start_recording_at_step=start_recording_at_step,
+        )
         module.register_forward_hook(tracker)
         # Stash the hook handle so we can detach later (PyTorch returns it
         # from `register_forward_hook`, so re-attaching here is awkward
         # — easier to just clear via `module._forward_hooks`).
         trackers[name] = tracker
     return trackers
+
+
+def advance_trackers(
+    trackers: dict[str, BitLinearStatTracker],
+    *,
+    global_step: int | None = None,
+) -> None:
+    """Advance every tracker's `current_step` counter.
+
+    Two modes:
+      - `global_step=None` (default) — increment each tracker's
+        `current_step` by 1. Use after each optimizer step in a normal
+        training loop.
+      - `global_step=k` — set every tracker's `current_step` to `k`. Use
+        when resuming from a checkpoint so trackers re-sync to the true
+        step counter regardless of the in-memory drift.
+
+    F.5.3: the warmup-boundary check `current_step >= start_recording_at_step`
+    runs at every forward call; advancing the counter here is what
+    eventually transitions the tracker out of the skip phase.
+    """
+    if global_step is None:
+        for t in trackers.values():
+            t.current_step += 1
+    else:
+        if global_step < 0:
+            raise ValueError(f"global_step must be ≥ 0, got {global_step}")
+        for t in trackers.values():
+            t.current_step = global_step
 
 
 def detach_stat_trackers(model: nn.Module) -> None:
@@ -272,17 +343,28 @@ def save_calibration_maps(
         payload[layer_name] = {
             "running_max": tracker.running_max.detach().clone(),
             "n_calls": int(tracker.n_calls),
+            "n_skipped": int(tracker.n_skipped),
+            "start_recording_at_step": int(tracker.start_recording_at_step),
             "bits": bits,
             "permutation": perm,
             "in_features": int(tracker.in_features),
         }
 
+    # F.5.3 audit: warmup-skip is a model-wide policy. We record the
+    # min/max across trackers so the consumer can sanity-check that
+    # `attach_stat_trackers` was called with a single warmup setting.
+    warmup_steps = [t.start_recording_at_step for t in trackers.values()]
+    skipped_counts = [t.n_skipped for t in trackers.values()]
     meta: dict = {
         "top_k_pct": float(top_k_pct),
         "low_bits": int(low_bits),
         "high_bits": int(high_bits),
         "n_layers": len(trackers),
-        "_schema_version": "1.0",
+        "start_recording_at_step_min": min(warmup_steps),
+        "start_recording_at_step_max": max(warmup_steps),
+        "n_skipped_min": min(skipped_counts),
+        "n_skipped_max": max(skipped_counts),
+        "_schema_version": "1.1",
     }
     if extra_meta:
         meta.update(extra_meta)
@@ -297,6 +379,7 @@ def save_calibration_maps(
 __all__ = [
     "BitLinearStatTracker",
     "QATConfig",
+    "advance_trackers",
     "attach_stat_trackers",
     "compute_bit_allocation",
     "compute_channel_permutation",

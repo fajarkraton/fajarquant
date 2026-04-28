@@ -12,6 +12,7 @@ from intllm.model import HGRNBitConfig, HGRNBitForCausalLM
 from intllm.qat import (
     BitLinearStatTracker,
     QATConfig,
+    advance_trackers,
     attach_stat_trackers,
     compute_bit_allocation,
     compute_channel_permutation,
@@ -259,7 +260,7 @@ def test_save_calibration_maps_extra_meta_merged(tmp_path) -> None:
     assert loaded["_meta"]["n_steps"] == 24000
     # Defaults still present
     assert loaded["_meta"]["top_k_pct"] == 5.0
-    assert loaded["_meta"]["_schema_version"] == "1.0"
+    assert loaded["_meta"]["_schema_version"] == "1.1"
 
 
 def test_save_calibration_maps_empty_dict_raises(tmp_path) -> None:
@@ -298,3 +299,163 @@ def test_save_calibration_maps_atomic_write(tmp_path) -> None:
     assert out_path.exists()
     # The .tmp must have been os.replace'd to the final name.
     assert not out_path.with_suffix(".pt.tmp").exists()
+
+
+# -----------------------------------------------------------------
+# F.5.3 — skip-warmup calibration
+# -----------------------------------------------------------------
+
+def test_stat_tracker_skips_calls_before_warmup_boundary() -> None:
+    """With start_recording_at_step=W, the first W forward calls (while
+    current_step < W) are dropped: n_skipped accumulates, n_calls and
+    running_max stay at their initial values."""
+    tracker = BitLinearStatTracker(in_features=4, start_recording_at_step=5)
+    fake = torch.nn.Linear(4, 4)
+    big = torch.tensor([[100.0, 100.0, 100.0, 100.0]])
+
+    # current_step starts at 0 → 5 calls below the boundary all skip
+    for step in range(5):
+        tracker.current_step = step
+        tracker(fake, (big,), torch.empty(0))
+    assert tracker.n_calls == 0
+    assert tracker.n_skipped == 5
+    assert torch.all(tracker.running_max == 0.0), (
+        "running_max must remain at init while warmup is active; "
+        f"got {tracker.running_max.tolist()}"
+    )
+
+    # current_step = 5 reaches the boundary → record
+    tracker.current_step = 5
+    small = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    tracker(fake, (small,), torch.empty(0))
+    assert tracker.n_calls == 1
+    assert tracker.n_skipped == 5
+    expected = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    assert torch.allclose(tracker.running_max, expected), (
+        "post-warmup running_max should reflect ONLY post-boundary inputs; "
+        f"got {tracker.running_max.tolist()}"
+    )
+
+
+def test_stat_tracker_default_warmup_is_zero_legacy_behavior() -> None:
+    """No-arg construction matches legacy behavior: every call records."""
+    tracker = BitLinearStatTracker(in_features=4)
+    assert tracker.start_recording_at_step == 0
+    fake = torch.nn.Linear(4, 4)
+    x = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    # Don't touch current_step → stays 0 → 0 >= 0 records.
+    tracker(fake, (x,), torch.empty(0))
+    assert tracker.n_calls == 1
+    assert tracker.n_skipped == 0
+
+
+def test_stat_tracker_negative_warmup_rejected() -> None:
+    with pytest.raises(ValueError, match="start_recording_at_step must be ≥ 0"):
+        BitLinearStatTracker(in_features=4, start_recording_at_step=-1)
+
+
+def test_advance_trackers_increments_all() -> None:
+    a = BitLinearStatTracker(in_features=4, start_recording_at_step=10)
+    b = BitLinearStatTracker(in_features=4, start_recording_at_step=10)
+    c = BitLinearStatTracker(in_features=8, start_recording_at_step=10)
+    trackers = {"a": a, "b": b, "c": c}
+
+    for _ in range(7):
+        advance_trackers(trackers)
+    assert a.current_step == 7
+    assert b.current_step == 7
+    assert c.current_step == 7
+
+
+def test_advance_trackers_resets_to_global_step() -> None:
+    """Resume-from-checkpoint path: re-sync all trackers to a known step."""
+    a = BitLinearStatTracker(in_features=4, start_recording_at_step=100)
+    b = BitLinearStatTracker(in_features=4, start_recording_at_step=100)
+    a.current_step = 3
+    b.current_step = 5
+    advance_trackers({"a": a, "b": b}, global_step=200)
+    assert a.current_step == 200
+    assert b.current_step == 200
+
+
+def test_advance_trackers_negative_global_step_rejected() -> None:
+    a = BitLinearStatTracker(in_features=4)
+    with pytest.raises(ValueError, match="global_step must be ≥ 0"):
+        advance_trackers({"a": a}, global_step=-1)
+
+
+def test_save_calibration_maps_records_warmup_in_meta(tmp_path) -> None:
+    """F.5.3 audit trail: _meta.start_recording_at_step_{min,max} reflect
+    the warmup setting; per-layer entries carry n_skipped + the per-tracker
+    threshold so the consumer can reconstruct what was dropped."""
+    t1 = BitLinearStatTracker(in_features=4, start_recording_at_step=200)
+    t1.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t1.n_calls = 800
+    t1.n_skipped = 200
+    t1.current_step = 1000
+
+    t2 = BitLinearStatTracker(in_features=4, start_recording_at_step=200)
+    t2.running_max = torch.tensor([0.5, 1.5, 2.5, 3.5])
+    t2.n_calls = 800
+    t2.n_skipped = 200
+    t2.current_step = 1000
+
+    out_path = tmp_path / "warmup_maps.pt"
+    save_calibration_maps({"l1": t1, "l2": t2}, out_path)
+    loaded = torch.load(out_path, weights_only=False)
+
+    # Schema bumped to 1.1 because per-layer payload + meta both grew.
+    assert loaded["_meta"]["_schema_version"] == "1.1"
+    assert loaded["_meta"]["start_recording_at_step_min"] == 200
+    assert loaded["_meta"]["start_recording_at_step_max"] == 200
+    assert loaded["_meta"]["n_skipped_min"] == 200
+    assert loaded["_meta"]["n_skipped_max"] == 200
+
+    # Per-layer entries carry the warmup-skip count + threshold.
+    assert loaded["l1"]["n_skipped"] == 200
+    assert loaded["l1"]["start_recording_at_step"] == 200
+    assert loaded["l1"]["n_calls"] == 800
+    assert loaded["l2"]["n_skipped"] == 200
+
+
+def test_save_calibration_maps_legacy_no_warmup_meta(tmp_path) -> None:
+    """Default (no warmup) trackers still serialize cleanly; the new
+    meta fields report 0/0 — drop-in safe for downstream loaders that
+    branch on `start_recording_at_step_min > 0`."""
+    t = BitLinearStatTracker(in_features=4)
+    t.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t.n_calls = 100
+    out_path = tmp_path / "legacy_maps.pt"
+    save_calibration_maps({"l": t}, out_path)
+    loaded = torch.load(out_path, weights_only=False)
+    assert loaded["_meta"]["start_recording_at_step_min"] == 0
+    assert loaded["_meta"]["start_recording_at_step_max"] == 0
+    assert loaded["_meta"]["n_skipped_min"] == 0
+    assert loaded["_meta"]["n_skipped_max"] == 0
+    assert loaded["l"]["n_skipped"] == 0
+    assert loaded["l"]["start_recording_at_step"] == 0
+
+
+def test_attach_stat_trackers_propagates_warmup() -> None:
+    """`attach_stat_trackers(model, start_recording_at_step=W)` should
+    install all trackers with the same threshold."""
+    model = _make_tiny_model()
+    trackers = attach_stat_trackers(model, start_recording_at_step=2400)
+    assert len(trackers) > 0
+    for name, t in trackers.items():
+        assert t.start_recording_at_step == 2400, (
+            f"tracker {name} got start_recording_at_step={t.start_recording_at_step}, "
+            f"expected 2400"
+        )
+        assert t.current_step == 0
+        assert t.n_skipped == 0
+    detach_stat_trackers(model)
+
+
+def test_attach_stat_trackers_default_warmup_is_zero() -> None:
+    """No-kwarg attach behaves like the pre-F.5.3 API (records every call)."""
+    model = _make_tiny_model()
+    trackers = attach_stat_trackers(model)
+    for t in trackers.values():
+        assert t.start_recording_at_step == 0
+    detach_stat_trackers(model)
