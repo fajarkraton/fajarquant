@@ -1,0 +1,88 @@
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "/home/primecore/Documents/fajarquant/python/phase_d/checkpoints/mini/mini_final.pt",
+  "alpha": 0.7,
+  "sites": "o",
+  "calibration": {
+    "n_sequences": 512,
+    "stream": "bilingual(id_share=0.6, seed=42)",
+    "wall_clock_seconds": 22.293501615524292,
+    "validation_gates": {
+      "model.layers.0.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": false,
+        "condition_number_ok": true,
+        "all_pass": false
+      },
+      "model.layers.1.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": false,
+        "condition_number_ok": true,
+        "all_pass": false
+      },
+      "model.layers.4.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": false,
+        "condition_number_ok": true,
+        "all_pass": false
+      },
+      "model.layers.5.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": false,
+        "condition_number_ok": true,
+        "all_pass": false
+      },
+      "_aggregate": {
+        "all_layers_pass": false,
+        "n_layers": 6
+      }
+    },
+    "edge_cases_total": {
+      "n_act_clamped": 24,
+      "n_w_clamped": 0,
+      "n_s_clamped_lo": 7,
+      "n_s_clamped_hi": 0
+    },
+    "side_car_maps_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/smoothquant_o_a0.7_maps.pt"
+  },
+  "modes": {
+    "no_smoothquant": {
+      "val_loss": 5.5530603408813475,
+      "ppl": 258.0259963472318
+    },
+    "smoothquant": {
+      "val_loss": 5.610392298698425,
+      "ppl": 273.2514131547698,
+      "delta_vs_baseline": 0.05733195781707767
+    }
+  },
+  "verdict": {
+    "G1_no_regression": false,
+    "G2_quant_error": null,
+    "G3_val_loss_improvement": false,
+    "delta_vs_baseline": 0.05733195781707767,
+    "outcome": "HARD-FAIL",
+    "interpretation": "val_loss regressed by +0.0573 nat (gate -+0.05)",
+    "gate_nat_threshold": 0.05
+  },
+  "device": "cuda",
+  "timestamp": "2026-04-28T05:32:44+00:00"
+}

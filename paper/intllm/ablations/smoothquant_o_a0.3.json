@@ -1,0 +1,88 @@
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "/home/primecore/Documents/fajarquant/python/phase_d/checkpoints/mini/mini_final.pt",
+  "alpha": 0.3,
+  "sites": "o",
+  "calibration": {
+    "n_sequences": 512,
+    "stream": "bilingual(id_share=0.6, seed=42)",
+    "wall_clock_seconds": 556.5411274433136,
+    "validation_gates": {
+      "model.layers.0.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.1.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.2.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.3.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.4.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "model.layers.5.attn.o_proj": {
+        "finite": true,
+        "range_valid": true,
+        "median_in_band": true,
+        "condition_number_ok": true,
+        "all_pass": true
+      },
+      "_aggregate": {
+        "all_layers_pass": true,
+        "n_layers": 6
+      }
+    },
+    "edge_cases_total": {
+      "n_act_clamped": 24,
+      "n_w_clamped": 0,
+      "n_s_clamped_lo": 0,
+      "n_s_clamped_hi": 0
+    },
+    "side_car_maps_path": "/home/primecore/Documents/fajarquant/paper/intllm/ablations/smoothquant_o_a0.3_maps.pt"
+  },
+  "modes": {
+    "no_smoothquant": {
+      "val_loss": 5.553069634437561,
+      "ppl": 258.0283943374763
+    },
+    "smoothquant": {
+      "val_loss": 5.559861197471618,
+      "ppl": 259.78677475911394,
+      "delta_vs_baseline": 0.0067915630340573685
+    }
+  },
+  "verdict": {
+    "G1_no_regression": true,
+    "G2_quant_error": null,
+    "G3_val_loss_improvement": false,
+    "delta_vs_baseline": 0.0067915630340573685,
+    "outcome": "NEUTRAL",
+    "interpretation": "|delta|=0.0068 < gate 0.05; no measurable effect",
+    "gate_nat_threshold": 0.05
+  },
+  "device": "cuda",
+  "timestamp": "2026-04-28T05:22:54+00:00"
+}
