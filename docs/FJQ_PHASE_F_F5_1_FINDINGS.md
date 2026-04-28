@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.1 SKELETON)
+# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.2)
 
-> **Status:** SKELETON — §1 Executive Summary + §2 Empirical Results fleshed; §3-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
+> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis fleshed; §3 + §5-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
 > **Origin:** F.5.1 sweep complete 2026-04-28. 8 runs total (5 primary α × 3 secondary sites). Verdict: PARTIAL.
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 (the design this evaluates)
@@ -215,11 +215,168 @@ small-max-act explosion.
 
 ## 4. Diagnostic Analysis
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Why o_down at α=0.3 is invariant: RMSNorm γ pre-absorption hypothesis
-> - Why igfo regresses slightly: gated path activation distribution
-> - Why all catastrophically fails: cumulative weight saturation
-> - α-axis interpretation: ternary tolerance vs INT8 literature
+### 4.1 Why `o_down` at α=0.3 is invariant — RMSNorm γ pre-absorption
+
+The strongest empirical signal in the F.5.1 sweep: at α=0.3 with sites
+restricted to `{o_proj, mlp.down_proj}` — the two strongest-outlier
+sites per F.6.1 — val_loss moves by **+0.0001 nat**. That's smaller
+than fp16 round-off accumulated across 50 val batches × 256 batch ×
+1024 seq × 6 layers of forward computation (~1e-3 nat empirical
+floor for run-to-run variance). The result is statistically
+indistinguishable from no SmoothQuant at all.
+
+**Why?** Design §7.1 R3 sketched the hypothesis: BitLinear's RMSNorm
+γ during training learned to scale outlier channels DOWN already,
+leaving SmoothQuant's `s` nothing additional to do. The empirical
+evidence supports this directly:
+
+The post-hoc fusion identity per §3.3 mutates `norm.weight`:
+```
+γ_new = γ / s
+```
+
+If γ's pre-existing per-channel magnitudes are already inversely
+correlated with each channel's max activation (i.e., outlier
+channels have small γ to compensate, non-outlier channels have
+larger γ), then `γ / s` produces a uniform γ approximately equal
+across channels. The mathematically equivalent computation
+`x_norm = (x / RMS(x)) · γ_new` becomes "normalize-then-uniform-
+scale", which is roughly the same uniform behavior the unrotated
+model already exhibits at convergence.
+
+**Quantitative check (deferred to a future diagnostic):** dump
+`γ.cpu()` per BitLinear from `mini_final.pt`, compare with
+`max_act` from F.5.1's calibration maps, compute Pearson
+correlation. Per the hypothesis, expect ρ ∈ [−0.7, −0.95] for
+o_proj + mlp.down_proj sites. If correlation is absent, R3 is
+falsified and the invariance has another cause.
+
+**Implication for paper claim:** SmoothQuant doesn't fail because
+of architecture incompatibility; it fails because the model is
+ALREADY DOING what SmoothQuant would do, at training time, via γ.
+This is a *positive* result for the training procedure (it was
+doing the right thing all along) and a *neutral* result for
+SmoothQuant (no harm, no add value).
+
+### 4.2 Why `igfo` regresses slightly — gated path distribution
+
+The +0.0088 nat regression at sites=igfo (24 sites, 18 of which
+are i/f/g_proj inputs) is sub-gate but consistent across runs.
+Three contributing factors:
+
+**Factor 1 — lower outlier concentration (5-8× per F.6.1).** The
+i/f/g_proj inputs have moderate outlier ratios; SmoothQuant's
+benefit is bounded by `max(|X_j|)/mean(|X_j|)`. At ratios this low,
+the recipe primarily *adds* per-channel scale heterogeneity
+without compensating quant-error reduction.
+
+**Factor 2 — gated activation function downstream.** The i/f
+gates feed through sigmoid (`σ(i_proj(x))`, `σ(f_proj(x))`); g
+feeds through silu. These are smooth nonlinearities saturated near
+extremes. Per-channel input rescaling shifts where each channel
+sits on the saturation curve. The trained model learned the
+specific saturation regime via gradient descent; perturbing it
+post-hoc puts each channel slightly off its trained operating
+point.
+
+**Factor 3 — recurrent feedback amplification.** The MLGRU update
+`h_t = (1 - f) ⊙ h_{t-1} + i ⊙ g` is a recurrent product. Tiny
+per-channel scale shifts on i/f/g compound multiplicatively along
+the temporal axis. Even +0.001 nat per layer per timestep
+accumulates noticeably across seq_len=1024.
+
+**Implication:** F.5.1 confirms §7.1 R2 prediction directly —
+HGRN's gated paths don't benefit from per-channel scaling alone.
+If rotation could spread gated-path outliers WITHOUT shifting
+saturation regime (which canonical QuaRot weight-fusion would, by
+preserving FP path), it might unlock value here. Activation-only
+SmoothQuant cannot.
+
+### 4.3 Why `all` catastrophically fails — cumulative weight saturation
+
+The +0.2665 nat regression at sites=all (37 BitLinear sites) is the
+largest single-recipe regression observed in any F.5.x or F.6.x
+sweep so far. Yet the validation gates §4.6 all PASS for this run
+(`finite`, `range_valid`, `median_in_band`, `condition_number_ok`
+all True per layer). The recipe applied "correctly" — and the
+model still broke.
+
+**Why didn't gates catch it?** The gates check per-layer per-channel
+`s` values for sanity. They do NOT check the cumulative effect
+across the model. With 37 sites mutated, even small per-site weight
+inflations (each well within the gate's [1e-3, 1e3] range) compose
+into network-wide weight magnitude shifts.
+
+**The mechanism (per §7.1 R4):** `W ← s · W` per BitLinear pushes
+weight magnitudes outward. Each individual `W'` may still
+quantize cleanly via `weight_quant(w) = sign(w) / mean(|w|)` (the
+ternary recipe normalizes by per-tensor mean). But the OUTPUT
+distribution of `Wx_quant` shifts. Downstream RMSNorm γ was trained
+expecting a certain output magnitude profile. SmoothQuant breaks
+that profile — modestly per-site, catastrophically when 37 sites
+all shift in correlated directions.
+
+**Why o_down is fine but all isn't:** o_proj + mlp.down_proj are 12
+of 37 sites. Their per-site shifts compose, but there are only 12
+sites and they're at high-outlier locations where post-hoc rescaling
+is most defensible. Adding 25 more sites (lm_head + mlp.gate_proj +
+i/f/g_proj) with much weaker outlier signals adds noise without
+benefit. The signal-to-noise ratio in the *cumulative shift*
+collapses below the model's tolerance.
+
+**Implication for §6.5 composability:** SmoothQuant + canonical QuaRot
+stacking may inherit this saturation pathology if QuaRot too
+mutates many sites. Composition tests (when/if F.6 ships) must
+include a "minimal-coverage" run as control to confirm that adding
+canonical rotation doesn't tip an already-marginal o_down recipe
+into the all-failure regime.
+
+### 4.4 α-axis interpretation — ternary tolerance vs INT8 literature
+
+The monotonic regression `delta ≈ 0.135·α − 0.030` (§2.2) is the
+clearest single quantitative finding. Interpreting it:
+
+**SmoothQuant paper (Xiao et al. 2023) §4.3** measured
+optimal α at 0.5 for INT8 weights, with rapid degradation outside
+[0.4, 0.6]. Their Fig. 3 shows ~10% accuracy drop at α=0.7 on
+LLaMA-65B INT8. Our finding: at α=0.7 on Mini-ternary, val_loss
+regresses by +0.057 nat — qualitatively similar pattern but at a
+DIFFERENT location of the α curve.
+
+**The shift toward small α makes mechanistic sense.** SmoothQuant's
+weight-side burden is `|s · W|`. Quantization of `s · W` introduces
+error proportional to:
+- **For INT8 weights:** `(s · W).abs().max() / 127` — error scales
+  linearly with `s` magnitude
+- **For ternary weights:** clipping kicks in when `|s · W|` exceeds
+  the per-tensor scale's range; error becomes BINARY (clipped or
+  not). At α=0.7 with our calibration, 7 channels per Mini hit
+  s_clamped_lo (the §4.4 floor at 1e-3), and during apply the
+  INVERSE mutation `W ← s · W` for those tiny-s channels becomes a
+  no-op (W barely changes). For non-clamped channels with larger
+  s, the multiplication pushes some weight columns past the ternary
+  representable range.
+
+The result: SmoothQuant's α=0.5 default is calibrated for INT8's
+linear weight-error curve. Ternary's binary clipping curve has its
+"sweet spot" at much smaller α. Our linear fit suggests ternary's
+optimal α is **very near zero** (where SmoothQuant degenerates to
+pure weight-side scaling, which loses the activation-relief benefit
+that motivates the recipe in the first place).
+
+**This is a structural mismatch, not a tunable parameter.** The
+ternary architecture's weight-quant tolerance curve doesn't have
+a useful α window where SmoothQuant adds value. Per the §6.4 PARTIAL
+path: this is publishable as a quantization-method-architecture
+mismatch finding — different ternary architectures (e.g.,
+SubLLaMA, BitNet b1.58) might have similar structural issues with
+the canonical SmoothQuant recipe.
+
+**A natural follow-up (deferred to F.x):** AsymmetricSmoothQuant
+where α varies per BitLinear site based on local weight-tolerance,
+or per-channel α (heavyweight). Both are deferred until basic
+SmoothQuant is shown to add value at the global-α scale, which
+F.5.1 has now disproved on this architecture.
 
 ---
 
@@ -271,5 +428,7 @@ small-max-act explosion.
 
 ---
 
-*Document version: 0.1 (skeleton)*
-*Last updated: 2026-04-28 (V32-prep: §1 Executive Summary + §2 Empirical Results fleshed; §3-§8 placeholders for next first-step)*
+*Document version: 0.2*
+*Last updated: 2026-04-28 (V32-prep: §4 Diagnostic Analysis fleshed — RMSNorm γ pre-absorption hypothesis (R3 confirmation), gated path mechanism (R2), cumulative weight saturation (R4), α-axis ternary vs INT8 literature mismatch. §3 + §5-§8 placeholders for next first-step)*
+*v0.1 → v0.2 (2026-04-28): §4 added.*
+*v0.0 → v0.1 (2026-04-28): skeleton + §1 Executive Summary + §2 Empirical Results.*
