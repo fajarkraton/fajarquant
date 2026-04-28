@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Design (v0.5)
+# Phase F F.5.1 — SmoothQuant PTQ Design (v1.0)
 
-> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe + §5 Implementation Plan + §6 Decision Criteria & Gate fleshed; §7 is placeholder. Target v1.0 after §7 ships.
+> **Status:** ALL SECTIONS COMPLETE. §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe + §5 Implementation Plan + §6 Decision Criteria & Gate + §7 Risks & Fallbacks. Ready for impl scaffold (F.5.1.1 sub-task) per F.5 entry condition (paper submitted + ≥+10% MSE reduction smoke).
 > **Origin:** Phase F roadmap §4.1 F.5.1 + post-F.6.2 strategic pivot (2026-04-28)
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` v1.3 §4.1 F.5
@@ -879,17 +879,232 @@ goes in F.5.1.6 §3 (validation gates summary).
 
 ## 7. Risks & Fallbacks
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - R1: SmoothQuant α=0.5 default may be wrong for ternary (literature uses INT8 activations); may need α nearer 0.3-0.4 to compensate
-> - R2: HGRN's gated paths (i/f/g_proj feeding into MLGRU recurrence) may benefit from rotation more than from calibration; SmoothQuant addresses uniform-outlier suppression, not gated-path-specific issues
-> - R3: BitLinear's existing per-channel γ_x may already absorb most of what SmoothQuant adds → marginal benefit
-> - R4: Migration of difficulty TO weights at extreme α may push weight-quant MSE into ternary's clipping regime → hidden net regression
-> - Fallback ordering: F.5.1 fails → F.6 canonical QuaRot → F.x SmoothQuant + canonical-QuaRot composition → demote outlier-mitigation entirely (accept ternary's structural noise floor)
+### 7.1 Recipe-specific risks
+
+**R1: α default mismatch — literature ≠ ternary**
+
+SmoothQuant paper §4.3 reports α=0.5 as the default for INT8 activation
++ INT8 weight quantization. FajarQuant uses INT8 per-token activation
++ ternary (1.58-bit) per-tensor weight. Ternary has lower magnitude
+tolerance — pushing weights outward by `s` faster reaches the ±1
+clipping regime.
+
+- **Likelihood:** medium-high
+- **Impact:** F.5.1 PARTIAL or FAIL on G1 if α≥0.5 saturates weights
+- **Mitigation:** §4.5 primary sweep covers α ∈ [0.3, 0.7]. Expect
+  optimum at α<0.5. If even α=0.3 hard-fails G1, the issue is more
+  fundamental than α tuning.
+- **Diagnostic:** §4.4 edge-case logging tracks how many channels hit
+  `s` clamp at [1e-3, 1e3] — high clamp count at small α is the
+  signature of weight-saturation pathology
+
+**R2: HGRN gated paths may need rotation, not calibration**
+
+HGRN's i/f/g_proj feed into MLGRU recurrence: `i = σ(i_proj(x))`,
+`f = σ(f_proj(x))`, `g = silu(g_proj(x))`, then a recurrent update
+involving these. The non-linearities (σ, silu) saturate non-uniformly
+across channels — the outlier pattern in i/f/g_proj inputs may not be
+the same as in attn QKV outputs in transformers.
+
+If the gated-path outlier structure is fundamentally different
+(e.g., bimodal: extreme outliers AND extreme zeros), per-channel
+scaling alone may not help much; canonical rotation that SPREADS
+outliers across all channels could be better.
+
+- **Likelihood:** medium
+- **Impact:** F.5.1 NEUTRAL on igf-only sweep, even if `o,down`
+  passes. Indicates SmoothQuant works for some sites but not others.
+- **Mitigation:** §4.5 secondary sweep tests `igfo` separately from
+  `o,down`. If igfo NEUTRAL but `o,down` PASS, ship F.5.1 with
+  site-restricted recipe (only o + down_proj benefit).
+- **Diagnostic:** F.6.1 outlier measurement already shows i/f/g_proj
+  at 5-8× concentration vs o_proj at 51×; lower concentration suggests
+  lower SmoothQuant payoff for these sites.
+
+**R3: RMSNorm γ may already absorb the SmoothQuant adjustment**
+
+BitLinear's input flow is: `x_norm = (x / RMS(x)) * γ_rmsnorm`. The
+per-channel learnable γ_rmsnorm could during training have learned
+to scale outlier channels DOWN already, leaving SmoothQuant's `s`
+nothing additional to do.
+
+- **Likelihood:** low-medium (training was outlier-blind; γ_rmsnorm
+  was optimized for loss, not for quant precision specifically)
+- **Impact:** F.5.1 NEUTRAL or WEAK-PASS — SmoothQuant runs without
+  error but produces no measurable improvement
+- **Mitigation:** None during F.5.1 design phase; verdict will reveal
+  it. If observed, F.5.1.6 findings note that "γ_rmsnorm calibration
+  during training partially substitutes for post-hoc SmoothQuant"
+  — a useful finding even as a negative result.
+- **Diagnostic:** §4.4 records `max_act` per channel → compare to
+  `γ_rmsnorm.abs()` per channel. If the two are inversely
+  correlated, γ_rmsnorm is doing the SmoothQuant job.
+
+**R4: Weight-quant MSE saturation at high α**
+
+SmoothQuant's weight-side burden is `|s · W|`. Ternary clips to ±1 of
+the per-tensor scale. If `s` makes a column `s_j · W[:, j]` exceed
+the post-quant scale's range, that column collapses to all-±1 with
+no FP magnitude information left.
+
+- **Likelihood:** medium at α≥0.5
+- **Impact:** Hidden regression — calibration validation gates §4.6
+  pass (no NaN/Inf), but real val_loss regresses because weight info
+  was lost during ternary clipping
+- **Mitigation:** Add additional gate: after `W ← s·W` mutation,
+  re-quantize `W` and verify `(s·W) - weight_quant(s·W)` MSE is not
+  >2x baseline `(W - weight_quant(W))` MSE. If yes, abort apply.
+- **Diagnostic:** Per-BitLinear weight-quant-error tracking via the
+  existing `compute_quant_error_per_channel` from `intllm.eval`
+  (E2.4.C metric). Run before and after SmoothQuant apply; flag any
+  site where weight-quant-error worsened by >50%.
+
+### 7.2 Hardware-specific risks
+
+**R5: Calibration distribution shift**
+
+Phase D Mini final ckpt was trained slimpajama EN-only. The bilingual
+calibration stream (`id_share=0.6`) has a different activation
+distribution than what the ckpt saw during training. SmoothQuant `s`
+calibrated on this stream may be wrong for an EN-only deployment, or
+right for bilingual deployment but wrong for the val_loss measurement
+on EN-only val data.
+
+- **Likelihood:** medium (this is exactly why F.6.2 baseline came in
+  high at 5.55 nat — the bilingual stream is OOD for an EN-only model)
+- **Impact:** F.5.1 measurement compares apples-to-apples (same val
+  stream, same ckpt) so verdict is internally consistent, but
+  EXTERNAL applicability may be limited
+- **Mitigation:** Use bilingual stream for both calibration AND val.
+  This is what §4.1 + F.6.2 both do. The verdict is then "SmoothQuant
+  helps under bilingual eval at Mini-EN-only ckpt" — narrow claim,
+  but honest.
+- **Diagnostic:** Optional sensitivity test in F.5.1.7+ — calibrate
+  on slimpajama EN, eval on slimpajama EN, compare verdict. If
+  significantly different, F.5.1 findings note distribution-shift
+  caveat.
+
+**R6: Deterministic CUDA mode performance penalty**
+
+§4.7 requires `torch.use_deterministic_algorithms(True)` +
+`CUBLAS_WORKSPACE_CONFIG=:4096:8` for bit-identical re-run. This adds
+~2-5x overhead on some CUDA reductions.
+
+- **Likelihood:** certain (deterministic mode is mandatory per §4.7)
+- **Impact:** Calibration takes ~1-2 min instead of ~30 sec on RTX 4090.
+  Negligible at offline PTQ scale.
+- **Mitigation:** None needed; impact is acceptable
+- **Diagnostic:** Wall-clock recorded in side-car file for tracking
+
+**R7: GPU memory pressure during sweep**
+
+The §4.5 sweep instantiates a fresh model per α value (re-loading
+state_dict and re-attaching hooks) to keep iterations clean. Mini
+ckpt at 21M params is ~100MB on GPU. 5 α + 4 site sweeps = 9
+sequential model loads, but each individual run uses ~1GB peak (model
++ batch + tracker state + buffers) — easily fits on RTX 4090's 16GB.
+
+- **Likelihood:** zero at Mini scale
+- **Impact:** None at Mini; would matter if extended to Stretch (370M
+  params, ~1.5GB just for model) — but Stretch SmoothQuant is not on
+  the F.5.1 critical path
+- **Mitigation:** None needed for F.5.1; for future Stretch extension,
+  use side-car file + apply-to-disk-then-reload pattern
+
+### 7.3 Composability risks
+
+Per §6.5, SmoothQuant + balanced_calib is moot (one undoes the other),
+SmoothQuant + canonical QuaRot is potentially composable (algebraic),
+SmoothQuant + Hadamard pre-hook is NOT recommended.
+
+**R8: Stacking ordering with future F.6 weight-fusion**
+
+If both F.5.1 and F.6 (canonical) ship, the application order matters:
+
+```
+ckpt → SmoothQuant → canonical QuaRot   (apply A first, then B)
+ckpt → canonical QuaRot → SmoothQuant   (apply B first, then A)
+```
+
+These are NOT generally commutative because the `max(|x|)` and
+`max(|w|)` distributions change after each transformation.
+
+- **Likelihood:** low (no F.6-canonical impl exists yet; this is hypothetical)
+- **Impact:** wrong ordering → suboptimal composed result
+- **Mitigation:** When/if F.6-canonical ships, F.6.1.6 findings doc
+  must include a stacking-order ablation
+- **Diagnostic:** Only matters if both ship; not a blocker for F.5.1
+
+### 7.4 Fallback ladder
+
+Per §6.4 FAIL branches, the strategic fallback ordering is:
+
+```
+F.5.1 [PASS]    →   ship; paper Table 4 row; F.5.1.7 QAT-time variant
+                       │
+                       └──→ if F.5.1.7 PASSES: SmoothQuant default PTQ recipe
+                              for FajarQuant production. Phase F.5.x branch closed.
+                       
+F.5.1 [PARTIAL] →   honest negative ablation row; demote to infra-diagnostic
+                       │
+                       ├──→ feed PARTIAL data into F.5.4 wrapper design
+                       │     (cherry-pick sites that did help)
+                       │
+                       └──→ pursue F.6 canonical QuaRot (~3-5 days) as
+                              primary outlier-mitigation path
+
+F.5.1 [FAIL]    →   3 branches:
+   A. F.6 canonical QuaRot (~3-5 days)
+        ├──→ if PASS: ship F.6 as primary recipe
+        ├──→ if PARTIAL: same demote pattern as F.5.1 PARTIAL
+        └──→ if FAIL: combine branches A+B → fall to Branch B
+   B. accept HGRN ternary calibration as near-optimal
+        ├──→ pivot to F.10-F.13 hardware-acceleration (real perf wins)
+        ├──→ paper §7.x adds candor: "we attempted SmoothQuant + canonical
+        │     QuaRot variants; both failed to improve over baseline,
+        │     suggesting HGRN ternary already saturates the activation-
+        │     outlier-mitigation axis"
+        └──→ Phase F.5+F.6 branches both closed; energy redirects to F.x
+   C. re-examine metric (Branch C from §6.4)
+        ├──→ run with broader val (e.g. n_val_batches=200, EN+bilingual)
+        ├──→ if borderline becomes clear: retroactive verdict upgrade
+        └──→ if still NEUTRAL: Branch B (accept and pivot)
+```
+
+The fallback ladder is OPINIONATED — pursue ambitious paths (Branch A)
+before accepting (Branch B). Branch C is defensive and should be
+default-tried before declaring final FAIL.
+
+### 7.5 What success at F.5.1 enables
+
+If F.5.1 PASSES (STRONG-PASS):
+1. **Production recipe addition** — SmoothQuant becomes a documented
+   step in the FajarQuant deployment pipeline. ~150 LOC of
+   `intllm.quant.SmoothQuantCalibrator` + ~50 LOC eval harness.
+2. **Paper update** — `paper/intllm/intllm.tex` §7 Ablations gets a
+   positive row for the first time since Path A submission. Updates
+   `verify_intllm_tables.py --strict` count from 32/32 to 33/33.
+3. **F.5.1.7 QAT-time variant** — investigate whether SmoothQuant
+   calibration during training compounds with PTQ application.
+4. **Composability foundation** — sets up future F.6 canonical QuaRot
+   exploration with knowledge of how per-channel scaling interacts
+   with rotations.
+5. **Phase F roadmap simplification** — F.5.2/F.5.3 (EMA + skip-
+   warmup) become marginal; F.5.4 (Option B wrapper) becomes optional.
+
+If F.5.1 FAILS even after Branches A/B/C exhausted, the cumulative
+evidence (E2.1 + F.6.2 + F.5.1) supports a strong negative claim:
+HGRN ternary + per-token activation quant has reached its calibration
+ceiling, and further gains require structural changes (different
+activation function, different normalization, fewer/more layers, etc.)
+— not better calibration. That itself is a publishable finding, even
+if not the one we hoped for.
 
 ---
 
-*Document version: 0.5*
-*Last updated: 2026-04-28 (V32-prep: §6 Decision Criteria & Gate fleshed — 3 mechanical gates G1/G2/G3, 8-cell outcome table, F.5.1 sub-project verdict tree (PASS/PARTIAL/FAIL), per-verdict next-step branches including 3 fallback strategies for FAIL outcome. §7 placeholder for next first-step; v1.0 after §7.)*
+*Document version: 1.0 (READY FOR IMPL SCAFFOLD)*
+*Last updated: 2026-04-28 (V32-prep: §7 Risks & Fallbacks fleshed — 8 risks (R1-R8) covering recipe (α, gated paths, RMSNorm γ absorption, weight saturation), hardware (calibration distribution, deterministic mode, GPU memory), composability (stacking with future F.6); per-risk likelihood/impact/mitigation/diagnostic. Fallback ladder per §6 verdict: PASS → ship; PARTIAL → demote + F.6 pursuit; FAIL → 3 branches A/B/C. §7.5 lists what F.5.1 PASS unlocks. Doc complete; advances from v0.5 → v1.0.)*
+*v0.5 → v1.0 (2026-04-28): §7 added; doc COMPLETE.*
 *v0.4 → v0.5 (2026-04-28): §6 added.*
 *v0.3 → v0.4 (2026-04-28): §5 added.*
 *v0.2 → v0.3 (2026-04-28): §4 added.*
