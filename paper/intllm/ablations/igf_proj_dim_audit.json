@@ -1,0 +1,265 @@
+{
+  "_schema_version": "1.0",
+  "purpose": "V32-prep F.6.3 hidden_size mismatch audit (i/f/g/o_proj)",
+  "audited_configs": [
+    "mini",
+    "base",
+    "medium"
+  ],
+  "results": {
+    "mini": {
+      "scale": "mini",
+      "hidden_size": 256,
+      "num_hidden_layers": 6,
+      "expand_ratio": 1,
+      "expected_input_dim": 256,
+      "n_layers_audited": 6,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        },
+        {
+          "layer": "model.layers.1.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        },
+        {
+          "layer": "model.layers.2.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        },
+        {
+          "layer": "model.layers.3.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        },
+        {
+          "layer": "model.layers.4.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        },
+        {
+          "layer": "model.layers.5.attn",
+          "i_proj_in": 256,
+          "f_proj_in": 256,
+          "g_proj_in": 256,
+          "o_proj_in": 256
+        }
+      ],
+      "R1_igf_inputs_match": true,
+      "R2_igf_inputs_eq_hidden_size": true,
+      "R3_o_input_eq_input_dim": true,
+      "f63_shared_hadamard_safe": true
+    },
+    "base": {
+      "scale": "base",
+      "hidden_size": 384,
+      "num_hidden_layers": 12,
+      "expand_ratio": 1,
+      "expected_input_dim": 384,
+      "n_layers_audited": 12,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.1.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.2.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.3.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.4.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.5.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.6.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.7.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.8.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.9.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.10.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        },
+        {
+          "layer": "model.layers.11.attn",
+          "i_proj_in": 384,
+          "f_proj_in": 384,
+          "g_proj_in": 384,
+          "o_proj_in": 384
+        }
+      ],
+      "R1_igf_inputs_match": true,
+      "R2_igf_inputs_eq_hidden_size": true,
+      "R3_o_input_eq_input_dim": true,
+      "f63_shared_hadamard_safe": true
+    },
+    "medium": {
+      "scale": "medium",
+      "hidden_size": 512,
+      "num_hidden_layers": 12,
+      "expand_ratio": 1,
+      "expected_input_dim": 512,
+      "n_layers_audited": 12,
+      "per_layer": [
+        {
+          "layer": "model.layers.0.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.1.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.2.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.3.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.4.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.5.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.6.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.7.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.8.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.9.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.10.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        },
+        {
+          "layer": "model.layers.11.attn",
+          "i_proj_in": 512,
+          "f_proj_in": 512,
+          "g_proj_in": 512,
+          "o_proj_in": 512
+        }
+      ],
+      "R1_igf_inputs_match": true,
+      "R2_igf_inputs_eq_hidden_size": true,
+      "R3_o_input_eq_input_dim": true,
+      "f63_shared_hadamard_safe": true
+    }
+  },
+  "all_configs_safe": true,
+  "timestamp": "2026-04-28T02:52:57+00:00"
+}
