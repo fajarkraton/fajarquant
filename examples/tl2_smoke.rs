@@ -25,14 +25,19 @@
 
 use std::process::ExitCode;
 
-use fajarquant::bitnet_tl2;
+use fajarquant::cpu_kernels::tl2;
 
 fn main() -> ExitCode {
     let n: i32 = 256;
-    // SAFETY: the C++ side validates n > 0 && n % 8 == 0 and bounds
-    // the internal buffer to 4096 floats (we pass 256). Returns NaN on
-    // any contract violation.
-    let scale = unsafe { bitnet_tl2::self_test(n) };
+    // F.11.2: safe wrapper validates the contract (n > 0, n ≤ 4096,
+    // n % 8 == 0) up-front and returns Result instead of NaN-on-fail.
+    let scale = match tl2::self_test(n) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("FAIL: self_test rejected n={n}: {e:?}");
+            return ExitCode::from(4);
+        }
+    };
 
     println!("F.11.1 TL2 smoke");
     println!(
