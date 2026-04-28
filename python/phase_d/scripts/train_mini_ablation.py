@@ -238,6 +238,28 @@ def main() -> int:
         "paper/intllm/ablations/running_max_train_vs_steady*.json. Only meaningful "
         "with --balanced-calib (which is the only path that attaches trackers).",
     )
+    p.add_argument(
+        "--ema-calibration",
+        action="store_true",
+        help="V32-prep F.5.2: switch BitLinearStatTracker accumulator from "
+        "elementwise max (legacy) to exponential moving average. Under EMA, "
+        "running_max ← α·running_max + (1-α)·per_channel; the first post-warmup "
+        "observation seeds the estimate directly. Late-training stability "
+        "dominates over early-training peaks (partial mitigation of §7.2 cause-1; "
+        "see paper/intllm/intllm.tex §7.2). Composes with --skip-warmup-calibration. "
+        "Only meaningful with --balanced-calib.",
+    )
+    p.add_argument(
+        "--ema-alpha",
+        type=float,
+        default=0.99,
+        metavar="A",
+        help="V32-prep F.5.2: smoothing factor for --ema-calibration. Must be in "
+        "[0.0, 1.0]. Default 0.99 (literature standard, ~100-step half-life). "
+        "α=0 → pure tracking of latest observation; α=1 → freezes after the "
+        "bootstrap call (only useful for diagnostics). Ignored when "
+        "--ema-calibration is not set.",
+    )
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini_ablations")
     p.add_argument("--device", default=None)
     p.add_argument(
@@ -283,6 +305,13 @@ def main() -> int:
     if args.skip_warmup_calibration > 0 and not args.balanced_calib:
         p.error(
             "--skip-warmup-calibration is only meaningful with --balanced-calib "
+            "(only that path attaches BitLinearStatTracker hooks)",
+        )
+    if not 0.0 <= args.ema_alpha <= 1.0:
+        p.error(f"--ema-alpha must be in [0.0, 1.0], got {args.ema_alpha}")
+    if args.ema_calibration and not args.balanced_calib:
+        p.error(
+            "--ema-calibration is only meaningful with --balanced-calib "
             "(only that path attaches BitLinearStatTracker hooks)",
         )
 
@@ -449,13 +478,21 @@ def main() -> int:
                 f"would record 0 forward calls. Reduce the warmup or increase "
                 f"n_steps so at least one post-warmup step exists.",
             )
+        accumulator_mode = "ema" if args.ema_calibration else "max"
         trackers = attach_stat_trackers(
             model,
             start_recording_at_step=args.skip_warmup_calibration,
+            accumulator_mode=accumulator_mode,
+            ema_alpha=args.ema_alpha,
+        )
+        ema_suffix = (
+            f", accumulator=ema(α={args.ema_alpha})"
+            if args.ema_calibration
+            else ", accumulator=max"
         )
         print(
             f"      stat trackers attached to {len(trackers)} BitLinear sites "
-            f"(start_recording_at_step={args.skip_warmup_calibration})",
+            f"(start_recording_at_step={args.skip_warmup_calibration}{ema_suffix})",
         )
 
         # Advance each tracker's step counter once per training-mode
@@ -571,6 +608,8 @@ def main() -> int:
                 "n_steps": int(result.steps),
                 "n_layers_arch": int(arch.num_hidden_layers),
                 "skip_warmup_calibration_cli": int(args.skip_warmup_calibration),
+                "ema_calibration_cli": bool(args.ema_calibration),
+                "ema_alpha_cli": float(args.ema_alpha),
             },
         )
         print(f"  calibration maps : {tracker_maps_path}  ({len(trackers)} BitLinear sites)")
