@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Design (v0.4)
+# Phase F F.5.1 — SmoothQuant PTQ Design (v0.5)
 
-> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe + §5 Implementation Plan fleshed; §6-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
+> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe + §5 Implementation Plan + §6 Decision Criteria & Gate fleshed; §7 is placeholder. Target v1.0 after §7 ships.
 > **Origin:** Phase F roadmap §4.1 F.5.1 + post-F.6.2 strategic pivot (2026-04-28)
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` v1.3 §4.1 F.5
@@ -736,13 +736,144 @@ F.5.1.6 outcome.
 
 ## 6. Decision Criteria & Gate
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Gate 1 (existence): val_loss with SmoothQuant ≤ baseline + 0.05 nat (no regression)
-> - Gate 2 (improvement): val_loss reduction ≥ 0.05 nat OR outlier MSE reduction ≥ 10%
-> - Gate 3 (composability): SmoothQuant + balanced_calib (E2.4 ablation) compatible without conflict
-> - PASS path: F.5.1 ships, paper claims SmoothQuant-style calibration as part of FajarQuant production recipe
-> - PARTIAL path: SmoothQuant works at quant-error level but not val_loss → infra-diagnostic, demote to F.x future-work
-> - FAIL path: pivot to canonical QuaRot (F.6 weight-fusion impl) OR accept HGRN ternary's calibration is already near-optimal
+### 6.1 Three gates, mechanical thresholds
+
+All gates are evaluated PER-RUN (i.e. per α × site combination from §4.5
+sweep). The verdict for the F.5.1 SUB-PROJECT aggregates over all runs
+per §6.3 verdict tree.
+
+| Gate | Definition | Pass threshold | Source |
+|---|---|---|---|
+| **G1: No regression** | `delta_vs_baseline ≤ +F62_GATE_NAT` | **+0.05 nat** | E2.1 + F.6.2 gate threshold; below this is "no measurable harm" |
+| **G2: Quant-error reduction** | `outlier_global_reduction ≥ E2.4.C threshold` | **≥+0.10** | E2.4.C metric spec `FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md` v1.0; matches Phase F roadmap §4.1 F.5 entry condition "≥+10% MSE reduction on outlier channels" |
+| **G3: val_loss improvement** | `delta_vs_baseline ≤ -F62_GATE_NAT` | **−0.05 nat** | Strict improvement threshold matching E2.1 "rotation helps" definition |
+
+**Interpretation:**
+- G1 is the "do no harm" floor — passing means SmoothQuant didn't break the model
+- G2 is the "calibration-level success" — quantization error per channel improved
+- G3 is the "model-level success" — overall val_loss improved
+
+A run can pass G1+G2 but fail G3 (calibration improves quant accuracy
+but downstream layers don't benefit at val_loss resolution). This is
+the same pattern that demoted E2.4 balanced_calib in Phase E.
+
+### 6.2 Per-run outcomes (3 × 2 × 2 = 12 leaf cells, mapped to 3 verdicts)
+
+| G1 | G2 | G3 | Outcome label | Color |
+|---|---|---|---|---|
+| ✗ | ✗ | ✗ | **HARD-FAIL** — recipe broken or wrong target | red |
+| ✗ | ✓ | ✗ | **HARD-FAIL** — calibration improved per-channel but model lost — bad α or weight-quant saturation | red |
+| ✗ | ✗ | ✓ | (impossible — G3 implies G1) | — |
+| ✗ | ✓ | ✓ | (impossible — G3 implies G1) | — |
+| ✓ | ✗ | ✗ | **NEUTRAL** — SmoothQuant did nothing; recipe applied but no measurable effect | amber |
+| ✓ | ✗ | ✓ | **WEAK-PASS** — val_loss helped but per-channel quant unchanged; effect is via something OTHER than outlier suppression | amber |
+| ✓ | ✓ | ✗ | **CALIBRATION-PASS** — per-channel quant improved but val_loss flat; same pattern as E2.4 → demote to infra-diagnostic | amber |
+| ✓ | ✓ | ✓ | **STRONG-PASS** — full SmoothQuant benefit confirmed | green |
+
+Hard-fail rows are diagnosable: HARD-FAIL with G2-pass means α is too
+extreme (weight saturation). HARD-FAIL with G2-fail means the
+calibration didn't even compute correctly — validation gate §4.6 should
+have caught this before val eval.
+
+### 6.3 F.5.1 sub-project verdict tree
+
+After running all primary + secondary sweeps (§4.5 = 9 runs) and
+inspecting the 9 outcomes:
+
+```
+                                 F.5.1 Verdict
+                                       │
+            ┌──────────────────────────┼──────────────────────────┐
+            │                          │                          │
+   ≥1 STRONG-PASS run         All NEUTRAL or              ALL runs HARD-FAIL
+   (any α × site)             CALIBRATION-PASS            (no recipe combo
+            │                 (no STRONG-PASS)            survives G1)
+            ▼                          ▼                          ▼
+        F.5.1 PASS              F.5.1 PARTIAL              F.5.1 FAIL
+            │                          │                          │
+            ▼                          ▼                          ▼
+   Ship as production       Demote to infra-diagnostic    Pivot strategy
+   calibration recipe;      future-work; document         (see §6.4)
+   paper Table 4 row;       composability for future
+   F.5.1.7 QAT variant      stacking with canonical
+   investigation            QuaRot or other approaches
+```
+
+### 6.4 Per-verdict next-step decision
+
+**F.5.1 PASS (STRONG-PASS in ≥1 run):**
+- Ship F.5.1.6 findings doc declaring PASS
+- Implement F.5.1.7 QAT-time variant (~1 day) to test compounding
+- Add to `paper/intllm/intllm.tex` §7 Ablations as a positive table row
+- Update Phase F roadmap: F.5.1 closed → SUCCESS; consider F.5.1.7 promotion to F.5.2-prime
+- Memory note: SmoothQuant proven, becomes default PTQ recipe
+
+**F.5.1 PARTIAL (no STRONG-PASS, but ≥1 G1+G2 pass):**
+- Ship F.5.1.6 findings doc declaring PARTIAL with diagnostic table
+- F.5.1.7 NOT pursued (PARTIAL doesn't justify training-side
+  investment)
+- Paper text: keep as caveat / negative result honest mention
+  (§6.6 R3 — published negative > omitted negative)
+- Update Phase F roadmap: F.5.1 closed → PARTIAL; demote semantics
+  match E2.4 (infra-diagnostic, no production claim, no ablation row)
+- Consider whether the PARTIAL data informs F.5.2/F.5.3/F.5.4 scope
+  (e.g. if PARTIAL shows G2 pass mostly on `o_proj` only, F.5.4
+  Option B `IntLLMBitLinear` wrapper could cherry-pick that site)
+
+**F.5.1 FAIL (all runs HARD-FAIL G1):**
+- Ship F.5.1.6 findings doc declaring FAIL with thorough diagnosis
+- Decision branch:
+  - **Branch A — pursue canonical QuaRot weight-fusion (~3-5 days):**
+    F.5.1 FAIL implies SmoothQuant's per-channel scaling is not
+    enough; full rotation may still help if applied with weight-
+    fusion + matched residual rotation (the recipe F.6.2 declared
+    untested). High risk of also failing.
+  - **Branch B — accept HGRN ternary's calibration is near-optimal:**
+    Stop chasing calibration improvements. Pivot Phase F.x toward
+    OTHER optimization axes: hardware-acceleration F.10-F.13 (real
+    deployment perf wins), or §4.2 future-work in the roadmap.
+  - **Branch C — re-examine the metric:** F.5.1 FAIL on val_loss but
+    quant-error metric assumed correct → maybe the val stream isn't
+    sensitive enough. Re-run with bigger n_val_batches (e.g. 200)
+    and broader stream (slimpajama EN-only ALONGSIDE bilingual). If
+    bigger eval reveals improvement, retroactively upgrade verdict.
+
+Branch A is the literature-aligned ambitious path. Branch B is the
+pragmatic acceptance. Branch C is the defensive re-test before
+declaring FAIL final.
+
+### 6.5 Composability with E2.x demoted features
+
+If F.5.1 PASSES, an interesting question: does it COMPOSE with E2.4's
+balanced_calib (which produced quant maps even though val_loss didn't
+improve) or with E2.1's Hadamard rotation pre-hook (which broke FP path)?
+
+| Stack | Expected behavior |
+|---|---|
+| SmoothQuant only | Per §6.3 verdict |
+| SmoothQuant + balanced_calib (E2.4) | E2.4's running_max calibration applied AFTER SmoothQuant's `s` fusion — if `s` was applied correctly, `max_act` is now flat across channels, so balanced_calib's bit-allocation map should be uniform = no useful adjustment. Composability question is moot. |
+| SmoothQuant + canonical QuaRot (F.6 weight-fusion) | Probably composable — they target different aspects (per-channel scaling vs rotation-spread). Algebraic composition: `s · W · H = s · (W · H)`. Worth testing if BOTH ship. |
+| SmoothQuant + Hadamard pre-hook (F.6.2 broken recipe) | NOT recommended. The pre-hook breaks FP path regardless of SmoothQuant; combining a recipe-incomplete F.6.2 with F.5.1 just stacks two error sources. |
+
+Composability tests are deferred to F.5.1.6 findings if F.5.1 PASS. Not
+a blocker for F.5.1 verdict.
+
+### 6.6 Aggregate gate threshold sensitivity
+
+The 0.05 nat threshold for G1/G3 and 0.10 for G2 are inherited from
+E2.1 + E2.4.C precedent. Sensitivity check: if F.5.1 produces a run
+at e.g. -0.04 nat val_loss, does that reach G3?
+
+**No** — sub-threshold is sub-threshold. But the findings doc (§5.6)
+SHOULD report it as "borderline" and discuss whether the gate
+threshold should be lowered for the next sub-task (F.5.x, F.6.x).
+Lowering gates retroactively is forbidden per §6.6 R3 (paper-claim
+integrity); but proposing a NEW gate for FUTURE sub-tasks is fine.
+
+If multiple borderline-but-sub-threshold runs cluster around the same
+∼0.04 region with consistent direction, that's evidence that the
+recipe DOES help — just below the gate's noise floor. Discussion
+goes in F.5.1.6 §3 (validation gates summary).
 
 ---
 
@@ -757,8 +888,9 @@ F.5.1.6 outcome.
 
 ---
 
-*Document version: 0.4*
-*Last updated: 2026-04-28 (V32-prep: §5 Implementation Plan fleshed — sub-task table F.5.1.1 through F.5.1.7 with concrete files + effort estimates + dependency graph. Critical-path total ~3 days solo, ~4-5 days with optional QAT-time variant. §6-§7 placeholders for next first-step)*
+*Document version: 0.5*
+*Last updated: 2026-04-28 (V32-prep: §6 Decision Criteria & Gate fleshed — 3 mechanical gates G1/G2/G3, 8-cell outcome table, F.5.1 sub-project verdict tree (PASS/PARTIAL/FAIL), per-verdict next-step branches including 3 fallback strategies for FAIL outcome. §7 placeholder for next first-step; v1.0 after §7.)*
+*v0.4 → v0.5 (2026-04-28): §6 added.*
 *v0.3 → v0.4 (2026-04-28): §5 added.*
 *v0.2 → v0.3 (2026-04-28): §4 added.*
 *v0.1 → v0.2 (2026-04-28): §3 added; §1/§2 γ_x correction.*
