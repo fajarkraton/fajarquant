@@ -110,7 +110,7 @@ pub enum ShimError {
 /// Return `true` iff `ptr` is aligned to [`TL2_ALIGNMENT`].
 #[inline]
 pub fn is_tl2_aligned<T>(ptr: *const T) -> bool {
-    (ptr as usize) % TL2_ALIGNMENT == 0
+    (ptr as usize).is_multiple_of(TL2_ALIGNMENT)
 }
 
 // ---------------------------------------------------------------------------
