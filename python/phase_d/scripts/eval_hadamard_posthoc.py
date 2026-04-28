@@ -1,30 +1,51 @@
 #!/usr/bin/env python3
 """V32-prep F.6.2 — post-hoc Hadamard rotation eval on trained Mini checkpoint.
 
-Phase F roadmap §4.1 F.6.2 hypothesis test: load Phase D Mini final
-checkpoint (`mini_final.pt`), attach HadamardRotation forward-pre-hook
-(per E2.1.2 pattern), measure held-out val_loss with rotation ON vs
-OFF, and disambiguate whether the Phase E E2.1 negative result was
-caused by:
+⚠ SCOPE CAVEAT (read first): this script tests the ACTIVATION-ONLY
+PRE-HOOK variant of rotation (`x → Hx` injected via forward-pre-hook
+on BitLinear inputs), NOT the canonical QuaRot/SpinQuant weight-fusion
+recipe. The pre-hook BREAKS the FP path:
 
-  (a) "training-from-scratch fights rotation" — the QuaRot/SpinQuant
-      literature applies rotation POST-hoc to pre-trained models;
-      training-from-scratch with rotation in place may make the model
-      fight the rotation rather than benefit. If THIS hypothesis is
-      true, then post-hoc rotation on a trained checkpoint should
-      HELP (or at least not hurt) val_loss.
+    canonical:    y = (W·Hᵀ) · (H·x) = W·x        (preserved exactly)
+    pre-hook:     y = W · (H·x)         ≠ W·x      (computation altered)
 
-  (b) "HGRN architecture doesn't have outlier-prone activations" —
-      rotation only helps when activations have extreme outliers
-      that quantization mishandles; HGRN may have a uniformly-spread
-      activation distribution where rotation does nothing.
+Any trained model is EXPECTED to regress under the pre-hook variant
+because downstream layers (residual + RMSNorm + MLP) were trained to
+expect `Wx`, not `WHx`. A `rotation_hurts` verdict from this script
+CANNOT be used to claim "HGRN architecture is incompatible with
+rotation" — that conflates recipe-incompleteness with architectural
+incompatibility. Disambiguating (a) "training-from-scratch fights
+rotation" vs (b) "HGRN-rotation incompatibility" requires the FULL
+canonical recipe:
 
-F.6.1 closure (commit pre-existing) measured outlier concentration on
-o_proj inputs at 51.6× mean / 421× max ratio — STRONG concentration,
-ruling out (b) at the o_proj site. So if F.6.2 still shows post-hoc
-rotation HURTS val_loss, the picture is more nuanced (perhaps online-
-QuaRot semantics — pre-hook injects rotation into INPUTS without the
-matching weight-fusion that the canonical recipe would compose with).
+    1. Compute orthogonal Hadamard H of size hidden_size
+    2. Fuse H into weights: W' = W·Hᵀ (so y = W'·Hx = W·x in FP)
+    3. Apply matching rotation in residual stream (RMSNorm γ + entry
+       projections) so the input to attn block is genuinely H·x_residual
+    4. Re-calibrate per-channel γ_x for the rotated input distribution
+
+This script implements step 1 only as a forward-pre-hook (no step 2,
+3, 4). Useful as a SANITY CHECK that the rotation primitive composes
+with HGRN's BitLinear layers and the existing E2.1.2 attach pattern;
+NOT useful as a paper-claim about HGRN's compatibility with rotation.
+
+What F.6.2 (this incomplete variant) DOES tell us:
+  - Whether the pre-hook attach mechanics work end-to-end on a
+    trained checkpoint (yes if eval completes without crash)
+  - The MAGNITUDE of FP-path breakage as a function of which sites
+    are rotated — i.e. how heavily downstream layers depend on the
+    exact pre-rotation activation distribution
+
+What F.6.2 DOES NOT tell us:
+  - Whether HGRN benefits from canonical (weight-fused) rotation
+  - Whether E2.1's negative was training-from-scratch vs architectural
+  - Whether rotation_hurts here generalizes to other architectures
+    (it doesn't — same recipe would also hurt a transformer; this
+    is a recipe-class verdict, not an architecture-class verdict)
+
+F.6.1 (commit pre-existing) measured outlier concentration on o_proj
+inputs at 51.6× mean / 421× max ratio — STRONG concentration, so the
+canonical recipe REMAINS WORTH TESTING in a future first-step.
 
 Methodology:
 
@@ -259,19 +280,55 @@ def main() -> int:
         rotation_hurts = all(results[m]["delta_vs_baseline"] >= F62_GATE_NAT for m in rotated)
 
         if rotation_helps:
-            outcome = "training-from-scratch was the issue (post-hoc rotation helps)"
+            outcome = "helps"
+            interpretation = (
+                "Activation-only pre-hook rotation IMPROVED val_loss — unusual under "
+                "an FP-path-breaking recipe. Likely indicates the trained checkpoint "
+                "had latent compatibility with rotated inputs (e.g. via residual-stream "
+                "self-correction). Worth investigating, but not a confirmation of "
+                "canonical QuaRot benefit."
+            )
         elif rotation_hurts:
-            outcome = "HGRN-architecture issue (online-QuaRot variant: rotation alone insufficient without weight-fusion)"
+            outcome = "hurts"
+            interpretation = (
+                "Activation-only pre-hook rotation REGRESSED val_loss — EXPECTED. "
+                "Pre-hook breaks the FP path (y = W·Hx ≠ W·x), so any trained model "
+                "should regress regardless of architecture. This is a RECIPE-CLASS "
+                "outcome (the recipe is incomplete), NOT an architecture-class verdict. "
+                "To disambiguate (a) training-from-scratch fights rotation vs "
+                "(b) HGRN-rotation incompatibility, the full canonical QuaRot recipe "
+                "(weight fusion + matched residual rotation + γ_x recalibration) must "
+                "be implemented and run — see script docstring §SCOPE CAVEAT."
+            )
         else:
-            outcome = "ambiguous (rotation effects within ±0.05 nat noise band)"
+            outcome = "neutral"
+            interpretation = (
+                "Activation-only pre-hook rotation was within ±0.05 nat of baseline — "
+                "unusual; FP-path breakage typically causes >>0.05 nat regression. "
+                "May indicate rotation amplitude was small enough that downstream "
+                "layers absorbed it without losing much information."
+            )
 
         verdict = {
+            "test_recipe": "activation-only-pre-hook (NOT canonical QuaRot weight-fusion)",
+            "canonical_quarot_weight_fusion_tested": False,
             "best_mode": "no_rotation" if not rotation_helps else best_rotated_mode,
             "best_rotated_mode": best_rotated_mode,
             "best_delta_vs_baseline": best_delta,
             "rotation_helps": rotation_helps,
             "rotation_hurts": rotation_hurts,
-            "f62_outcome": outcome,
+            "rotation_outcome": outcome,
+            "interpretation": interpretation,
+            "caveat": (
+                "Activation-only pre-hook breaks the FP path: y = W·Hx ≠ W·x in "
+                "general. Any trained model is expected to regress under this "
+                "recipe. F.6.2 result CANNOT distinguish (a) training-from-scratch "
+                "fights rotation vs (b) HGRN-architecture-rotation-incompatibility — "
+                "both hypotheses require canonical QuaRot (weight fusion + matched "
+                "residual rotation + γ_x recalibration), which was NOT executed here. "
+                "Treat 'hurts' verdict as RECIPE-INCOMPLETENESS evidence only, not "
+                "as an HGRN-specific architectural finding."
+            ),
             "gate_nat_threshold": F62_GATE_NAT,
         }
     else:
@@ -296,8 +353,9 @@ def main() -> int:
 
     print(f"\n[4/4] wrote {args.out}")
     if not args.dry_run:
-        print(f"      verdict: {verdict['f62_outcome']}")
+        print(f"      rotation_outcome: {verdict['rotation_outcome']}")
         print(f"      best_mode={verdict['best_mode']}  best_delta={verdict['best_delta_vs_baseline']:+.4f} nat")
+        print(f"      ⚠ test_recipe: {verdict['test_recipe']}")
     return 0
 
 

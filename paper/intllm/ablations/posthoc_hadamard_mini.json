@@ -30,13 +30,17 @@
     }
   },
   "verdict": {
+    "test_recipe": "activation-only-pre-hook (NOT canonical QuaRot weight-fusion)",
+    "canonical_quarot_weight_fusion_tested": false,
     "best_mode": "no_rotation",
     "best_rotated_mode": "o",
     "best_delta_vs_baseline": 2.5903866291046143,
     "rotation_helps": false,
     "rotation_hurts": true,
-    "f62_outcome": "HGRN-architecture issue (online-QuaRot variant: rotation alone insufficient without weight-fusion)",
+    "rotation_outcome": "hurts",
+    "interpretation": "Activation-only pre-hook rotation REGRESSED val_loss \u2014 EXPECTED. Pre-hook breaks the FP path (y = W\u00b7Hx \u2260 W\u00b7x), so any trained model should regress regardless of architecture. This is a RECIPE-CLASS outcome (the recipe is incomplete), NOT an architecture-class verdict. To disambiguate (a) training-from-scratch fights rotation vs (b) HGRN-rotation incompatibility, the full canonical QuaRot recipe (weight fusion + matched residual rotation + \u03b3_x recalibration) must be implemented and run \u2014 see script docstring \u00a7SCOPE CAVEAT.",
+    "caveat": "Activation-only pre-hook breaks the FP path: y = W\u00b7Hx \u2260 W\u00b7x in general. Any trained model is expected to regress under this recipe. F.6.2 result CANNOT distinguish (a) training-from-scratch fights rotation vs (b) HGRN-architecture-rotation-incompatibility \u2014 both hypotheses require canonical QuaRot (weight fusion + matched residual rotation + \u03b3_x recalibration), which was NOT executed here. Treat 'hurts' verdict as RECIPE-INCOMPLETENESS evidence only, not as an HGRN-specific architectural finding.",
     "gate_nat_threshold": 0.05
   },
-  "timestamp": "2026-04-28T03:14:13+00:00"
+  "timestamp": "2026-04-28T03:22:30+00:00"
 }
