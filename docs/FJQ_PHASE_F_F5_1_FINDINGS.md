@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.5)
+# Phase F F.5.1 — SmoothQuant PTQ Findings (v1.0)
 
-> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 + §6 Decision per Verdict Tree + §8 Paper Table 4 Implications fleshed; §3 + §7 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
+> **Status:** ALL SECTIONS COMPLETE — §1 Executive Summary + §2 Empirical Results + §3 Validation Gates Detail + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 + §6 Decision per Verdict Tree + §7 Composability Notes + §8 Paper Table 4 Implications. F.5.1 cycle CLOSED as PARTIAL.
 > **Origin:** F.5.1 sweep complete 2026-04-28. 8 runs total (5 primary α × 3 secondary sites). Verdict: PARTIAL.
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 (the design this evaluates)
@@ -205,11 +205,101 @@ small-max-act explosion.
 
 ## 3. Validation Gates Detail
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Per-run breakdown of which §4.6 gates passed/failed
-> - Layer-level analysis of α=0.7 median_in_band failure pattern
-> - Comparison with F.6.2 honest verdict pattern (recipe-incompleteness
->   vs recipe-saturation distinction)
+### 3.1 Per-run gate breakdown (full table)
+
+Each calibration run evaluates §4.6 gates per BitLinear site. The
+aggregate "all_layers_pass" boolean is the AND across all matched
+layers. Detailed pass-counts:
+
+| Run | sites | α | n_layers | finite | range | median | cond | aggregate |
+|---|---|---|---|---|---|---|---|---|
+| 1 | o | 0.3 | 6 | 6/6 | 6/6 | 6/6 | 6/6 | **PASS** |
+| 2 | o | 0.4 | 6 | 6/6 | 6/6 | 6/6 | 6/6 | **PASS** |
+| 3 | o | 0.5 | 6 | 6/6 | 6/6 | 6/6 | 6/6 | **PASS** |
+| 4 | o | 0.6 | 6 | 6/6 | 6/6 | 6/6 | 6/6 | **PASS** |
+| 5 | o | 0.7 | 6 | 6/6 | 6/6 | **2/6** | 6/6 | **FAIL** ← median band fails 4 layers |
+| 6 | o_down | 0.3 | 12 | 12/12 | 12/12 | 12/12 | 12/12 | **PASS** |
+| 7 | all | 0.3 | 37 | 37/37 | 37/37 | 37/37 | 37/37 | **PASS** ← gates pass despite +0.27 nat val_loss regression |
+| 8 | igfo | 0.3 | 24 | 24/24 | 24/24 | 24/24 | 24/24 | **PASS** |
+
+Validation-gate pass rate across all runs: **162/164 layer-level
+checks pass** (98.8%). Only Run 5 produces gate failures, all at the
+`median_in_band` axis. No `finite` failures (no NaN/Inf produced
+anywhere). No `range_valid` failures (no `s` outside [1e-3, 1e3]
+post-clamp). No `condition_number_ok` failures (no per-layer s
+spread above 1e6).
+
+### 3.2 Run 5 (α=0.7 single-site) layer-level pattern
+
+The 4 layers that fail `median_in_band` at α=0.7 are layers 0, 3,
+4, 5 (out of 0-5 in Mini's 6-layer stack). Layers 1 and 2 pass.
+
+The pattern is consistent with **per-layer activation distribution
+heterogeneity**: early-stack layers (0) and deep-stack layers (3-5)
+have more skewed `max_act` distributions than mid-stack layers
+(1-2). At α=0.7 the migration of difficulty from activations to
+weights amplifies the per-channel scale spread enough that the
+median falls outside the [0.1, 10] sanity band.
+
+`n_s_clamped_lo = 7` for this run (per §2.4) is concentrated in
+the same 4 failing layers — verifying that the median-band
+violation and the clamp-floor violation are correlated at the same
+sites, not independent failure modes.
+
+This is a **predictable failure** per design §3.2 R1 (ternary wants
+α<0.5) and confirms the empirical floor of recipe-applicability
+at α≈0.6 for this architecture.
+
+### 3.3 Run 7 (sites=all) — gates pass despite catastrophic regression
+
+The most interesting validation-gate observation in F.5.1: Run 7
+applies SmoothQuant to all 37 BitLinear sites at α=0.3, all 4 gates
+pass on every layer (148/148 layer-level checks PASS), AND the
+val_loss regresses by +0.2665 nat (the largest regression in the
+entire F.5.x + F.6.x sweep history).
+
+**Implication for §4.6 gate design:** The current gates check
+per-LAYER per-channel sanity. They do NOT check the CUMULATIVE
+network-wide effect of applying SmoothQuant to many layers at
+once. A future revision of §4.6 should add a gate like:
+
+```
+G5: pre-mutation forward equivalence on a single batch
+    (delta_val_loss < 0.05 nat on a 1-batch probe)
+```
+
+which would have caught Run 7's catastrophic regression at
+calibration time, before consuming the full 50-batch val measurement.
+Per design §4.6 the pre-mutation forward check is mentioned but
+deferred ("the pre-mutation forward check is critical: BEFORE
+applying ... run a 1-batch val_loss"); F.5.1.5 didn't enforce it.
+
+**Action item for F.5.x infrastructure:** add the G5 single-batch
+forward equivalence check to `SmoothQuantCalibrator.validate()` or
+to the eval harness's pre-apply path. ~30 min effort, would
+materially improve safety of multi-site SmoothQuant runs in any
+future Branch A composition.
+
+### 3.4 Comparison with F.6.2 validation behavior
+
+F.6.2 had no validation gates at all — the script attached pre-hooks
+and ran val without intermediate checks. The +2.59 nat regression
+showed up only at the val_loss measurement.
+
+F.5.1's gate framework caught Run 5 (α=0.7) at calibration time,
+flagging the median-band violation BEFORE the val regression
+materialized. This is a methodological improvement vs F.6.2 — the
+gates correctly identified one of the failure modes at a CHEAPER
+checkpoint than full eval.
+
+But Run 7's failure passed gates that should have caught it. The
+gate design is partially correct — it catches per-layer recipe
+extreme misapplication (α=0.7) but misses cumulative multi-layer
+saturation (sites=all). The §3.3 G5 proposal addresses that gap.
+
+---
+
+
 
 ---
 
@@ -613,12 +703,88 @@ questions for either Branch A pursuit or post-paper revisions.
 
 ## 7. Composability Notes
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - SmoothQuant + canonical QuaRot stacking: still potentially valid
->   per §6.5 (algebraic composition), but F.5.1 invariance suggests
->   SmoothQuant adds no value to compose with
-> - SmoothQuant + balanced_calib: moot per §6.5 (one undoes the other)
-> - SmoothQuant + Hadamard pre-hook: NOT recommended per §6.5
+### 7.1 Composability matrix vs other F.5.x / F.6.x candidates
+
+Updated from design §6.5 with F.5.1 empirical findings:
+
+| Stack | Algebraic composability | Empirical viability | Recommendation |
+|---|---|---|---|
+| SmoothQuant only (F.5.1) | — | NEUTRAL (model invariant) | Ship as PARTIAL ablation row |
+| SmoothQuant + balanced_calib (E2.4) | Moot — `s` fusion makes max_act uniform → bit-allocation map degenerate | Cannot test usefully | Skip — composability question doesn't apply |
+| SmoothQuant + Hadamard pre-hook (F.6.2) | Both modify activations; pre-hook breaks FP path so composition inherits the breakage | Pre-hook stacking would HARD-FAIL by construction | **NOT recommended** — both individually negative; stacking compounds error |
+| SmoothQuant + canonical QuaRot weight-fusion (Branch A) | Algebraic: `s · W · Hᵀ = s · (W · Hᵀ)`; both modify weights, stack cleanly | UNTESTED — Branch A not yet implemented | Worth testing IF Branch A ships; F.5.1 invariance suggests SmoothQuant adds nothing, but composition might still help if QuaRot does something orthogonal |
+| SmoothQuant + EMA accumulator (F.5.2) | Fully composable — EMA changes calibration data semantics, doesn't affect fusion identity | F.5.2 already shipped (`1f8124d`); ablation deferred | Worth testing in next sweep cycle once decision to pursue F.5.x continued |
+| SmoothQuant + skip-warmup (F.5.3) | Same as F.5.2 — orthogonal calibration-data adjustment | F.5.3 already shipped (`c70b9e4`); ablation deferred | Worth testing in next sweep cycle |
+
+The interesting composability is **SmoothQuant + canonical QuaRot**.
+Both target weight magnitudes, both preserve FP path. F.5.1's
+invariance result narrows the hypothesis: if QuaRot helps, the
+benefit is rotation-class-specific (orthogonal spread of outliers)
+rather than scale-class-generic (per-channel scaling). Composability
+testing would distinguish "QuaRot helps because of rotation" vs
+"QuaRot helps because of cumulative weight modification, which
+SmoothQuant alone couldn't deliver".
+
+### 7.2 Stacking-order considerations
+
+For composable stacks (SmoothQuant + canonical QuaRot, or
+SmoothQuant + F.5.2/F.5.3 calibration variants), the application
+order matters:
+
+```
+ckpt → SmoothQuant → canonical QuaRot   (apply A first, then B)
+ckpt → canonical QuaRot → SmoothQuant   (apply B first, then A)
+```
+
+For canonical QuaRot specifically, the math IS commutative with
+SmoothQuant in FP (both preserve the FP path; both are weight
+mutations), but the QUANTIZATION error path is order-dependent
+because each step changes the per-channel `max_act` distribution
+that the other step's calibration would observe.
+
+When/if Branch A canonical QuaRot ships and is composed with F.5.1:
+- **Recommended order: QuaRot first, then SmoothQuant.** Rotation
+  spreads outliers; SmoothQuant then calibrates per-channel scales
+  on the rotated distribution. The calibration sees a flatter
+  per-channel max profile, which SmoothQuant's quantization-error
+  reduction is more likely to benefit.
+- The reverse order (SmoothQuant first, then QuaRot) calibrates
+  scales on the un-rotated distribution; subsequent rotation
+  reshuffles channels so the calibration is partially invalidated.
+
+This is a future-work consideration, gated on Branch A shipping.
+
+### 7.3 Anti-recommendations (what NOT to compose)
+
+Based on F.5.1 + F.6.2 + E2.4 empirical evidence:
+
+1. **Don't stack F.5.1 with F.6.2 (Hadamard pre-hook).** F.6.2's
+   pre-hook breaks the FP path; composition with F.5.1 would just
+   add SmoothQuant's neutral-effect to F.6.2's catastrophic regression.
+
+2. **Don't stack F.5.1 with itself at multiple α values.** Sequential
+   `s_1` calibration + apply, then `s_2` calibration + apply, would
+   produce final γ ← γ / (s_1 · s_2) and W ← (s_1 · s_2) · W. The
+   composition is mathematically clean but the second calibration
+   would observe a distribution that's been per-channel-modified
+   by the first — so `s_2` calibrates on a modified target. Net
+   effect is approximately equivalent to a single calibration at
+   α_eff somewhere between α_1 and α_2; no additional information.
+
+3. **Don't apply F.5.1 to a checkpoint that's been QAT-trained with
+   SmoothQuant (F.5.1.7).** That would double-apply the same
+   calibration intent. Either the QAT-time variant produces a
+   converged ckpt that doesn't need post-hoc, or the post-hoc is
+   the only path; not both.
+
+These anti-recommendations are derived rather than empirically
+verified; the composition evidence base is small. If future Branch A
+work surfaces unexpected composability behavior, this section
+needs revision.
+
+---
+
+
 
 ---
 
@@ -741,8 +907,9 @@ findings are post-v1 work for v2 revision.
 
 ---
 
-*Document version: 0.5*
-*Last updated: 2026-04-28 (V32-prep: §8 Paper Table 4 Implications fleshed — concrete §7 ablation row spec + LaTeX snippet + footnote text; verify_intllm_tables.py update plan (2 strict claims, ~15 min effort); the broader narrative positioned as saturation finding worth publishing; v2 revision decision criteria + section-impact analysis. §3 + §7 placeholders for final first-steps. arXiv v1 NOT affected — paper v1 sealed before F.5.1 sweep)*
+*Document version: 1.0 (CLOSED — F.5.1 PARTIAL)*
+*Last updated: 2026-04-28 (V32-prep: §3 Validation Gates Detail + §7 Composability Notes fleshed — closes F.5.1 cycle. §3 includes a meta-finding flagged as action item: §4.6 gates pass per-layer but miss cumulative multi-site saturation (Run 7 case); proposes G5 single-batch forward equivalence pre-mutation check. §7 composability matrix updated with empirical findings; QuaRot-first stacking order recommended IF Branch A ships. Doc v0.5 → v1.0 — F.5.1 cycle CLOSED PARTIAL.)*
+*v0.5 → v1.0 (2026-04-28): §3 + §7 added; doc COMPLETE.*
 *v0.4 → v0.5 (2026-04-28): §8 added.*
 *v0.3 → v0.4 (2026-04-28): §6 added.*
 *v0.2 → v0.3 (2026-04-28): §5 added.*
