@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Design (v0.2)
+# Phase F F.5.1 — SmoothQuant PTQ Design (v0.3)
 
-> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant fleshed; §4-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
+> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe fleshed; §5-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
 > **Origin:** Phase F roadmap §4.1 F.5.1 + post-F.6.2 strategic pivot (2026-04-28)
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` v1.3 §4.1 F.5
@@ -371,13 +371,155 @@ primary design.
 
 ## 4. Calibration Recipe
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Calibration data: `bilingual_stream(id_share=0.6, seed=42)` 512 sequences
-> - Per-BitLinear forward-pre-hook to capture `max(|X_j|)` activations
-> - Per-BitLinear weight scan to capture `max(|W_j|)` per output column
-> - Compute `s_j = max(|X_j|)^α / max(|W_j|)^(1-α)` with α default 0.5
-> - α sensitivity sweep: [0.3, 0.5, 0.7] x BitLinear-site combinations
-> - Apply: at inference time, `X' = X / s` pre-hook + `W' = s · W` weight rewrite (or fuse `s` into the BitLinear's γ_x state)
+### 4.1 Calibration data specification
+
+| Field | Value | Rationale |
+|---|---|---|
+| Stream | `bilingual_stream(id_share=0.6, seed=42)` | Matches `compute_quant_error_per_channel` (E2.4.C metric) + F.6.1 outlier measurement seed → composable artifacts |
+| Sample size | **512 sequences** | SmoothQuant paper §4.2: stable from 128 upward; 512 is the conservative default. Mini scale: 64 batches at bs=8 = 512 sequences. |
+| Sequence length | `train_hp.seq_len = 1024` | Mini config; matches inference distribution |
+| Total tokens | 512 × 1024 = **524,288** | Sufficient for stable per-channel max statistics on hidden=256 dim |
+| Wall-clock (RTX 4090) | ~30-45 sec at Mini scale | Forward-only, no gradient |
+| Wall-clock (CPU) | ~5-8 min | Acceptable for offline PTQ |
+
+The same stream + seed used by F.6.1 + F.6.2 + E2.4.C (all reference
+`seed=42` for calibration tasks). Side-effect: F.5.1 calibration `s`
+artifacts will be cross-verifiable against F.6.1 outlier maps without
+re-computing.
+
+### 4.2 Per-BitLinear forward-pre-hook setup
+
+For each BitLinear instance, attach a forward-pre-hook that:
+
+1. Captures the input tensor `x` (shape `[batch, seq, hidden]`)
+2. Reshapes to `[batch*seq, hidden]` (flatten token dim)
+3. Computes per-channel absmax along token dim:
+   ```python
+   x_max = x.abs().reshape(-1, hidden).max(dim=0)[0]   # shape [hidden]
+   ```
+4. Updates running max in tracker state:
+   ```python
+   tracker.max_act = torch.maximum(tracker.max_act, x_max)
+   ```
+
+Hook is non-mutating: `return None` so the original input flows through
+unchanged. Calibration is observation-only.
+
+After 64 batches (512 sequences), `tracker.max_act` per BitLinear
+contains the per-channel max of activations across the entire
+calibration set — this is the `max(|X_j|)` term in SmoothQuant
+Algorithm 1.
+
+**Reuse note:** the existing `attach_stat_trackers` from
+`intllm.qat` (commit pre-existing; production-integrated since
+E2.4.A) already implements this hook pattern with
+`accumulator_mode="max"` semantics. SmoothQuant calibration can reuse
+it verbatim — no new infrastructure needed for activation capture.
+
+### 4.3 Per-weight scan (per-input-channel max)
+
+Distinct from activation capture: per-weight scan is a one-time
+inspection of the static weight tensor, not a forward-time hook.
+
+Recall `nn.Linear` stores `W` with shape `[out_features, in_features]`.
+SmoothQuant's `s_j` is indexed by INPUT channels (the dimension that
+gets divided/multiplied), so:
+
+```python
+max_w_per_in_channel = W.abs().max(dim=0)[0]   # reduce over output dim
+                                                # result shape [in_features]
+```
+
+This is per-BitLinear, computed once at calibration time. No tracker,
+no hook — just `module.weight.abs().max(dim=0)[0]`.
+
+For BitLinear specifically, `W` is the FP-shadow weight (the one
+passed through `weight_quant` at training/inference). Use the FP
+shadow, NOT the post-`weight_quant` ternary version, because:
+- Post-quant weights are always ±1 or 0; per-channel max collapses to 1 or 0 depending on whether any non-zero exists in the column
+- That's a degenerate signal — every channel either gets `s_j ≈ 1` or `s_j → ∞`
+- Pre-quant FP shadow preserves the actual magnitude information
+  SmoothQuant needs
+
+### 4.4 Computation of `s_j`
+
+Given per-channel `max_act_j` and `max_w_j`, compute:
+
+```python
+s_j = (max_act_j ** alpha) / (max_w_j ** (1 - alpha))
+```
+
+with edge cases:
+- `max_act_j == 0` (channel never activated in calibration): set
+  `s_j = 1.0` (no scaling, leave channel alone). Clamp before
+  exponentiation: `max_act = max_act.clamp(min=1e-5)`.
+- `max_w_j == 0` (channel has all-zero weight column — possible after
+  ternary clipping): set `s_j = 1.0`. Same clamp.
+- `s_j` overflow / underflow: clamp final `s` to a sensible range,
+  e.g. `[1e-3, 1e3]` — extreme `s` values indicate calibration data
+  was unrepresentative or there's an upstream NaN.
+- After clamp + compute: log how many channels (per BitLinear) hit
+  each edge case as part of the side-car file's diagnostic fields.
+
+### 4.5 α sweep specification
+
+Per §3.2 conclusion (ternary weights have worse magnitude tolerance
+than INT8), the literature default α=0.5 is unlikely to be optimal
+for FajarQuant.
+
+**Primary α sweep:** `[0.3, 0.4, 0.5, 0.6, 0.7]` × `--smoothquant-sites
+o` (single-site, fastest signal). 5 calibration runs, 5 evaluations,
+~5 minutes total wall-clock at Mini scale. Picks the per-site optimal
+α before scaling up to multi-site experiments.
+
+**Secondary α sweep (after primary picks an α):** fix α at primary's
+best, sweep `--smoothquant-sites` ∈ `{o, "o,down", all, igfo}`. 4
+calibration runs. Tests whether SmoothQuant compounds across sites
+or if there's a saturation point.
+
+**Optional α-per-site sweep:** if primary shows α-dependency varies
+significantly between sites (e.g. `o` likes α=0.4 but `down_proj`
+likes α=0.6), allow per-site α via a flag `--alpha-per-site
+o:0.4,down:0.6,igf:0.5`. This is overkill for the initial run; ship
+only if simple uniform-α leaves clear performance on the table.
+
+### 4.6 Validation & sanity checks
+
+Before applying `s` to a model, validate:
+
+| Check | Threshold | Action on fail |
+|---|---|---|
+| `s` finite (no NaN/Inf) | All values finite | Abort calibration, dump `max_act` / `max_w` distributions for diagnosis |
+| `s` range | `[1e-3, 1e3]` per §4.4 | Clamp + log count of clamped channels as diagnostic |
+| `s` median | Within [0.1, 10] of 1.0 | Calibration is sane; if not, investigate |
+| Median condition number | `max(s) / min(s) ≤ 1e6` | Calibration produced highly uneven scales — likely bad calibration data |
+| Pre-mutation forward | val_loss within ±0.01 nat of un-mutated baseline | Forward equivalence check (FP path preservation) |
+
+The pre-mutation forward check is critical: BEFORE applying `γ ← γ/s`
++ `W ← s·W`, run a 1-batch val_loss on the mutated copy vs the un-
+mutated original. If they disagree by more than ±0.01 nat, the
+mathematical fusion is broken (typo in the elementwise broadcasting,
+shape mismatch, etc.). Catches bugs before downstream gates.
+
+### 4.7 Determinism & reproducibility
+
+Required for paper-claim integrity per §6.6 R3:
+
+- All `torch.manual_seed` / `numpy.random.seed` set at calibration entry
+- `bilingual_stream(seed=42)` deterministic (already verified by E2.4.C
+  metric reproducibility)
+- Calibration order — process BitLinears in `model.named_modules()`
+  iteration order (deterministic since Python 3.7 dict ordering)
+- Side-car file `_schema_version: "1.0"` checked at apply-time;
+  schema mismatch aborts apply
+- α / sites / seed all recorded in side-car file — re-running the same
+  calibration on same ckpt with same parameters MUST produce
+  bit-identical `s` (up to floating-point determinism in CUDA reductions
+  — verify via diff)
+
+CUDA reduction determinism requires `torch.use_deterministic_algorithms(True)`
++ `CUBLAS_WORKSPACE_CONFIG=:4096:8` env var. Acceptable performance
+penalty for offline PTQ calibration; would not be enabled for inference.
 
 ---
 
@@ -417,7 +559,8 @@ primary design.
 
 ---
 
-*Document version: 0.2*
-*Last updated: 2026-04-28 (V32-prep: §3 Adaptation to FajarQuant BitLinear fleshed; corrects §1/§2 placeholder reference to "γ_x" — BitLinear has no per-channel quant scale, only per-token max + RMSNorm γ. SmoothQuant fusion target is RMSNorm γ. §4-§7 placeholders for next first-step)*
-*v0.1 → v0.2 (2026-04-28): §3 added.*
+*Document version: 0.3*
+*Last updated: 2026-04-28 (V32-prep: §4 Calibration Recipe fleshed; binds α-sweep, 512-sequence calibration batch, per-BitLinear hook + weight scan, edge cases, validation, determinism. §5-§7 placeholders for next first-step)*
+*v0.2 → v0.3 (2026-04-28): §4 added.*
+*v0.1 → v0.2 (2026-04-28): §3 added; §1/§2 γ_x correction.*
 *v0.0 → v0.1 (2026-04-28): skeleton + §1 Motivation + §2 Background.*
