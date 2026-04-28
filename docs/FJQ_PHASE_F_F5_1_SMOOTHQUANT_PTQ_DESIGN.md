@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Design (v0.3)
+# Phase F F.5.1 — SmoothQuant PTQ Design (v0.4)
 
-> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe fleshed; §5-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
+> **Status:** §1 Motivation + §2 Background + §3 Adaptation to FajarQuant + §4 Calibration Recipe + §5 Implementation Plan fleshed; §6-§7 are placeholders. Each subsequent first-step fills one section. Target v1.0: full design doc, ready for impl scaffold.
 > **Origin:** Phase F roadmap §4.1 F.5.1 + post-F.6.2 strategic pivot (2026-04-28)
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` v1.3 §4.1 F.5
@@ -525,14 +525,212 @@ penalty for offline PTQ calibration; would not be enabled for inference.
 
 ## 5. Implementation Plan
 
-> **TODO** — to be fleshed in next first-step. Sketch sub-tasks:
-> - F.5.1.1 — `intllm.quant.SmoothQuantCalibrator` module (~½ day)
-> - F.5.1.2 — `--smoothquant` flag in `eval_smoothquant_posthoc.py` (mirrors `eval_hadamard_posthoc.py` from F.6.2; ~½ day)
-> - F.5.1.3 — α sweep harness `--alpha 0.3,0.5,0.7` (~½ day)
-> - F.5.1.4 — Site-restriction flag `--smoothquant-sites o,igfo,mlp_down,all` (~½ day)
-> - F.5.1.5 — Mini scale ablation execution (RTX 4090, ~1 hour for full sweep)
-> - F.5.1.6 — Findings doc + verdict (~1 day)
-> - F.5.1.7 — Optional: integrate into `train_mini_ablation.py` as `--smoothquant-train` for QAT-time calibration variant (~1 day, deferred unless F.5.1.5 result is strongly positive)
+### 5.1 Sub-task overview
+
+| ID | Sub-task | File(s) | Effort | Depends on | Critical path? |
+|---|---|---|---|---|---|
+| **F.5.1.1** | `SmoothQuantCalibrator` module | `python/phase_d/intllm/quant.py` (extend) | ~½ day | — | Yes |
+| **F.5.1.2** | Eval harness scaffold + dry-run smoke | `python/phase_d/scripts/eval_smoothquant_posthoc.py` (new) | ~½ day | F.5.1.1 | Yes |
+| **F.5.1.3** | α sweep wrapper | same file (CLI flag) | ~¼ day | F.5.1.2 | Yes |
+| **F.5.1.4** | Site-restriction flag | same file (CLI flag) | ~¼ day | F.5.1.2 | Yes |
+| **F.5.1.5** | Primary α sweep execution | RTX 4090 run | ~5 min wall + ~¼ day analysis | F.5.1.1-F.5.1.4 | Yes |
+| **F.5.1.6** | Findings doc + verdict | `docs/FJQ_PHASE_F_F5_1_FINDINGS.md` (new) | ~½ day | F.5.1.5 | Yes |
+| **F.5.1.7** | (Optional) QAT-time variant | `train_mini_ablation.py` (extend) | ~1 day | F.5.1.6 PASS | No (deferred) |
+
+**Critical-path total:** ~3 days solo. **With F.5.1.7:** ~4-5 days.
+Phase F roadmap §4.1 estimate "~1 week" matches with buffer for
+α-per-site exploration (§4.5 optional sweep) + write-up polish.
+
+### 5.2 F.5.1.1 — `SmoothQuantCalibrator` module
+
+Extends `python/phase_d/intllm/quant.py` (existing module containing
+`HadamardRotation` etc.).
+
+```python
+class SmoothQuantCalibrator:
+    """Static-calibration SmoothQuant scale generator + apply utility.
+
+    Per design doc §3-§4. Produces per-BitLinear `s` vectors from a
+    fixed calibration batch, validates, and either:
+      - returns side-car payload for `save_smoothquant_maps` (§3.4 Option B), or
+      - mutates the model in-place per §3.3 fusion identity.
+    """
+
+    def __init__(self, model: nn.Module, alpha: float = 0.5,
+                 sites: list[str] = None, device: str = "cuda"):
+        ...
+
+    def calibrate(self, batches, n_batches: int = 64) -> dict:
+        """Run forward-pre-hook capture + weight scan, return per-layer
+        {name: {'s': Tensor, 'max_act': Tensor, 'max_w': Tensor}}.
+        """
+        ...
+
+    def validate(self, calibration_dict) -> dict:
+        """Run §4.6 validation gates. Return {gate_name: passed: bool, ...}.
+        Raises CalibrationError if any hard gate fails.
+        """
+        ...
+
+    def apply(self, model, calibration_dict, in_place: bool = True) -> nn.Module:
+        """Apply §3.3 fusion: γ ← γ/s and W ← s·W per BitLinear site.
+        Returns mutated model (or copy if in_place=False).
+        """
+        ...
+
+def save_smoothquant_maps(out_path, calibration_dict, alpha, sites, ...):
+    """Side-car file writer per §3.4 Option B schema v1.0."""
+    ...
+
+def load_smoothquant_maps(path) -> dict:
+    """Reverse of save_smoothquant_maps."""
+    ...
+```
+
+Test coverage required (`tests/test_smoothquant_calib.py`):
+- `s` shape correct per BitLinear input dim
+- Forward equivalence pre/post fusion (±0.01 nat per §4.6 gate)
+- `s` finite + range valid (§4.4 edge cases)
+- Save/load round-trip preserves all keys + values
+- Determinism: same seed + ckpt → bit-identical `s`
+
+### 5.3 F.5.1.2 — Eval harness scaffold
+
+New file: `python/phase_d/scripts/eval_smoothquant_posthoc.py`.
+Mirrors `eval_hadamard_posthoc.py` (F.6.2 commit `b46453a`) closely
+for interface consistency.
+
+CLI:
+```
+PYTHONPATH=. python scripts/eval_smoothquant_posthoc.py
+    [--ckpt PATH]                       # default mini_final.pt
+    [--alpha A]                         # default 0.5
+    [--sites {o,o+down,all,igfo}]       # default o
+    [--n-calibration-batches N]         # default 64 (= 512 sequences at bs=8)
+    [--n-val-batches N]                 # default 50
+    [--device cpu|cuda]
+    [--out PATH]                        # default paper/intllm/ablations/smoothquant_<sites>_a<α>.json
+    [--out-maps PATH]                   # default same stem with _maps.pt
+    [--dry-run]                         # build + calibrate + validate without final eval
+    [--apply-mode {in_place,side_car}]  # default in_place
+```
+
+Output JSON schema (mirror F.6.2's `posthoc_hadamard_mini.json` shape):
+```json
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "...",
+  "alpha": 0.5,
+  "sites": "o",
+  "calibration": {
+    "n_sequences": 512,
+    "stream": "bilingual(id_share=0.6, seed=42)",
+    "wall_clock_seconds": 35.2,
+    "validation_gates": {...}
+  },
+  "modes": {
+    "no_smoothquant": {"val_loss": F, "ppl": F},
+    "smoothquant":    {"val_loss": F, "ppl": F, "delta_vs_baseline": F}
+  },
+  "verdict": {
+    "rotation_outcome": "helps|hurts|neutral",
+    "interpretation": "...",
+    "gate_nat_threshold": 0.05
+  },
+  "timestamp": "..."
+}
+```
+
+Dry-run smoke (CPU, ~1 min): build model + calibrator + run §4.6 hooks
+on 1 batch + validate `s` schema. Skips final eval.
+
+### 5.4 F.5.1.3 + F.5.1.4 — α sweep + site-restriction CLI
+
+Both are flags on F.5.1.2's eval harness, not separate scripts. Sweep
+is invoked via shell `for` loop (a Makefile target `make
+test-smoothquant-sweep` will encapsulate this once F.5.1.6 ships):
+
+```bash
+# Primary α sweep (§4.5)
+for alpha in 0.3 0.4 0.5 0.6 0.7; do
+    python scripts/eval_smoothquant_posthoc.py \
+        --alpha "$alpha" --sites o --tag "primary_a${alpha}"
+done
+
+# Secondary site sweep (§4.5)
+ALPHA_BEST=0.4   # picked from primary
+for sites in o "o,down" all igfo; do
+    python scripts/eval_smoothquant_posthoc.py \
+        --alpha "$ALPHA_BEST" --sites "$sites" --tag "secondary_${sites//,/_}"
+done
+```
+
+Each invocation produces 1 JSON + 1 maps.pt. After all sweeps, the
+9-12 JSONs feed into F.5.1.6 findings analysis.
+
+### 5.5 F.5.1.5 — Primary α sweep execution
+
+Runbook (after F.5.1.1-F.5.1.4 land):
+
+1. **Pre-flight:** `nvidia-smi` confirms GPU idle. Verify F.6.2
+   baseline `posthoc_hadamard_mini.json:no_rotation.val_loss` ≈ 5.5530
+   reproduces (sanity check on val stream + ckpt).
+2. **Run primary α sweep:** 5 runs × ~1 min/run = ~5 min wall.
+3. **Pick best α:** lowest `delta_vs_baseline`. Expect α ∈ [0.3, 0.5]
+   per §3.2 ternary tolerance argument.
+4. **Run secondary site sweep:** 4 runs × ~1 min/run = ~4 min wall.
+5. **Inspect results:** all 9 JSONs in `paper/intllm/ablations/`,
+   verify validation gates (§4.6) all PASS, no NaN/Inf.
+6. **Decision:** if any run shows `delta_vs_baseline ≤ −0.05 nat`,
+   F.5.1 PASS gate hit; proceed to F.5.1.6 findings. Otherwise F.5.1
+   PARTIAL or FAIL — see §6 decision criteria.
+
+### 5.6 F.5.1.6 — Findings doc
+
+New file: `docs/FJQ_PHASE_F_F5_1_FINDINGS.md`. Mirrors
+`FJQ_PHASE_E_E2_4_FINDINGS.md` v1.4 structure (E2.4 closure precedent):
+
+1. Executive summary (PASS / PARTIAL / FAIL)
+2. Empirical results table (α × sites grid, 9-12 cells, val_loss + delta)
+3. Validation gates summary (§4.6, per-run)
+4. Diagnostic analysis (which sites helped, which α optimal, edge case
+   counts from §4.4 clamping)
+5. Comparison vs F.6.2 baseline + E2.4 baseline
+6. Decision per §6 criteria
+7. Composability notes (whether SmoothQuant is compatible with future
+   F.5.x or F.6.x stacking)
+8. Implications for paper Table 4 (PASS adds row; FAIL adds caveat)
+
+### 5.7 F.5.1.7 — QAT-time variant (deferred)
+
+If F.5.1.6 verdict is PASS with strong delta (≥0.10 nat val_loss
+reduction), worth investigating whether SmoothQuant calibration during
+QAT training compounds with PTQ application. Implementation:
+
+- Add `--smoothquant-train` flag to `train_mini_ablation.py`
+- Compute `s` from running per-channel max during calibration window
+  (re-uses `BitLinearStatTracker` from E2.4)
+- Apply `s` to weights at training time, similar to E2.4.A.2 schema
+  but WITHOUT the bit-allocation map step
+- Re-run Mini full training with `--smoothquant-train` and compare
+  to PTQ-only baseline
+
+Effort: ~1 day. Deferred until F.5.1.5/F.5.1.6 confirms PTQ-only is
+worth the investment in a training-side variant.
+
+### 5.8 Dependencies + parallelism
+
+```
+F.5.1.1  ←──── F.5.1.2  ←─┬── F.5.1.3 ──┐
+                          │                ├── F.5.1.5 ── F.5.1.6 ── F.5.1.7?
+                          └── F.5.1.4 ──┘
+```
+
+F.5.1.3 and F.5.1.4 can be developed in parallel (both are CLI-flag
+extensions to the same script) but are typically batched into one
+commit for review simplicity. F.5.1.5 is the critical hand-off from
+implementation to evaluation. F.5.1.7 is optional and gated on
+F.5.1.6 outcome.
 
 ---
 
@@ -559,8 +757,9 @@ penalty for offline PTQ calibration; would not be enabled for inference.
 
 ---
 
-*Document version: 0.3*
-*Last updated: 2026-04-28 (V32-prep: §4 Calibration Recipe fleshed; binds α-sweep, 512-sequence calibration batch, per-BitLinear hook + weight scan, edge cases, validation, determinism. §5-§7 placeholders for next first-step)*
+*Document version: 0.4*
+*Last updated: 2026-04-28 (V32-prep: §5 Implementation Plan fleshed — sub-task table F.5.1.1 through F.5.1.7 with concrete files + effort estimates + dependency graph. Critical-path total ~3 days solo, ~4-5 days with optional QAT-time variant. §6-§7 placeholders for next first-step)*
+*v0.3 → v0.4 (2026-04-28): §5 added.*
 *v0.2 → v0.3 (2026-04-28): §4 added.*
 *v0.1 → v0.2 (2026-04-28): §3 added; §1/§2 γ_x correction.*
 *v0.0 → v0.1 (2026-04-28): skeleton + §1 Motivation + §2 Background.*
