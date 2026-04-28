@@ -280,6 +280,21 @@ def main() -> int:
     # warning and a "features_active" entry in the JSON. Wire to real
     # impl as the corresponding E2.x sub-task lands.
     p.add_argument("--hadamard", action="store_true", help=E2_FEATURE_FLAGS["hadamard"])
+    p.add_argument(
+        "--hadamard-sites",
+        choices=["o", "igfo", "igf"],
+        default="o",
+        help="V32-prep F.6.3: which HGRN attn projection inputs to rotate. "
+        "'o' (default, E2.1 baseline) = o_proj only — preserves the failed "
+        "Phase E E2.1 ablation behavior bit-exact. 'igfo' = i/f/g/o_proj all "
+        "four — F.6.3 hypothesis that QKV-equivalent paths in HGRN benefit "
+        "more from rotation than the gated output. 'igf' = i/f/g only — "
+        "ablation-isolation control to attribute any igfo gain. Audit at "
+        "paper/intllm/ablations/igf_proj_dim_audit.json confirms shared "
+        "HadamardRotation(hidden_size) is dimensionally safe at "
+        "expand_ratio=1 across Phase D scales (R1+R2+R3 PASS). Only "
+        "meaningful with --hadamard.",
+    )
     p.add_argument("--fp8-lmhead", action="store_true", help=E2_FEATURE_FLAGS["fp8_lmhead"])
     p.add_argument("--distill", action="store_true", help=E2_FEATURE_FLAGS["distill"])
     p.add_argument("--balanced-calib", action="store_true", help=E2_FEATURE_FLAGS["balanced_calib"])
@@ -320,6 +335,11 @@ def main() -> int:
         p.error(
             "--ema-calibration is only meaningful with --balanced-calib "
             "(only that path attaches BitLinearStatTracker hooks)",
+        )
+    if args.hadamard_sites != "o" and not args.hadamard:
+        p.error(
+            f"--hadamard-sites={args.hadamard_sites!r} is only meaningful "
+            f"with --hadamard (no rotation hooks attached otherwise)",
         )
 
     out_path = args.out or (ABLATIONS_DIR / f"base_{args.tag}.json")
@@ -531,20 +551,31 @@ def main() -> int:
             x = inputs[0]
             return (hadamard_module(x),)
 
+        # F.6.3: which attn projection sites to rotate. Audit at
+        # paper/intllm/ablations/igf_proj_dim_audit.json confirms shared
+        # HadamardRotation(hidden_size) is dimensionally safe at
+        # expand_ratio=1 (R1+R2+R3 all PASS for Mini/Base/Medium).
+        site_suffixes = {
+            "o":    [".attn.o_proj"],
+            "igfo": [".attn.i_proj", ".attn.f_proj", ".attn.g_proj", ".attn.o_proj"],
+            "igf":  [".attn.i_proj", ".attn.f_proj", ".attn.g_proj"],
+        }[args.hadamard_sites]
+
         n_attached = 0
         for name, module in model.named_modules():
-            if name.endswith(".attn.o_proj") and is_bitlinear(module):
+            if any(name.endswith(suf) for suf in site_suffixes) and is_bitlinear(module):
                 handle = module.register_forward_pre_hook(_hadamard_pre_hook)
                 hadamard_handles.append(handle)
                 n_attached += 1
         print(
-            f"      Hadamard rotation attached to {n_attached} attn.o_proj sites "
-            f"(dim={arch.hidden_size})",
+            f"      Hadamard rotation attached to {n_attached} sites "
+            f"(mode={args.hadamard_sites}, dim={arch.hidden_size})",
         )
         if n_attached == 0:
             raise RuntimeError(
-                "args.hadamard set but no block.attn.o_proj BitLinear modules found "
-                "in the model — model layout may not match expected HGRNBit topology",
+                f"args.hadamard set but no BitLinear modules matched "
+                f"hadamard_sites={args.hadamard_sites!r} (suffixes={site_suffixes}) — "
+                f"model layout may not match expected HGRNBit topology",
             )
 
     print(f"[4/4] training {train_hp.n_steps} steps (tag={args.tag})")
