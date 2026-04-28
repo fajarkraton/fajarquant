@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.2)
+# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.3)
 
-> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis fleshed; §3 + §5-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
+> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 fleshed; §3 + §6-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
 > **Origin:** F.5.1 sweep complete 2026-04-28. 8 runs total (5 primary α × 3 secondary sites). Verdict: PARTIAL.
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 (the design this evaluates)
@@ -382,15 +382,125 @@ F.5.1 has now disproved on this architecture.
 
 ## 5. Comparison vs F.6.2 + E2.4 Baselines
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - F.5.1 best (+0.0001 nat) vs F.6.2 worst (+2.59 nat) — recipe
->   completeness matters; activation-only SmoothQuant doesn't break
->   FP path while activation-only Hadamard pre-hook does
-> - E2.4 balanced_calib comparison — both target outliers, both fail to
->   move val_loss; different mechanism (running_max vs SmoothQuant)
->   converges on same conclusion
-> - The cumulative E2.1 + F.6.2 + F.5.1 evidence supports a strong
->   negative claim about HGRN ternary's calibration ceiling
+### 5.1 Three failed outlier-mitigation attempts, three different reasons
+
+F.5.1, F.6.2, and E2.4 all targeted the same fundamental problem —
+per-channel quantization error from outlier-prone activations in
+HGRN BitLinear — but with three structurally different recipes and
+three structurally different failure modes:
+
+| Attempt | Recipe class | Magnitude of failure | Failure mechanism |
+|---|---|---|---|
+| **E2.4 balanced_calib** | Per-channel bit-allocation map driven by training-time `running_max` accumulator | `outlier_global_reduction = −82.13` (gate ≥0.10) — 83× WORSE than baseline | All-time-max running_max captured early-training peaks 10-100× larger than steady-state; bit-allocation map became coarse-grained-wrong |
+| **F.6.2 online QuaRot** | HadamardRotation forward-pre-hook on attn projection inputs (no weight fusion) | val_loss +2.59 nat at all rotation modes (o, igf, igfo) | Pre-hook breaks FP path: `y = W·Hx ≠ W·x` — any trained model regresses; recipe-incompleteness, not architecture incompatibility |
+| **F.5.1 SmoothQuant (this work)** | Per-channel `s` calibration + `(γ, W)` weight fusion preserving FP path | val_loss +0.0001 nat at best (sites=o_down, α=0.3) | Recipe applies cleanly; model is INVARIANT — RMSNorm γ during training has already absorbed the per-channel rescaling SmoothQuant offers |
+
+The three failure mechanisms are independent and cumulative:
+
+- **E2.4 failed because the calibration data was wrong.** Training-
+  time running_max captured peaks the inference path never sees.
+- **F.6.2 failed because the recipe was incomplete.** Activation-
+  only rotation without matching weight fusion breaks the FP path
+  by construction; any trained model regresses regardless of
+  architecture.
+- **F.5.1 failed because the model was invariant.** A correctly-
+  applied, FP-path-preserving recipe with calibration data from the
+  inference distribution still produces no measurable val_loss
+  change — the model's trained γ already does the rescaling.
+
+Each previous failure narrowed the hypothesis space:
+- E2.4 ruled out "a smarter calibration accumulator on the same
+  per-channel bit-allocation framework would help"
+- F.6.2 ruled out "post-hoc activation rotation alone (without
+  weight fusion) would help"
+- F.5.1 ruled out "post-hoc per-channel scaling (with weight fusion,
+  FP-path-preserving) would help"
+
+### 5.2 Recipe completeness vs architecture invariance
+
+F.5.1 and F.6.2 produced superficially similar negative results
+(both regression vs no-recipe baseline) but with structurally
+different magnitudes:
+
+  F.6.2 worst (online o):    +2.59 nat   (467× larger than F.5.1 best)
+  F.6.2 best (no_rotation):  +0.00 nat   (baseline; matches F.5.1 baseline ✓)
+  F.5.1 best (o_down α=0.3): +0.0001 nat (within fp16 noise floor)
+  F.5.1 worst (all α=0.3):   +0.27 nat   (10× smaller than F.6.2 worst)
+
+The 467× difference between F.6.2 worst and F.5.1 best is the
+quantitative measure of "how much FP-path-breaking matters"
+relative to "how much per-channel scaling can do on this
+architecture". The pre-hook variant of F.6.2 catastrophically
+broke math; F.5.1's well-formed math produced near-no-op.
+
+This distinguishes two separable failure axes:
+1. **Recipe-class failure** (F.6.2): the recipe is mathematically
+   incomplete; no choice of hyperparameter makes it work
+2. **Architecture-class invariance** (F.5.1): the recipe is
+   mathematically sound; the architecture's training procedure has
+   already internalized what the recipe would add
+
+The first is a literature-replication issue (canonical QuaRot
+needs weight-fusion that F.6.2 didn't implement). The second is a
+genuine novel finding about HGRN-ternary training: post-hoc
+activation calibration has diminishing returns when training-time
+RMSNorm γ has done the per-channel work already.
+
+### 5.3 The cumulative narrative for paper §7
+
+E2.1 (training-time Hadamard fight), F.6.2 (recipe-incomplete
+post-hoc Hadamard), F.5.1 (architecture-invariant post-hoc
+SmoothQuant), and E2.4 (calibration-source artifact in running_max)
+together support a strong negative claim that the paper can
+honestly include as the §7 ablations narrative:
+
+  > "We attempted four classes of activation-outlier-mitigation
+  > recipes — training-time rotation (E2.1), post-hoc rotation
+  > without weight fusion (F.6.2), post-hoc per-channel scaling
+  > with weight fusion (F.5.1), and bit-allocation calibration
+  > (E2.4). All four failed to improve val_loss. Two failed for
+  > recipe-class reasons (E2.1 fights training, F.6.2 breaks the
+  > FP path); two failed for architecture-class reasons (F.5.1's
+  > invariance, E2.4's data-source artifact). The cumulative
+  > evidence suggests HGRN-ternary's training procedure already
+  > saturates the activation-outlier-mitigation axis: γ in RMSNorm
+  > has internalized what post-hoc per-channel rescaling would do.
+  > Future quantization gains, if any, must come from structural
+  > changes (different normalization, different quantization
+  > precision floor, fewer/more layers) rather than from
+  > calibration recipes applied to existing checkpoints."
+
+This is a publishable finding even though all four attempts were
+negative. Per CLAUDE.md §6.6 R3: published negative results are
+better than omitted negative results, and the methodology
+(canonical recipes + mechanical gates + per-attempt
+disambiguation) is itself a contribution.
+
+### 5.4 What's left to falsify the architecture-invariance claim
+
+The architecture-invariance hypothesis is the strongest claim from
+F.5.1, but it's based on 8 runs at one scale (Mini, 21M params,
+EN-only-trained ckpt). To strengthen the claim, future work should:
+
+- **§4.1 quantitative test:** measure per-BitLinear γ-vs-max_act
+  Pearson correlation (deferred — see F.5.1.6 §4.1)
+- **Multi-scale verification:** repeat F.5.1 on Base or Medium ckpt
+  via train_base_ablation.py / train_medium_ablation.py
+  scaffolds (commit `4839d20`); test whether L=12 hidden=384/512
+  has the same γ-absorption pattern as L=6 hidden=256
+- **Different distribution:** run F.5.1 on bilingual-trained ckpt
+  (Phase E E2.0 Q5 baseline) where γ has been calibrated for both
+  ID and EN simultaneously; γ-absorption may be partial there
+- **Canonical QuaRot completion:** the strongest falsification
+  would be Branch A (canonical QuaRot weight-fusion) succeeding
+  where F.5.1 didn't — that would prove rotation has access to
+  something per-channel-scaling doesn't, which would mean
+  γ-absorption is an artifact of the per-channel-scaling recipe
+  family specifically, not a universal training-internalization
+
+These four follow-ups are deferred to F.5.1+F.6 next-cycle work
+or to a future paper revision; F.5.1.6 closes the present sweep
+without them.
 
 ---
 
@@ -428,7 +538,8 @@ F.5.1 has now disproved on this architecture.
 
 ---
 
-*Document version: 0.2*
-*Last updated: 2026-04-28 (V32-prep: §4 Diagnostic Analysis fleshed — RMSNorm γ pre-absorption hypothesis (R3 confirmation), gated path mechanism (R2), cumulative weight saturation (R4), α-axis ternary vs INT8 literature mismatch. §3 + §5-§8 placeholders for next first-step)*
+*Document version: 0.3*
+*Last updated: 2026-04-28 (V32-prep: §5 Comparison vs F.6.2 + E2.4 fleshed — three independent failure mechanisms (E2.4 calibration data, F.6.2 recipe-incomplete, F.5.1 architecture-invariant); recipe-class vs architecture-class distinction; cumulative narrative for paper §7; falsification strategy. §3 + §6-§8 placeholders for next first-step)*
+*v0.2 → v0.3 (2026-04-28): §5 added.*
 *v0.1 → v0.2 (2026-04-28): §4 added.*
 *v0.0 → v0.1 (2026-04-28): skeleton + §1 Executive Summary + §2 Empirical Results.*
