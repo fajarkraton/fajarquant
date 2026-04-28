@@ -223,6 +223,21 @@ def main() -> int:
         help="E2.4.C.3 metric: # batches for the quant-error pass (default 1000 per "
         "FJQ_PHASE_E_E2_4_C_METRIC_SPEC.md §2). Only runs when --balanced-calib is set.",
     )
+    p.add_argument(
+        "--skip-warmup-calibration",
+        type=int,
+        default=0,
+        metavar="N",
+        help="V32-prep F.5.3: defer BitLinearStatTracker.running_max accumulation "
+        "until training step N (i.e. drop the first N training steps from the "
+        "calibration accumulator). 0 = legacy behavior (record from step 0, the "
+        "default for E2.4 balanced_calib). Useful values match the LR-scheduler "
+        "warmup_steps so chaotic early-training peaks do not pollute the "
+        "all-time-max statistic — see paper/intllm/intllm.tex §7.2 cause-1 + the "
+        "F.5.0 cross-comparison evidence in "
+        "paper/intllm/ablations/running_max_train_vs_steady*.json. Only meaningful "
+        "with --balanced-calib (which is the only path that attaches trackers).",
+    )
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini_ablations")
     p.add_argument("--device", default=None)
     p.add_argument(
@@ -262,6 +277,14 @@ def main() -> int:
 
     if args.dry_run and args.proof_of_life:
         p.error("--dry-run and --proof-of-life are mutually exclusive")
+
+    if args.skip_warmup_calibration < 0:
+        p.error("--skip-warmup-calibration must be ≥ 0")
+    if args.skip_warmup_calibration > 0 and not args.balanced_calib:
+        p.error(
+            "--skip-warmup-calibration is only meaningful with --balanced-calib "
+            "(only that path attaches BitLinearStatTracker hooks)",
+        )
 
     out_path = args.out or (ABLATIONS_DIR / f"mini_{args.tag}.json")
 
@@ -337,6 +360,7 @@ def main() -> int:
     from intllm.eval import compute_quant_error_per_channel, run_held_out_loss  # noqa: E402
     from intllm.model import HGRNBitConfig, HGRNBitForCausalLM  # noqa: E402
     from intllm.qat import (  # noqa: E402
+        advance_trackers,
         attach_stat_trackers,
         detach_stat_trackers,
         is_bitlinear,
@@ -409,10 +433,40 @@ def main() -> int:
     # training begins so every forward pass contributes to per-channel
     # running_max accumulation. Only enabled when --balanced-calib is
     # set; baseline path stays hook-free.
+    #
+    # F.5.3 (V32-prep): pass start_recording_at_step so the trackers
+    # drop forward calls until the warmup boundary. A top-level
+    # forward-post-hook (registered below) advances each tracker's
+    # current_step once per training-mode forward, so the threshold
+    # progresses naturally with step_idx.
     trackers: dict | None = None
+    step_advance_handle = None
     if args.balanced_calib:
-        trackers = attach_stat_trackers(model)
-        print(f"      stat trackers attached to {len(trackers)} BitLinear sites")
+        if args.skip_warmup_calibration >= train_hp.n_steps:
+            raise RuntimeError(
+                f"--skip-warmup-calibration ({args.skip_warmup_calibration}) "
+                f">= n_steps ({train_hp.n_steps}); the calibration accumulator "
+                f"would record 0 forward calls. Reduce the warmup or increase "
+                f"n_steps so at least one post-warmup step exists.",
+            )
+        trackers = attach_stat_trackers(
+            model,
+            start_recording_at_step=args.skip_warmup_calibration,
+        )
+        print(
+            f"      stat trackers attached to {len(trackers)} BitLinear sites "
+            f"(start_recording_at_step={args.skip_warmup_calibration})",
+        )
+
+        # Advance each tracker's step counter once per training-mode
+        # top-level forward. Gated on `module.training` so val passes
+        # do not bump it (and `compute_quant_error_per_channel` cannot
+        # bump it either: trackers are detached before quant-error runs).
+        def _step_advance_post_hook(module, _inputs, _output):
+            if module.training:
+                advance_trackers(trackers)
+
+        step_advance_handle = model.register_forward_hook(_step_advance_post_hook)
 
     # E2.1.2: attach HadamardRotation pre-hook on every block.attn.o_proj
     # BitLinear. Per Q1 closure (FJQ_PHASE_E_E2_FINDINGS.md v1.1 §4),
@@ -486,6 +540,14 @@ def main() -> int:
     print(f"  initial loss  : {result.initial_loss:.4f}")
     print(f"  final loss    : {result.final_loss:.4f}")
 
+    # F.5.3: drop the step-advance post-hook before model state is
+    # consumed downstream (quant-error pass, val_loss). The trackers'
+    # current_step is now frozen at result.steps; the BitLinear hooks
+    # are still attached but `detach_stat_trackers` (after save) will
+    # clear them.
+    if step_advance_handle is not None:
+        step_advance_handle.remove()
+
     # E2.4.A.2: post-training, compute bit allocation + channel
     # permutation per BitLinear and serialize to a single .pt artifact
     # alongside the ablation JSON. Hook teardown happens after save so
@@ -508,6 +570,7 @@ def main() -> int:
                 "id_share": float(BILINGUAL_RATIO_DEFAULT),
                 "n_steps": int(result.steps),
                 "n_layers_arch": int(arch.num_hidden_layers),
+                "skip_warmup_calibration_cli": int(args.skip_warmup_calibration),
             },
         )
         print(f"  calibration maps : {tracker_maps_path}  ({len(trackers)} BitLinear sites)")
