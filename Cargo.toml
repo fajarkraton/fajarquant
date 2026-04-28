@@ -17,12 +17,28 @@ exclude = [
     "**/*.py", "**/__pycache__/",
 ]
 
+[features]
+default = []
+# V32-prep F.11: bundles microsoft/BitNet TL2 x86 kernel (vendored,
+# MIT) for AVX2-accelerated ternary GEMV. Compiles a C++ stub via
+# `cc` crate + `-mavx2 -O3`. Disabled by default to keep the main
+# crate buildable on non-x86_64 hosts (e.g. ARM CI runners). See
+# docs/FJQ_PHASE_F_F11_BITNETCPP_TL2_PORT_DESIGN.md.
+bitnet_tl2 = []
+
 [dependencies]
 ndarray = "0.16"
+
+[build-dependencies]
+cc = "1.0"
 
 [dev-dependencies]
 ndarray-rand = "0.15"
 criterion = "0.5"
+
+[[example]]
+name = "tl2_smoke"
+required-features = ["bitnet_tl2"]
 
 [lib]
 name = "fajarquant"

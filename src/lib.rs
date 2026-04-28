@@ -73,3 +73,53 @@ pub mod fused_attention;
 pub mod hierarchical;
 pub mod kivi;
 pub mod turboquant;
+
+// V32-prep F.11.1 — bitnet.cpp TL2 vendored kernel FFI declarations.
+// Gated behind `--features bitnet_tl2`; the C++ static lib is built
+// by `build.rs` only on x86_64 with the feature on. Re-declared here
+// (in addition to the example's own re-declaration) so the linker
+// pulls the static lib into ANY consumer of the crate, including
+// downstream examples and tests.
+//
+// Per F.11 design v1.0 §2 / `THIRD_PARTY_NOTICES.md`. See
+// `cpu_kernels/bitnet_tl2/wrapper.cpp` for the C++ thunks.
+#[cfg(feature = "bitnet_tl2")]
+pub mod bitnet_tl2 {
+    /// Self-test for F.11.1 smoke. Returns the absmax-derived
+    /// quantization scale (= 127 / max|input|) computed by upstream
+    /// `per_tensor_quant` on a deterministic synthetic input.
+    /// Returns NaN if `n_floats` is invalid.
+    ///
+    /// # Safety
+    /// Pure function; no aliasing, no shared state. Marked unsafe
+    /// only because all `extern "C"` FFI is unsafe by default.
+    pub unsafe fn self_test(n_floats: i32) -> f32 {
+        unsafe { fjq_tl2_self_test(n_floats) }
+    }
+
+    unsafe extern "C" {
+        pub fn fjq_tl2_self_test(n_floats: i32) -> f32;
+        pub fn fjq_tl2_qgemm_lut(
+            bs: i32,
+            m: i32,
+            k: i32,
+            bk: i32,
+            a: *mut core::ffi::c_void,
+            sign: *mut core::ffi::c_void,
+            lut: *mut core::ffi::c_void,
+            scales: *mut core::ffi::c_void,
+            lut_scales: *mut core::ffi::c_void,
+            c: *mut core::ffi::c_void,
+        );
+        pub fn fjq_tl2_preprocessor(
+            bs: i32,
+            m: i32,
+            three_k: i32,
+            two_k: i32,
+            b: *mut core::ffi::c_void,
+            lut_scales: *mut core::ffi::c_void,
+            three_qlut: *mut core::ffi::c_void,
+            two_qlut: *mut core::ffi::c_void,
+        );
+    }
+}
