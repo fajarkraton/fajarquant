@@ -440,8 +440,11 @@ __all__ = [
     "SIGMOID_LUT_SIZE",
     "SIGMOID_LUT_STEP",
     "SILU_LUT_MAX_ABS_ERROR",
+    "SmoothQuantCalibrator",
     "activation_quant_per_channel",
     "fake_quantize_absmax_ste",
+    "load_smoothquant_maps",
+    "save_smoothquant_maps",
 ]
 
 
@@ -450,3 +453,300 @@ def _next_power_of_two(n: int) -> int:
     if n <= 1:
         return 1
     return 1 << (math.ceil(math.log2(n)))
+
+
+# ---------------------------------------------------------------------------
+# §5. SmoothQuant PTQ calibration (V32-prep F.5.1)
+# ---------------------------------------------------------------------------
+# See `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 for full spec.
+# Per §3.3 the fusion identity is one-line per BitLinear:
+#     b.norm.weight.data /= s          (γ ← γ/s)
+#     b.weight.data *= s.unsqueeze(0)  (W ← s·W, broadcast along output dim)
+# Mathematical FP equivalence preserved (s⁻¹·s = I).
+
+_F51_SCHEMA_VERSION = "1.0"
+
+# §3.5: site-restriction presets — match suffix patterns against
+# `model.named_modules()` names.
+SMOOTHQUANT_SITE_PRESETS: dict[str, list[str] | None] = {
+    "o":      [".attn.o_proj"],
+    "igfo":   [".attn.i_proj", ".attn.f_proj", ".attn.g_proj", ".attn.o_proj"],
+    "igf":    [".attn.i_proj", ".attn.f_proj", ".attn.g_proj"],
+    "o_down": [".attn.o_proj", ".mlp.down_proj"],
+    "all":    None,  # special: every BitLinear regardless of name
+}
+
+
+def _resolve_sites(sites: list[str] | str | None) -> list[str] | None:
+    """Resolve `sites` argument to a list of name-suffix patterns or
+    None (= all BitLinear sites). Accepts preset name string or list.
+    """
+    if sites is None:
+        return SMOOTHQUANT_SITE_PRESETS["o"]
+    if isinstance(sites, str):
+        if sites not in SMOOTHQUANT_SITE_PRESETS:
+            raise ValueError(
+                f"unknown site preset {sites!r}; valid: {list(SMOOTHQUANT_SITE_PRESETS)}",
+            )
+        return SMOOTHQUANT_SITE_PRESETS[sites]
+    return list(sites)
+
+
+def _is_bitlinear(module: nn.Module) -> bool:
+    """Local copy of `intllm.qat.is_bitlinear` to avoid a circular
+    import (qat.py imports from quant.py). Matches BitLinear by class
+    name + presence of the `.norm` (RMSNorm) attribute that BitLinear
+    adds in `__init__`.
+    """
+    return type(module).__name__ == "BitLinear" and hasattr(module, "norm")
+
+
+class SmoothQuantCalibrator:
+    """Static-calibration SmoothQuant scale generator + apply utility.
+
+    Per V32-prep F.5.1 design v1.0 §3-§4. Workflow:
+
+      1. ``__init__``: bind to model, alpha, sites
+      2. ``calibrate(batches)``: forward-pre-hook captures
+         ``max(|x|)`` per-channel for each matched BitLinear; weight
+         scan computes ``max(|w|)`` per-input-channel. Combined into
+         ``s_j = max_act_j ** alpha / max_w_j ** (1 - alpha)`` per
+         §4.4 with edge-case clamping.
+      3. ``validate(calibration_dict)``: §4.6 mechanical gates
+         (finite, range, median, condition number).
+      4. ``apply(model, calibration_dict)``: §3.3 fusion identity
+         in-place: ``γ ← γ/s`` AND ``W ← s·W``.
+
+    Args:
+        model: HGRNBitForCausalLM (or any nn.Module containing
+            BitLinear children).
+        alpha: SmoothQuant migration strength ∈ [0, 1]. Default 0.5
+            (literature). Per §3.2 ternary may want α<0.5; sweep
+            via the eval harness.
+        sites: site-preset name (str ∈ ``SMOOTHQUANT_SITE_PRESETS``)
+            OR list of name-suffix patterns. Default ``"o"`` (only
+            ``.attn.o_proj``).
+        device: torch device for tracker tensors. Defaults to model's
+            first parameter device.
+
+    Example:
+        >>> cal = SmoothQuantCalibrator(model, alpha=0.4, sites="igfo")
+        >>> calibration = cal.calibrate(val_batches, n_batches=64)
+        >>> cal.validate(calibration)["_aggregate"]["all_layers_pass"]
+        True
+        >>> cal.apply(model, calibration)  # in-place mutation
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        *,
+        alpha: float = 0.5,
+        sites: list[str] | str | None = None,
+        device: torch.device | str | None = None,
+    ) -> None:
+        if not (0.0 <= alpha <= 1.0):
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
+        self.model = model
+        self.alpha = float(alpha)
+        self.sites = _resolve_sites(sites)
+        if device is None:
+            device = next(model.parameters()).device
+        self.device = torch.device(device)
+
+    def _matched_modules(self):
+        """Yield ``(name, module)`` pairs for every BitLinear matching
+        ``self.sites``. ``self.sites is None`` matches every BitLinear.
+        """
+        for name, module in self.model.named_modules():
+            if not _is_bitlinear(module):
+                continue
+            if self.sites is None or any(name.endswith(suf) for suf in self.sites):
+                yield name, module
+
+    def calibrate(self, batches, n_batches: int = 64) -> dict:
+        """Run forward-pre-hook capture + weight scan; compute s_j per
+        matched BitLinear.
+
+        Args:
+            batches: iterable of token-id tensors (or whatever the
+                model's forward expects). Same protocol as
+                ``intllm.eval.run_held_out_loss``.
+            n_batches: cap on number of calibration batches consumed.
+
+        Returns:
+            dict mapping layer name → ``{'s', 'max_act', 'max_w', 'edge_cases'}``.
+        """
+        trackers: dict[str, dict] = {}
+        for name, module in self._matched_modules():
+            in_features = module.in_features
+            trackers[name] = {
+                "max_act": torch.zeros(in_features, device=self.device),
+                "max_w": module.weight.detach().abs().max(dim=0)[0].to(self.device),
+                "handle": None,
+            }
+
+        def _make_pre_hook(layer_name: str):
+            def _hook(_mod, inputs):
+                x = inputs[0]
+                x_max = x.detach().abs().reshape(-1, x.shape[-1]).max(dim=0)[0]
+                trackers[layer_name]["max_act"] = torch.maximum(
+                    trackers[layer_name]["max_act"], x_max,
+                )
+                return None
+            return _hook
+
+        for name, module in self._matched_modules():
+            trackers[name]["handle"] = module.register_forward_pre_hook(_make_pre_hook(name))
+
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                for i, batch in enumerate(batches):
+                    if i >= n_batches:
+                        break
+                    self.model(batch)
+        finally:
+            for name in trackers:
+                trackers[name]["handle"].remove()
+            if was_training:
+                self.model.train()
+
+        result: dict[str, dict] = {}
+        for name, t in trackers.items():
+            max_act_raw = t["max_act"]
+            max_w_raw = t["max_w"]
+            max_act = max_act_raw.clamp(min=1e-5)
+            max_w = max_w_raw.clamp(min=1e-5)
+            s = (max_act ** self.alpha) / (max_w ** (1.0 - self.alpha))
+            s_clamped = s.clamp(min=1e-3, max=1e3)
+            result[name] = {
+                "s": s_clamped.cpu(),
+                "max_act": max_act_raw.cpu(),
+                "max_w": max_w_raw.cpu(),
+                "edge_cases": {
+                    "n_act_clamped": int((max_act_raw < 1e-5).sum().item()),
+                    "n_w_clamped": int((max_w_raw < 1e-5).sum().item()),
+                    "n_s_clamped_lo": int((s_clamped == 1e-3).sum().item()),
+                    "n_s_clamped_hi": int((s_clamped == 1e3).sum().item()),
+                },
+            }
+        return result
+
+    def validate(self, calibration_dict: dict) -> dict:
+        """Apply §4.6 mechanical gates to a calibration result. Returns
+        a dict ``{layer_name: {gate_name: passed}}`` plus an aggregate.
+        """
+        gates: dict[str, dict] = {}
+        for name, layer in calibration_dict.items():
+            s = layer["s"]
+            finite = bool(s.isfinite().all().item())
+            range_valid = bool(((s >= 1e-3) & (s <= 1e3)).all().item())
+            median_in_band = bool(0.1 <= s.median().item() <= 10.0)
+            cond_num_ok = (
+                bool((s.max() / s.min()).item() <= 1e6)
+                if s.min().item() > 0
+                else False
+            )
+            layer_gates = {
+                "finite": finite,
+                "range_valid": range_valid,
+                "median_in_band": median_in_band,
+                "condition_number_ok": cond_num_ok,
+            }
+            layer_gates["all_pass"] = all(layer_gates.values())
+            gates[name] = layer_gates
+
+        gates["_aggregate"] = {
+            "all_layers_pass": all(
+                g["all_pass"] for n, g in gates.items() if n != "_aggregate"
+            ),
+            "n_layers": len(calibration_dict),
+        }
+        return gates
+
+    def apply(
+        self,
+        model: nn.Module,
+        calibration_dict: dict,
+        *,
+        in_place: bool = True,
+    ) -> nn.Module:
+        """Apply §3.3 fusion identity per BitLinear site:
+        ``γ ← γ/s`` AND ``W ← s·W``.
+
+        Args:
+            model: target model (typically same as ``self.model``, but
+                supports passing a fresh copy for non-destructive usage).
+            calibration_dict: output of ``calibrate()``.
+            in_place: if False, deepcopy the model before mutation.
+
+        Returns:
+            The mutated model.
+        """
+        if not in_place:
+            import copy
+            model = copy.deepcopy(model)
+
+        modules_by_name = dict(model.named_modules())
+        for name, layer in calibration_dict.items():
+            if name not in modules_by_name:
+                raise KeyError(f"calibration layer {name!r} not found in target model")
+            module = modules_by_name[name]
+            if not _is_bitlinear(module):
+                raise TypeError(f"target {name!r} is not a BitLinear")
+            s = layer["s"].to(module.weight.device).to(module.weight.dtype)
+            module.norm.weight.data.div_(s)
+            module.weight.data.mul_(s.unsqueeze(0))
+        return model
+
+
+def save_smoothquant_maps(
+    out_path,
+    calibration_dict: dict,
+    *,
+    alpha: float,
+    sites: list[str] | str | None,
+    ckpt_path: str,
+    n_calibration_sequences: int,
+    calibration_seed: int,
+    calibration_stream: str,
+):
+    """Side-car file writer per F.5.1 design §3.4 Option B schema v1.0.
+
+    Atomic write via .tmp + os.replace.
+    """
+    import os
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "_schema_version": _F51_SCHEMA_VERSION,
+        "ckpt_path": str(ckpt_path),
+        "alpha": float(alpha),
+        "sites": sites,
+        "n_calibration_sequences": int(n_calibration_sequences),
+        "calibration_seed": int(calibration_seed),
+        "calibration_stream": str(calibration_stream),
+        "per_layer": calibration_dict,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    torch.save(payload, tmp)
+    os.replace(tmp, out_path)
+    return out_path
+
+
+def load_smoothquant_maps(path) -> dict:
+    """Reverse of :func:`save_smoothquant_maps`. Validates schema version."""
+    payload = torch.load(path, weights_only=False, map_location="cpu")
+    schema = payload.get("_schema_version")
+    if schema != _F51_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported smoothquant maps schema version {schema!r}; "
+            f"expected {_F51_SCHEMA_VERSION!r}",
+        )
+    return payload

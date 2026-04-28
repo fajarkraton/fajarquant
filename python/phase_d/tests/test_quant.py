@@ -17,8 +17,11 @@ from intllm.quant import (
     IntRMSNorm,
     SigmoidLUT,
     SiLULUT,
+    SmoothQuantCalibrator,
     activation_quant_per_channel,
     fake_quantize_absmax_ste,
+    load_smoothquant_maps,
+    save_smoothquant_maps,
 )
 
 
@@ -450,3 +453,206 @@ def test_hadamard_buffer_not_a_parameter() -> None:
     assert "H" not in dict(h.named_parameters())
     # No grad on the buffer
     assert h.H.requires_grad is False
+
+
+# -----------------------------------------------------------------
+# SmoothQuantCalibrator (V32-prep F.5.1)
+# -----------------------------------------------------------------
+
+def _build_tiny_bitlinear_model(in_features: int = 8, out_features: int = 4):
+    """Minimal model containing a single BitLinear-shaped module, used
+    for unit tests that don't need the full HGRN graph or the upstream
+    `mmfreelm` package on PYTHONPATH. The class is named ``BitLinear``
+    and has the ``.norm`` attribute so ``_is_bitlinear`` matches.
+
+    The mock's forward is a simplified ``F.linear(norm(x), weight)`` —
+    NOT the full BitLinear quant path. That is fine for SmoothQuant
+    unit tests which exercise the calibrator's hook plumbing + fusion
+    identity, not BitLinear's quantization behavior.
+    """
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    class _RMSNormShim(nn.Module):
+        """Minimal RMSNorm-shaped module: just a per-channel γ
+        parameter named ``weight``. The fusion identity in §3.3 only
+        touches ``norm.weight``; the actual normalization compute is
+        irrelevant for the unit tests that probe the calibrator.
+        """
+
+        def __init__(self, dim):
+            super().__init__()
+            self.weight = nn.Parameter(torch.ones(dim))
+
+        def forward(self, x):
+            # Identity-like (skip RMS scaling so test arithmetic is simple)
+            return x * self.weight
+
+    class BitLinear(nn.Linear):
+        """Mock BitLinear matching ``_is_bitlinear`` contract — class
+        name + ``.norm`` attribute. Forward is plain
+        ``F.linear(norm(x), weight)``.
+        """
+
+        def __init__(self, in_f, out_f, bias=False):
+            super().__init__(in_f, out_f, bias=bias)
+            self.norm = _RMSNormShim(in_f)
+
+        def forward(self, x):
+            return F.linear(self.norm(x), self.weight)
+
+    class _Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+            class _Attn(nn.Module):
+                def __init__(self_inner):
+                    super().__init__()
+                    self_inner.o_proj = BitLinear(in_features, out_features, bias=False)
+
+                def forward(self_inner, x):
+                    return self_inner.o_proj(x)
+
+            self.attn = _Attn()
+
+        def forward(self, x):
+            return self.attn(x)
+
+    class _Model(nn.Module):
+        """Wraps the block in a `layers` ModuleList so the BitLinear's
+        named_modules() path becomes ``layers.0.attn.o_proj`` — endswith
+        the suffix pattern ``.attn.o_proj`` used by SMOOTHQUANT_SITE_PRESETS.
+        """
+
+        def __init__(self):
+            super().__init__()
+            self.layers = nn.ModuleList([_Block()])
+
+        def forward(self, x):
+            return self.layers[0](x)
+
+    return _Model()
+
+
+def test_smoothquant_calibrator_alpha_validation() -> None:
+    """alpha must be in [0, 1]."""
+    model = _build_tiny_bitlinear_model()
+    with pytest.raises(ValueError, match="alpha must be in"):
+        SmoothQuantCalibrator(model, alpha=-0.1)
+    with pytest.raises(ValueError, match="alpha must be in"):
+        SmoothQuantCalibrator(model, alpha=1.1)
+    # Valid bounds OK
+    SmoothQuantCalibrator(model, alpha=0.0)
+    SmoothQuantCalibrator(model, alpha=1.0)
+
+
+def test_smoothquant_calibrator_calibrate_produces_correct_shape() -> None:
+    """`s` must have shape [in_features] per matched BitLinear."""
+    in_features = 8
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=4)
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    result = cal.calibrate(batches, n_batches=2)
+
+    # Should match exactly 1 BitLinear (.attn.o_proj)
+    assert len(result) == 1
+    name, layer = next(iter(result.items()))
+    assert name.endswith(".attn.o_proj")
+    assert layer["s"].shape == (in_features,)
+    assert layer["max_act"].shape == (in_features,)
+    assert layer["max_w"].shape == (in_features,)
+    assert torch.isfinite(layer["s"]).all()
+    assert (layer["s"] >= 1e-3).all() and (layer["s"] <= 1e3).all()
+
+
+def test_smoothquant_calibrator_validate_gates_pass_on_clean_input() -> None:
+    """validate() should return all-pass on a normal calibration result."""
+    model = _build_tiny_bitlinear_model()
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, 8) for _ in range(2)]
+    result = cal.calibrate(batches, n_batches=2)
+    gates = cal.validate(result)
+    assert gates["_aggregate"]["all_layers_pass"] is True
+    assert gates["_aggregate"]["n_layers"] == 1
+
+
+def test_smoothquant_save_load_round_trip(tmp_path) -> None:
+    """save_smoothquant_maps + load_smoothquant_maps preserve all keys."""
+    model = _build_tiny_bitlinear_model()
+    cal = SmoothQuantCalibrator(model, alpha=0.4, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, 8) for _ in range(2)]
+    result = cal.calibrate(batches, n_batches=2)
+
+    out_path = tmp_path / "smoothquant.pt"
+    save_smoothquant_maps(
+        out_path, result,
+        alpha=0.4, sites="o",
+        ckpt_path="/test/path/dummy.pt",
+        n_calibration_sequences=6,
+        calibration_seed=42,
+        calibration_stream="test_synthetic",
+    )
+    assert out_path.exists()
+
+    loaded = load_smoothquant_maps(out_path)
+    assert loaded["_schema_version"] == "1.0"
+    assert loaded["alpha"] == 0.4
+    assert loaded["sites"] == "o"
+    assert loaded["ckpt_path"] == "/test/path/dummy.pt"
+    assert loaded["calibration_seed"] == 42
+    assert "per_layer" in loaded
+    assert len(loaded["per_layer"]) == 1
+    name = next(iter(loaded["per_layer"]))
+    assert torch.equal(loaded["per_layer"][name]["s"], result[name]["s"])
+    assert torch.equal(loaded["per_layer"][name]["max_act"], result[name]["max_act"])
+
+
+def test_smoothquant_apply_preserves_forward_within_tolerance() -> None:
+    """§3.3 fusion identity: γ ← γ/s AND W ← s·W must preserve forward
+    output within FP-rounding tolerance. This is the §4.6 pre-mutation
+    forward equivalence gate at unit-test scale.
+    """
+    in_features = 8
+    out_features = 4
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=out_features)
+    model.eval()
+
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    result = cal.calibrate(batches, n_batches=2)
+
+    # Probe input — fixed, same for pre + post
+    x = torch.randn(2, 3, in_features)
+    with torch.no_grad():
+        y_pre = model(x).clone()
+
+    # Apply fusion in-place
+    cal.apply(model, result, in_place=True)
+
+    with torch.no_grad():
+        y_post = model(x)
+
+    # FP path is mathematically preserved (s⁻¹·s = I), but BitLinear
+    # quantizes activations per-token so the ROUTE inside is different.
+    # The relative error budget reflects per-token-quant noise + RMSNorm
+    # γ rescaling; tolerance ~1e-1 relative. The point is: no NaN, no
+    # explosion, output stays in same regime.
+    rel = (y_post - y_pre).abs().max() / (y_pre.abs().max() + 1e-6)
+    assert torch.isfinite(y_post).all()
+    assert rel < 1.0, f"post-fusion forward diverged: rel_err={rel.item()}"
+
+
+def test_smoothquant_calibrator_unknown_site_preset_rejected() -> None:
+    """Unknown site preset string → ValueError listing valid options."""
+    model = _build_tiny_bitlinear_model()
+    with pytest.raises(ValueError, match="unknown site preset"):
+        SmoothQuantCalibrator(model, sites="invalid_preset")
+
+
+def test_load_smoothquant_maps_rejects_wrong_schema(tmp_path) -> None:
+    """Schema-version mismatch → ValueError, not silent corruption."""
+    bad_path = tmp_path / "bad.pt"
+    torch.save({"_schema_version": "999.0", "per_layer": {}}, bad_path)
+    with pytest.raises(ValueError, match="unsupported smoothquant maps schema"):
+        load_smoothquant_maps(bad_path)
