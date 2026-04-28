@@ -260,7 +260,7 @@ def test_save_calibration_maps_extra_meta_merged(tmp_path) -> None:
     assert loaded["_meta"]["n_steps"] == 24000
     # Defaults still present
     assert loaded["_meta"]["top_k_pct"] == 5.0
-    assert loaded["_meta"]["_schema_version"] == "1.1"
+    assert loaded["_meta"]["_schema_version"] == "1.2"
 
 
 def test_save_calibration_maps_empty_dict_raises(tmp_path) -> None:
@@ -404,8 +404,9 @@ def test_save_calibration_maps_records_warmup_in_meta(tmp_path) -> None:
     save_calibration_maps({"l1": t1, "l2": t2}, out_path)
     loaded = torch.load(out_path, weights_only=False)
 
-    # Schema bumped to 1.1 because per-layer payload + meta both grew.
-    assert loaded["_meta"]["_schema_version"] == "1.1"
+    # Schema bumped to 1.1 (F.5.3 warmup-skip fields), then 1.2
+    # (F.5.2 accumulator_mode + ema_alpha fields).
+    assert loaded["_meta"]["_schema_version"] == "1.2"
     assert loaded["_meta"]["start_recording_at_step_min"] == 200
     assert loaded["_meta"]["start_recording_at_step_max"] == 200
     assert loaded["_meta"]["n_skipped_min"] == 200
@@ -459,3 +460,163 @@ def test_attach_stat_trackers_default_warmup_is_zero() -> None:
     for t in trackers.values():
         assert t.start_recording_at_step == 0
     detach_stat_trackers(model)
+
+
+# -----------------------------------------------------------------
+# F.5.2 — EMA accumulator
+# -----------------------------------------------------------------
+
+def test_stat_tracker_default_mode_is_max() -> None:
+    """No-arg tracker uses legacy element-wise max — backwards compat."""
+    t = BitLinearStatTracker(in_features=4)
+    assert t.accumulator_mode == "max"
+    assert t.ema_alpha == 0.99  # field present even when unused
+
+
+def test_stat_tracker_ema_first_observation_seeds_running_estimate() -> None:
+    """EMA bootstrap: first post-warmup call copies per_channel directly so
+    the running estimate isn't biased toward the zero init."""
+    t = BitLinearStatTracker(in_features=4, accumulator_mode="ema", ema_alpha=0.99)
+    fake = torch.nn.Linear(4, 4)
+    x = torch.tensor([[10.0, 20.0, 5.0, 15.0]])
+    t(fake, (x,), torch.empty(0))
+    assert t.n_calls == 1
+    expected = torch.tensor([10.0, 20.0, 5.0, 15.0])
+    assert torch.allclose(t.running_max, expected), (
+        "first EMA observation should seed running_max directly; "
+        f"got {t.running_max.tolist()}"
+    )
+
+
+def test_stat_tracker_ema_smooths_subsequent_observations() -> None:
+    """α=0.99: running_max ← 0.99·prev + 0.01·current.
+    Feeding [10] then [1] gives 0.99·10 + 0.01·1 = 9.91."""
+    t = BitLinearStatTracker(in_features=1, accumulator_mode="ema", ema_alpha=0.99)
+    fake = torch.nn.Linear(1, 1)
+    t(fake, (torch.tensor([[10.0]]),), torch.empty(0))
+    t(fake, (torch.tensor([[1.0]]),), torch.empty(0))
+    assert t.n_calls == 2
+    expected = 0.99 * 10.0 + 0.01 * 1.0
+    assert abs(float(t.running_max[0]) - expected) < 1e-5, (
+        f"expected {expected:.4f}, got {float(t.running_max[0]):.4f}"
+    )
+
+
+def test_stat_tracker_ema_alpha_zero_tracks_latest() -> None:
+    """α=0 → running_max equals the most recent observation (pure tracking)."""
+    t = BitLinearStatTracker(in_features=1, accumulator_mode="ema", ema_alpha=0.0)
+    fake = torch.nn.Linear(1, 1)
+    t(fake, (torch.tensor([[100.0]]),), torch.empty(0))
+    t(fake, (torch.tensor([[3.0]]),), torch.empty(0))
+    t(fake, (torch.tensor([[7.0]]),), torch.empty(0))
+    # Bootstrap on call 1, then α=0 means subsequent calls fully overwrite.
+    assert abs(float(t.running_max[0]) - 7.0) < 1e-6
+
+
+def test_stat_tracker_ema_alpha_one_freezes_after_bootstrap() -> None:
+    """α=1 → after the bootstrap observation, the EMA never updates."""
+    t = BitLinearStatTracker(in_features=1, accumulator_mode="ema", ema_alpha=1.0)
+    fake = torch.nn.Linear(1, 1)
+    t(fake, (torch.tensor([[5.0]]),), torch.empty(0))
+    t(fake, (torch.tensor([[1000.0]]),), torch.empty(0))
+    t(fake, (torch.tensor([[1000.0]]),), torch.empty(0))
+    # Bootstrap recorded 5.0; subsequent updates are 1.0·5.0 + 0.0·… = 5.0
+    assert abs(float(t.running_max[0]) - 5.0) < 1e-6
+
+
+def test_stat_tracker_ema_mode_does_not_track_max_anymore() -> None:
+    """Sanity: under EMA, running_max is the EMA, not the per-call max.
+    Feed a small-then-huge sequence under α=0.99 → result << huge value."""
+    t = BitLinearStatTracker(in_features=1, accumulator_mode="ema", ema_alpha=0.99)
+    fake = torch.nn.Linear(1, 1)
+    t(fake, (torch.tensor([[1.0]]),), torch.empty(0))  # bootstrap
+    for _ in range(10):
+        t(fake, (torch.tensor([[1.0]]),), torch.empty(0))
+    # Now a single huge spike — should barely move the EMA
+    t(fake, (torch.tensor([[1000.0]]),), torch.empty(0))
+    # Running estimate ≈ 0.99·1.0 + 0.01·1000 ≈ 10.99, dramatically less than 1000
+    assert float(t.running_max[0]) < 50.0, (
+        f"EMA should resist single spikes; got {float(t.running_max[0]):.2f}"
+    )
+
+
+def test_stat_tracker_invalid_mode_rejected() -> None:
+    with pytest.raises(ValueError, match="accumulator_mode must be one of"):
+        BitLinearStatTracker(in_features=4, accumulator_mode="median")
+
+
+def test_stat_tracker_invalid_alpha_rejected() -> None:
+    with pytest.raises(ValueError, match=r"ema_alpha must be in \[0.0, 1.0\]"):
+        BitLinearStatTracker(in_features=4, accumulator_mode="ema", ema_alpha=1.5)
+    with pytest.raises(ValueError, match=r"ema_alpha must be in \[0.0, 1.0\]"):
+        BitLinearStatTracker(in_features=4, accumulator_mode="ema", ema_alpha=-0.1)
+
+
+def test_stat_tracker_ema_composes_with_skip_warmup() -> None:
+    """F.5.2 + F.5.3 composability: warmup skip drops the first N calls,
+    THEN the EMA bootstraps on the first post-warmup observation."""
+    t = BitLinearStatTracker(
+        in_features=1,
+        start_recording_at_step=3,
+        accumulator_mode="ema",
+        ema_alpha=0.5,
+    )
+    fake = torch.nn.Linear(1, 1)
+    # Steps 0..2 (current_step < 3): skipped, including the giant value
+    for step in range(3):
+        t.current_step = step
+        t(fake, (torch.tensor([[1000.0]]),), torch.empty(0))
+    assert t.n_skipped == 3
+    assert t.n_calls == 0
+    assert torch.all(t.running_max == 0.0), (
+        "running_max must remain zero through warmup even under EMA mode"
+    )
+    # Step 3: first post-warmup → bootstrap to 7.0 directly
+    t.current_step = 3
+    t(fake, (torch.tensor([[7.0]]),), torch.empty(0))
+    assert t.n_calls == 1
+    assert abs(float(t.running_max[0]) - 7.0) < 1e-6
+
+
+def test_attach_stat_trackers_propagates_ema_kwargs() -> None:
+    """attach_stat_trackers passes accumulator_mode + ema_alpha to every
+    installed tracker."""
+    model = _make_tiny_model()
+    trackers = attach_stat_trackers(
+        model,
+        accumulator_mode="ema",
+        ema_alpha=0.95,
+    )
+    for name, t in trackers.items():
+        assert t.accumulator_mode == "ema", f"{name} mode={t.accumulator_mode}"
+        assert t.ema_alpha == 0.95, f"{name} alpha={t.ema_alpha}"
+    detach_stat_trackers(model)
+
+
+def test_save_calibration_maps_records_ema_in_meta(tmp_path) -> None:
+    """F.5.2 audit: per-layer entries carry mode + α; _meta aggregates
+    distinct modes/alphas across trackers."""
+    t = BitLinearStatTracker(in_features=4, accumulator_mode="ema", ema_alpha=0.97)
+    t.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t.n_calls = 50
+    out_path = tmp_path / "ema_maps.pt"
+    save_calibration_maps({"l": t}, out_path)
+    loaded = torch.load(out_path, weights_only=False)
+    assert loaded["_meta"]["_schema_version"] == "1.2"
+    assert loaded["_meta"]["accumulator_modes"] == ["ema"]
+    assert loaded["_meta"]["ema_alphas"] == [0.97]
+    assert loaded["l"]["accumulator_mode"] == "ema"
+    assert loaded["l"]["ema_alpha"] == 0.97
+
+
+def test_save_calibration_maps_legacy_max_mode_meta(tmp_path) -> None:
+    """Default (max-mode) trackers serialize with the new fields too."""
+    t = BitLinearStatTracker(in_features=4)
+    t.running_max = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    t.n_calls = 100
+    out_path = tmp_path / "max_maps.pt"
+    save_calibration_maps({"l": t}, out_path)
+    loaded = torch.load(out_path, weights_only=False)
+    assert loaded["_meta"]["accumulator_modes"] == ["max"]
+    assert loaded["_meta"]["ema_alphas"] == [0.99]
+    assert loaded["l"]["accumulator_mode"] == "max"

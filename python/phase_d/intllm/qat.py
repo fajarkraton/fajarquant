@@ -89,6 +89,20 @@ class BitLinearStatTracker:
     cross-comparison evidence in
     `paper/intllm/ablations/running_max_train_vs_steady*.json`.
 
+    F.5.2 EMA accumulator: when `accumulator_mode = "ema"`, post-warmup
+    forward calls update `running_max` as a running exponential moving
+    average instead of a strict element-wise max:
+
+        running_max ← ema_alpha · running_max + (1 - ema_alpha) · per_channel
+
+    The first post-warmup observation seeds the EMA directly (no bias
+    correction needed; avoids the early-EMA underestimate that would
+    follow from a zero init). Default `ema_alpha = 0.99` (literature
+    standard for activation tracking; ~100-step half-life). The field
+    name `running_max` is kept for backwards compat even though the
+    quantity is no longer a max under EMA mode — consumers reading the
+    `accumulator_mode` field decide how to interpret the value.
+
     The training loop is responsible for advancing `current_step`
     (typically once per optimizer step). Use `advance_trackers(...)`
     for the common "advance all attached trackers by 1" path, or set
@@ -98,10 +112,14 @@ class BitLinearStatTracker:
 
     in_features: int
     start_recording_at_step: int = 0
+    accumulator_mode: str = "max"
+    ema_alpha: float = 0.99
     running_max: torch.Tensor = field(init=False)
     n_calls: int = 0
     n_skipped: int = 0
     current_step: int = 0
+
+    _VALID_MODES = ("max", "ema")
 
     def __post_init__(self) -> None:
         # Live on CPU by default; moved to GPU lazily on first call.
@@ -109,6 +127,15 @@ class BitLinearStatTracker:
         if self.start_recording_at_step < 0:
             raise ValueError(
                 f"start_recording_at_step must be ≥ 0, got {self.start_recording_at_step}"
+            )
+        if self.accumulator_mode not in self._VALID_MODES:
+            raise ValueError(
+                f"accumulator_mode must be one of {self._VALID_MODES}, "
+                f"got {self.accumulator_mode!r}"
+            )
+        if not 0.0 <= self.ema_alpha <= 1.0:
+            raise ValueError(
+                f"ema_alpha must be in [0.0, 1.0], got {self.ema_alpha}"
             )
 
     def __call__(self, _module: nn.Module, inputs: tuple, _output: torch.Tensor) -> None:
@@ -121,14 +148,25 @@ class BitLinearStatTracker:
         x = inputs[0]
         # Reduce over all but the last dim to get per-channel absmax.
         per_channel = x.detach().abs().reshape(-1, x.size(-1)).amax(dim=0).cpu().float()
-        # Element-wise running max — captures the absmax the model has
-        # ever seen on each channel, exactly the quantity that determines
-        # γ_x stability.
         if per_channel.numel() != self.running_max.numel():
             raise ValueError(
                 f"channel-dim mismatch: expected {self.running_max.numel()}, got {per_channel.numel()}"
             )
-        torch.maximum(self.running_max, per_channel, out=self.running_max)
+        if self.accumulator_mode == "max":
+            # Element-wise running max — captures the absmax the model has
+            # ever seen on each channel, exactly the quantity that determines
+            # γ_x stability.
+            torch.maximum(self.running_max, per_channel, out=self.running_max)
+        else:  # "ema"
+            # F.5.2: EMA update. Bootstrap on first post-warmup call to
+            # avoid the (1 - α^n)·observation underestimate that would
+            # follow from a zero init.
+            if self.n_calls == 0:
+                self.running_max.copy_(per_channel)
+            else:
+                self.running_max.mul_(self.ema_alpha).add_(
+                    per_channel, alpha=1.0 - self.ema_alpha,
+                )
         self.n_calls += 1
 
 
@@ -154,14 +192,19 @@ def attach_stat_trackers(
     model: nn.Module,
     *,
     start_recording_at_step: int = 0,
+    accumulator_mode: str = "max",
+    ema_alpha: float = 0.99,
 ) -> dict[str, BitLinearStatTracker]:
     """Walk `model`, install a `BitLinearStatTracker` forward hook on each
     BitLinear-family layer, and return a dict mapping layer-name →
     tracker.
 
-    All installed trackers share the same `start_recording_at_step`
-    threshold (F.5.3 skip-warmup calibration). For per-site warmup,
-    construct trackers manually and call
+    All installed trackers share the same calibration policy:
+      - `start_recording_at_step` (F.5.3 skip-warmup calibration)
+      - `accumulator_mode` ∈ {"max", "ema"} (F.5.2 EMA accumulator)
+      - `ema_alpha` (F.5.2; only meaningful when mode="ema")
+
+    For per-site policy, construct trackers manually and call
     `module.register_forward_hook(tracker)` directly.
 
     The returned trackers stay alive (and the hooks stay registered)
@@ -175,6 +218,8 @@ def attach_stat_trackers(
         tracker = BitLinearStatTracker(
             in_features=in_features,
             start_recording_at_step=start_recording_at_step,
+            accumulator_mode=accumulator_mode,
+            ema_alpha=ema_alpha,
         )
         module.register_forward_hook(tracker)
         # Stash the hook handle so we can detach later (PyTorch returns it
@@ -345,6 +390,8 @@ def save_calibration_maps(
             "n_calls": int(tracker.n_calls),
             "n_skipped": int(tracker.n_skipped),
             "start_recording_at_step": int(tracker.start_recording_at_step),
+            "accumulator_mode": str(tracker.accumulator_mode),
+            "ema_alpha": float(tracker.ema_alpha),
             "bits": bits,
             "permutation": perm,
             "in_features": int(tracker.in_features),
@@ -355,6 +402,12 @@ def save_calibration_maps(
     # `attach_stat_trackers` was called with a single warmup setting.
     warmup_steps = [t.start_recording_at_step for t in trackers.values()]
     skipped_counts = [t.n_skipped for t in trackers.values()]
+    # F.5.2 audit: accumulator policy is also model-wide. Record the set
+    # of distinct modes + the αs so a consumer can detect heterogeneous
+    # attach calls (which `attach_stat_trackers` does not produce, but a
+    # caller manually constructing trackers might).
+    modes = sorted({t.accumulator_mode for t in trackers.values()})
+    alphas = sorted({float(t.ema_alpha) for t in trackers.values()})
     meta: dict = {
         "top_k_pct": float(top_k_pct),
         "low_bits": int(low_bits),
@@ -364,7 +417,9 @@ def save_calibration_maps(
         "start_recording_at_step_max": max(warmup_steps),
         "n_skipped_min": min(skipped_counts),
         "n_skipped_max": max(skipped_counts),
-        "_schema_version": "1.1",
+        "accumulator_modes": modes,
+        "ema_alphas": alphas,
+        "_schema_version": "1.2",
     }
     if extra_meta:
         meta.update(extra_meta)
