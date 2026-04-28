@@ -672,6 +672,76 @@ class SmoothQuantCalibrator:
         }
         return gates
 
+    def validate_forward_equivalence(
+        self,
+        calibration_dict: dict,
+        *,
+        probe_batch,
+        threshold_nat: float = 0.05,
+        loss_fn=None,
+    ) -> dict:
+        """G5 gate per F.5.1.6 §3.3: pre-mutation forward equivalence.
+
+        Catches Run-7-style cumulative multi-site saturation where every
+        per-layer §4.6 gate (G1-G4) passes yet the calibration regresses
+        ``val_loss`` catastrophically once applied — the case that nearly
+        shipped silently in F.5.1.5 (148/148 layer gates PASS, +0.27 nat
+        regression on sites=all × α=0.3). Per-layer recipe-sanity gates
+        are NOT sufficient when SmoothQuant runs on many sites at once.
+
+        Approach: deepcopy ``self.model``, compute baseline loss on
+        ``probe_batch``, apply the calibration to the copy, recompute,
+        compare. The original ``self.model`` is left untouched. If the
+        absolute loss delta exceeds ``threshold_nat``, the calibration
+        is flagged unsafe.
+
+        Args:
+            calibration_dict: output of :meth:`calibrate`.
+            probe_batch: a single batch (token IDs or whatever the model's
+                forward expects). One batch is enough — this is the cheap
+                pre-apply check, not the full multi-batch val measurement.
+            threshold_nat: max permissible absolute Δ-loss in nats.
+                Default 0.05 per design §4.6 / findings §3.3.
+            loss_fn: optional callable ``(model, batch) -> float``. If
+                ``None``, uses HF causal-LM convention
+                ``model(input_ids=batch, labels=batch).loss`` — same
+                formula as :func:`intllm.eval.run_held_out_loss`.
+
+        Returns:
+            dict with keys ``loss_pre``, ``loss_post``, ``delta_nat``,
+            ``threshold_nat``, ``passed``.
+        """
+        import copy
+
+        if loss_fn is None:
+            def loss_fn(model, batch):  # noqa: E306
+                out = model(input_ids=batch, labels=batch)
+                return float(out.loss.detach())
+
+        probe_model = copy.deepcopy(self.model)
+        was_training = probe_model.training
+        probe_model.eval()
+        try:
+            with torch.no_grad():
+                loss_pre = loss_fn(probe_model, probe_batch)
+            self.apply(probe_model, calibration_dict, in_place=True)
+            with torch.no_grad():
+                loss_post = loss_fn(probe_model, probe_batch)
+        finally:
+            if was_training:
+                probe_model.train()
+
+        delta = loss_post - loss_pre
+        return {
+            "loss_pre": float(loss_pre),
+            "loss_post": float(loss_post),
+            "delta_nat": float(delta),
+            "threshold_nat": float(threshold_nat),
+            "passed": bool(abs(delta) < threshold_nat) and bool(
+                math.isfinite(delta)
+            ),
+        }
+
     def apply(
         self,
         model: nn.Module,

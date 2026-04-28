@@ -656,3 +656,122 @@ def test_load_smoothquant_maps_rejects_wrong_schema(tmp_path) -> None:
     torch.save({"_schema_version": "999.0", "per_layer": {}}, bad_path)
     with pytest.raises(ValueError, match="unsupported smoothquant maps schema"):
         load_smoothquant_maps(bad_path)
+
+
+# -----------------------------------------------------------------
+# G5 forward-equivalence gate (V32-prep F.5.1.6 §3.3 action item)
+# -----------------------------------------------------------------
+
+def _mse_loss_fn(model, batch):
+    """Probe loss for the mock model, which has no HF causal-LM
+    `(input_ids=, labels=)` interface. Mean-square of forward output —
+    smoothly differentiable in the model's params, so the fusion
+    identity collapses delta to ~fp32 round-off.
+    """
+    return float(model(batch).pow(2).mean().detach())
+
+
+def test_smoothquant_g5_passes_on_clean_calibration() -> None:
+    """G5: a normal calibration must not regress forward output. The
+    fusion identity γ←γ/s, W←s·W is mathematically preserving, so
+    delta_nat is dominated by fp32 round-off and falls well under 0.05.
+    """
+    in_features = 8
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=4)
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    calibration = cal.calibrate(batches, n_batches=2)
+
+    probe = torch.randn(2, 3, in_features)
+    g5 = cal.validate_forward_equivalence(
+        calibration, probe_batch=probe, loss_fn=_mse_loss_fn,
+    )
+
+    assert g5["passed"] is True
+    assert abs(g5["delta_nat"]) < 0.05
+    assert g5["threshold_nat"] == 0.05
+    # Both losses are finite and meaningfully large (mock is not a
+    # zero model).
+    assert g5["loss_pre"] > 0.0
+    assert g5["loss_post"] > 0.0
+
+
+def test_smoothquant_g5_does_not_mutate_self_model() -> None:
+    """The G5 gate must deepcopy before mutating; running it should
+    leave the original model's parameters bit-identical.
+    """
+    in_features = 8
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=4)
+    bitlinear = model.layers[0].attn.o_proj
+    gamma_before = bitlinear.norm.weight.detach().clone()
+    weight_before = bitlinear.weight.detach().clone()
+
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    calibration = cal.calibrate(batches, n_batches=2)
+
+    probe = torch.randn(2, 3, in_features)
+    cal.validate_forward_equivalence(
+        calibration, probe_batch=probe, loss_fn=_mse_loss_fn,
+    )
+
+    assert torch.equal(bitlinear.norm.weight, gamma_before)
+    assert torch.equal(bitlinear.weight, weight_before)
+
+
+def test_smoothquant_g5_rejects_nan_corrupted_calibration() -> None:
+    """G5 must catch a calibration that NaN-poisons the forward path —
+    the canonical failure mode the per-layer §4.6 gates miss when
+    cumulative multi-site saturation produces non-finite math (Run 7
+    F.5.1.5 lineage). NaN delta → not finite → passed=False.
+    """
+    in_features = 8
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=4)
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    calibration = cal.calibrate(batches, n_batches=2)
+
+    # Corrupt the calibration: inject NaN into one s-channel. Per-layer
+    # gates would have caught this on a fresh validate(), but G5 is the
+    # last-line defense against post-validate tampering OR a calibration
+    # that passes per-layer gates but breaks math when applied.
+    name = next(iter(calibration))
+    calibration[name]["s"][0] = float("nan")
+
+    probe = torch.randn(2, 3, in_features)
+    g5 = cal.validate_forward_equivalence(
+        calibration, probe_batch=probe, loss_fn=_mse_loss_fn,
+    )
+
+    assert g5["passed"] is False
+    # Original model still untouched even after a failed check.
+    bitlinear = model.layers[0].attn.o_proj
+    assert torch.isfinite(bitlinear.norm.weight).all()
+    assert torch.isfinite(bitlinear.weight).all()
+
+
+def test_smoothquant_g5_threshold_is_configurable() -> None:
+    """A user-supplied threshold must override the 0.05 default. Set
+    it absurdly tight (1e-12) so even fp32 round-off trips the gate;
+    delta on the mock is ~1e-7, so passed must be False.
+    """
+    in_features = 8
+    model = _build_tiny_bitlinear_model(in_features=in_features, out_features=4)
+    cal = SmoothQuantCalibrator(model, alpha=0.5, sites="o", device="cpu")
+    batches = [torch.randn(2, 3, in_features) for _ in range(2)]
+    calibration = cal.calibrate(batches, n_batches=2)
+
+    probe = torch.randn(2, 3, in_features)
+    g5 = cal.validate_forward_equivalence(
+        calibration,
+        probe_batch=probe,
+        threshold_nat=1e-12,
+        loss_fn=_mse_loss_fn,
+    )
+
+    assert g5["threshold_nat"] == 1e-12
+    # Empirically passes_pre==passes_post mathematically; fp round-off
+    # is the only contributor. With threshold 1e-12 we expect either
+    # exact zero (very rare) or strict failure.
+    if g5["delta_nat"] != 0.0:
+        assert g5["passed"] is False

@@ -156,7 +156,12 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true",
                    help="Build + calibrate + validate, no val_loss runs. CPU-only smoke (~30 sec).")
     p.add_argument("--strict-gates", action="store_true",
-                   help="Abort if validation gates §4.6 fail (default: warn but proceed).")
+                   help="Abort if validation gates §4.6 OR G5 forward-equivalence fail "
+                   "(default: warn but proceed).")
+    p.add_argument("--g5-threshold", type=float, default=0.05,
+                   help="G5 (pre-mutation forward equivalence) absolute Δ-loss threshold "
+                   "in nats. Default 0.05 per F.5.1.6 §3.3 action item — catches Run-7-style "
+                   "cumulative multi-site saturation that the per-layer §4.6 gates miss.")
     args = p.parse_args()
 
     if not args.ckpt.exists():
@@ -268,6 +273,46 @@ def main() -> int:
             edge_total[k] += int(layer["edge_cases"][k])
     print(f"      edge cases: {edge_total}")
 
+    # G5 forward equivalence (F.5.1.6 §3.3 action item). Pulls one fresh
+    # probe batch — distinct seed from calib (42) and val (999) — and
+    # compares loss pre- vs post-fusion on a deepcopy. Catches the
+    # Run-7-style "all per-layer gates pass yet val_loss regresses by
+    # +0.27 nat" failure mode that nearly shipped silently in F.5.1.5.
+    if args.dry_run:
+        g5_probe = synth_batches[0]
+    else:
+        g5_probe_stream = bilingual_stream(
+            tokenizer=tok,
+            seq_len=train_hp.seq_len,
+            batch_size=train_hp.batch_size,
+            id_share=BILINGUAL_RATIO_DEFAULT,
+            device=device,
+            seed=137,
+        )
+        for batch in g5_probe_stream:
+            g5_probe = batch
+            break
+
+    g5 = cal.validate_forward_equivalence(
+        calibration_data,
+        probe_batch=g5_probe,
+        threshold_nat=args.g5_threshold,
+    )
+    print(
+        f"      G5 forward equivalence: passed={g5['passed']}, "
+        f"Δ={g5['delta_nat']:+.4f} nat "
+        f"(threshold {g5['threshold_nat']:.4f}; "
+        f"loss_pre={g5['loss_pre']:.4f}, loss_post={g5['loss_post']:.4f})"
+    )
+    if not g5["passed"]:
+        msg = (
+            f"G5 forward-equivalence gate failed: |Δ|={abs(g5['delta_nat']):.4f} "
+            f"nat exceeds threshold {g5['threshold_nat']:.4f} nat"
+        )
+        if args.strict_gates:
+            raise RuntimeError(msg)
+        print(f"      [WARN] {msg}", file=sys.stderr)
+
     # Save side-car maps
     save_smoothquant_maps(
         args.out_maps, calibration_data,
@@ -338,6 +383,7 @@ def main() -> int:
             "stream": "bilingual(id_share=0.6, seed=42)" if not args.dry_run else "synthetic_dry_run",
             "wall_clock_seconds": cal_wall,
             "validation_gates": gates,
+            "g5_forward_equivalence": g5,
             "edge_cases_total": edge_total,
             "side_car_maps_path": str(args.out_maps),
         },
