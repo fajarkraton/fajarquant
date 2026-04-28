@@ -1,0 +1,42 @@
+{
+  "_schema_version": "1.0",
+  "ckpt_path": "/home/primecore/Documents/fajarquant/python/phase_d/checkpoints/mini/mini_final.pt",
+  "n_val_batches": 50,
+  "stream": "bilingual(id_share=0.6, seed=999)",
+  "device": "cuda",
+  "modes": {
+    "no_rotation": {
+      "val_loss": 5.553036785125732,
+      "ppl": 258.01991842150477,
+      "n_attached": 0
+    },
+    "o": {
+      "val_loss": 8.143423414230346,
+      "ppl": 3440.676590216626,
+      "n_attached": 6,
+      "delta_vs_baseline": 2.5903866291046143
+    },
+    "igf": {
+      "val_loss": 8.602640724182129,
+      "ppl": 5446.022061509801,
+      "n_attached": 18,
+      "delta_vs_baseline": 3.0496039390563965
+    },
+    "igfo": {
+      "val_loss": 8.22542600631714,
+      "ppl": 3734.712075280459,
+      "n_attached": 24,
+      "delta_vs_baseline": 2.6723892211914073
+    }
+  },
+  "verdict": {
+    "best_mode": "no_rotation",
+    "best_rotated_mode": "o",
+    "best_delta_vs_baseline": 2.5903866291046143,
+    "rotation_helps": false,
+    "rotation_hurts": true,
+    "f62_outcome": "HGRN-architecture issue (online-QuaRot variant: rotation alone insufficient without weight-fusion)",
+    "gate_nat_threshold": 0.05
+  },
+  "timestamp": "2026-04-28T03:14:13+00:00"
+}
