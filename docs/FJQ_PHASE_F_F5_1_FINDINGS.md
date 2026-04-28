@@ -1,6 +1,6 @@
-# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.3)
+# Phase F F.5.1 — SmoothQuant PTQ Findings (v0.4)
 
-> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 fleshed; §3 + §6-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
+> **Status:** §1 Executive Summary + §2 Empirical Results + §4 Diagnostic Analysis + §5 Comparison vs F.6.2 + E2.4 + §6 Decision per Verdict Tree fleshed; §3 + §7-§8 are placeholders. Each subsequent first-step fills one section. Target v1.0 closes F.5.1 with full diagnostic + branch decision.
 > **Origin:** F.5.1 sweep complete 2026-04-28. 8 runs total (5 primary α × 3 secondary sites). Verdict: PARTIAL.
 > **Companion docs:**
 > - `docs/FJQ_PHASE_F_F5_1_SMOOTHQUANT_PTQ_DESIGN.md` v1.0 (the design this evaluates)
@@ -506,11 +506,108 @@ without them.
 
 ## 6. Decision per §6 Verdict Tree
 
-> **TODO** — to be fleshed in next first-step. Sketch:
-> - Verdict: PARTIAL (per §6.3)
-> - Per-verdict next steps: F.5.1.7 not pursued; paper Table 4 honest
->   row; consider Branch A canonical QuaRot
-> - Why not FAIL: best run is invariance, not regression; gates pass
+### 6.1 Verdict: F.5.1 → PARTIAL
+
+Mapping the 8-run sweep against design §6.3 verdict tree:
+
+  ≥1 STRONG-PASS run?         NO  (0/8 achieved G3 ≤−0.05 nat)
+  All runs HARD-FAIL?         NO  (only 2/8: α=0.7 single-site, sites=all)
+  ≥1 G1+G2 pass mixed result? G2 not measured; ≥6 runs pass G1
+                              cleanly (NEUTRAL)
+                              → PARTIAL
+
+**Why PARTIAL and not FAIL:**
+
+1. **Best run is invariance, not regression.** o_down @ α=0.3 produces
+   +0.0001 nat — well within fp16 noise floor; the model didn't
+   improve, but it didn't break either. FAIL would require all runs
+   to HARD-FAIL G1; only 2/8 did.
+
+2. **Validation gates §4.6 pass for 7/8 runs.** The recipe applies
+   cleanly for the recipes-that-don't-help. Only α=0.7 single-site
+   has 4/6 layer median_in_band failures, which is a recipe-pushed-
+   too-far failure (predictable per design §3.2 + §7.1 R1).
+
+3. **The negative result is informative.** §4.1 + §5.1 + §5.2 jointly
+   demonstrate that the failure is architecture-class invariance,
+   not recipe-class breakage — a publishable finding rather than a
+   diagnostic-only outcome.
+
+### 6.2 Per-verdict next-step decisions (per design §6.4 PARTIAL path)
+
+**Decided actions (executable now):**
+
+| Action | Status | Owner |
+|---|---|---|
+| Ship F.5.1.6 findings doc declaring PARTIAL | In progress (this commit) | F.5.1.6 first-step chain |
+| Update Phase F roadmap: F.5.1 → CLOSED PARTIAL | Pending | Single roadmap edit, ~5 min |
+| Add honest negative row to paper §7 Ablations | Pending paper update | F.5.1.6 §8 + paper revision |
+| Update verify_intllm_tables.py if F.5.1 produces a paper-table claim | Pending after §8 | F.5.1.6 §8 |
+| Add memory note: "F.5.1 PARTIAL — RMSNorm γ absorption confirmed" | Pending | Single memory edit, ~5 min |
+
+**Deferred actions (gated on §8 + paper decision):**
+
+| Action | Gate | Rationale |
+|---|---|---|
+| F.5.1.7 QAT-time SmoothQuant variant | F.5.1 PASS | NOT triggered — PARTIAL doesn't justify training-side investment per design §5.7 |
+| F.5.4 Option B `IntLLMBitLinear` wrapper | F.5.1 cherry-pickable site benefit | NOT triggered — no site clearly benefits at any α |
+| F.5.2 EMA accumulator follow-up | Independent | Already shipped (`1f8124d`+`431be34`); ablation deferred to next sweep cycle |
+| F.5.3 Skip-warmup follow-up | Independent | Already shipped (`c70b9e4`+`16dcc71`); same |
+
+**Branch A pursuit (canonical QuaRot weight-fusion, ~3-5 days):**
+
+  - **NOT triggered automatically.** F.5.1 PARTIAL is not a hard FAIL,
+    so the §6.4 FAIL fallback ladder doesn't fire. Branch A pursuit is
+    a separate strategic decision, not auto-mandated by F.5.1.
+  - **BETTER MOTIVATED than before F.5.1.** §5.4 lists falsification
+    strategy entries; canonical QuaRot is the strongest (if it
+    succeeds where F.5.1 didn't, γ-absorption is recipe-family-
+    specific to per-channel-scaling, not universal).
+  - **Risk-adjusted comparison vs Branch B (accept-and-pivot):**
+    - Branch A cost: 3-5 days impl + 1 day eval + significant
+      complexity (model-wide rotation coordination, RMSNorm γ
+      mutation, weight fusion algebra)
+    - Branch A reward: if PASS, F.5.1 + F.6 ship together as a
+      compound recipe; if FAIL, even stronger negative claim about
+      HGRN-ternary's calibration ceiling
+    - Branch B cost: zero (just close the calibration-improvement
+      thread)
+    - Branch B reward: redirect bandwidth to F.10-F.13 hardware-
+      acceleration which has clearer return on effort
+
+  Recommendation pending §8 (paper Table 4 implications); the F.5.1
+  PARTIAL outcome alone does not pre-decide A vs B.
+
+### 6.3 What this verdict closes vs leaves open
+
+**Closed by F.5.1 PARTIAL (definitively):**
+
+- "SmoothQuant α=0.5 paper default works on HGRN-ternary" — FALSE
+- "Multi-site SmoothQuant coverage scales monotonically" — FALSE (peaks
+  at o_down, regresses past that)
+- "Per-channel post-hoc activation scaling alone unlocks HGRN-ternary
+  outlier-mitigation gains" — FALSE
+- "F.5.1.7 QAT-time variant is worth pursuing immediately" — FALSE
+  (no PASS at PTQ-time disqualifies the training-side investment)
+
+**Left open (not addressed by F.5.1):**
+
+- Whether canonical QuaRot weight-fusion would help (Branch A
+  question; would need separate impl + eval)
+- Whether γ-absorption hypothesis holds at scale (Base/Medium scaffold
+  exists — F.5.1 multi-scale verification is a future sweep)
+- Whether SmoothQuant + canonical QuaRot stacking helps (composability
+  question; gated on Branch A first shipping)
+- Whether bilingual-trained ckpt (Phase E2.0 Q5) shows different
+  γ-absorption pattern (would need separate F.5.1 sweep on that ckpt)
+- G2 quant-error metric per layer — never measured; would clarify if
+  the per-channel quant error reduces despite val_loss invariance,
+  which would shift verdict from "model invariant" to "model invariant
+  but quant precision improves" (CALIBRATION-PASS per §6.2)
+
+The "left open" list informs §7 composability + §8 paper implications.
+None of these block F.5.1 closure as PARTIAL; they're follow-up
+questions for either Branch A pursuit or post-paper revisions.
 
 ---
 
@@ -538,8 +635,9 @@ without them.
 
 ---
 
-*Document version: 0.3*
-*Last updated: 2026-04-28 (V32-prep: §5 Comparison vs F.6.2 + E2.4 fleshed — three independent failure mechanisms (E2.4 calibration data, F.6.2 recipe-incomplete, F.5.1 architecture-invariant); recipe-class vs architecture-class distinction; cumulative narrative for paper §7; falsification strategy. §3 + §6-§8 placeholders for next first-step)*
+*Document version: 0.4*
+*Last updated: 2026-04-28 (V32-prep: §6 Decision per Verdict Tree fleshed — F.5.1 PARTIAL declared; per-verdict actions table (4 decided, 4 deferred); Branch A canonical QuaRot pursuit BETTER MOTIVATED but NOT auto-triggered; cleanly enumerated what the verdict closes vs leaves open. §3 + §7-§8 placeholders for next first-step)*
+*v0.3 → v0.4 (2026-04-28): §6 added.*
 *v0.2 → v0.3 (2026-04-28): §5 added.*
 *v0.1 → v0.2 (2026-04-28): §4 added.*
 *v0.0 → v0.1 (2026-04-28): skeleton + §1 Executive Summary + §2 Empirical Results.*
