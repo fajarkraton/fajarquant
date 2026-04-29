@@ -429,15 +429,33 @@ def test_pack_tl2_tile_organized_known_offset_first_triplet() -> None:
     assert all(b == 0 for b in layout.magnitudes[1:32])
 
 
-def test_pack_tl2_tile_organized_signs_still_zero_iter2() -> None:
-    """Iteration 2 STATUS: sign byte stream is still zero (sign
-    packing deferred to iteration 3). Once iteration 3 lands, this
-    test will need updating — likely flips to a hand-computed
-    sign-bit position check or replaced by parity_real_mlp."""
-    weights = np.full((256, 256), -1, dtype=np.int8)  # all sign-bit-1
+def test_pack_tl2_tile_organized_all_negative_yields_idx13_all_signs() -> None:
+    """(-1,-1,-1) → canonical (+1,+1,+1) → idx=13, sign=1.
+    Magnitudes: 0xDD same as +1 case. Signs: every byte = 0xFF
+    (8 triplet positions × 5 as_idx all set in 32 lanes per
+    i_group)."""
+    weights = np.full((256, 256), -1, dtype=np.int8)
     layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
-    assert all(b == 0 for b in layout.signs), (
-        "iteration 2 expected sign bytes still zero; if non-zero, "
-        "iteration 3 sign-packing landed — replace this test with a "
-        "real sign-bit-offset check or parity test"
+    assert all(b == 0xDD for b in layout.magnitudes)
+    assert all(b == 0xFF for b in layout.signs), (
+        f"expected all 0xFF signs; first non-FF at "
+        f"{next((i for i, b in enumerate(layout.signs) if b != 0xFF), -1)}"
     )
+
+
+def test_pack_tl2_tile_organized_known_offset_negative_first_triplet() -> None:
+    """Row 0, cols 0..2 = (-1,-1,-1) → idx=13, sign=1.
+    Magnitudes: byte 0 = 0xD0. Signs: byte 0 = 0b0000_0001
+    (bit 0 set; triplet_in_as=0)."""
+    weights = np.zeros((256, 256), dtype=np.int8)
+    weights[0, 0] = -1
+    weights[0, 1] = -1
+    weights[0, 2] = -1
+
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    assert layout.magnitudes[0] == 0xD0
+    assert layout.signs[0] == 0b0000_0001, (
+        f"expected sign byte 0 = 0b00000001 (bit 0 set), "
+        f"got 0x{layout.signs[0]:02X}"
+    )
+    assert all(b == 0 for b in layout.signs[1:])

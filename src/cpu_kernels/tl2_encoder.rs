@@ -133,7 +133,7 @@ pub struct TileLayout {
 }
 
 /// Pack ternary weights `(m, k)` into TL2 tile-organized format.
-/// Iteration 3: magnitude bytes populated, sign bytes still zero.
+/// Iteration 4: magnitude AND sign bytes populated.
 ///
 /// Mirrors `repack_to_tl2.py::pack_tl2_tile_organized`.
 ///
@@ -143,10 +143,29 @@ pub struct TileLayout {
 ///   `{-1, 0, +1}`. Indexed as `weights[row * k + col]`.
 /// - `m, k, bm, bbk`: matrix + tile dims (default Mini: bm=64, bbk=128).
 ///
+/// # Sign packing layout (iteration 4 best guess)
+///
+/// Per kernel `slli_epi16(vec_sign, 4*k+sub)` pattern:
+///
+/// ```text
+/// as_idx           = triplet_in_kouter // 8     (KK/8 = 5 vec_sign per i_group)
+/// triplet_in_as    = triplet_in_kouter %  8
+/// sign_byte_offset = tile_idx * s_per_tile
+///                  + k_outer  * s_per_kouter
+///                  + i_group  * (s_per_kouter / 2)
+///                  + as_idx   * 32
+///                  + lane
+/// bit_in_byte      = triplet_in_as
+/// ```
+///
+/// Validated by iteration-5 parity_real_mlp test; if that fails,
+/// the bit_in_byte permutation is the most likely culprit.
+///
 /// # Panics
 ///
-/// On `m % bm != 0` or `k % bbk != 0` (kernel precondition).
-pub fn pack_tile_organized_magnitude(
+/// On `m % bm != 0` or `k % bbk != 0` (kernel precondition) or
+/// `weights.len() != m * k`.
+pub fn pack_tile_organized(
     weights: &[i8],
     m: usize,
     k: usize,
@@ -157,10 +176,13 @@ pub fn pack_tile_organized_magnitude(
     let sizes = tile_layout_sizes(m, k, bm, bbk);
     let kk = bbk / 3;
     let a_per_tile = sizes.n_kouter * sizes.a_per_kouter;
-    let i_group_stride = sizes.a_per_kouter / 2;
+    let i_group_a_stride = sizes.a_per_kouter / 2;
+    let s_per_tile = sizes.n_kouter * sizes.sign_per_kouter;
+    let i_group_s_stride = sizes.sign_per_kouter / 2;
+    let max_as_idx = kk / 8;
 
     let mut a_buf = vec![0u8; sizes.a_bytes];
-    let s_buf = vec![0u8; sizes.sign_bytes]; // iteration 4
+    let mut s_buf = vec![0u8; sizes.sign_bytes];
 
     for output_row in 0..m {
         let tile_idx = output_row / bm;
@@ -172,21 +194,19 @@ pub fn pack_tile_organized_magnitude(
             for triplet_in_kouter in 0..kk {
                 let k_base = k_outer * bbk + triplet_in_kouter * 3;
                 if k_base + 2 >= k {
-                    // K-mod-3 tail; kernel KK=BBK/3 truncates the
-                    // same way, so this triplet is implicitly dropped.
                     continue;
                 }
                 let w0 = weights[output_row * k + k_base];
                 let w1 = weights[output_row * k + k_base + 1];
                 let w2 = weights[output_row * k + k_base + 2];
-                let (mag_idx, _sign_bit) = encode_triplet(w0, w1, w2);
+                let (mag_idx, sign_bit) = encode_triplet(w0, w1, w2);
 
                 let ai = triplet_in_kouter / 2;
                 let nibble = triplet_in_kouter % 2;
 
                 let byte_offset = tile_idx * a_per_tile
                     + k_outer * sizes.a_per_kouter
-                    + i_group * i_group_stride
+                    + i_group * i_group_a_stride
                     + ai * 32
                     + lane;
                 if nibble == 0 {
@@ -194,8 +214,19 @@ pub fn pack_tile_organized_magnitude(
                 } else {
                     a_buf[byte_offset] |= mag_idx & 0xF;
                 }
-                // Sign packing — DEFERRED to iteration 4 (parity-test
-                // driven debug of bit-position).
+
+                if sign_bit != 0 {
+                    let as_idx = triplet_in_kouter / 8;
+                    let triplet_in_as = triplet_in_kouter % 8;
+                    if as_idx < max_as_idx {
+                        let sign_byte_off = tile_idx * s_per_tile
+                            + k_outer * sizes.sign_per_kouter
+                            + i_group * i_group_s_stride
+                            + as_idx * 32
+                            + lane;
+                        s_buf[sign_byte_off] |= 1u8 << triplet_in_as;
+                    }
+                }
             }
         }
     }
@@ -210,6 +241,20 @@ pub fn pack_tile_organized_magnitude(
         n_tiles: sizes.n_tiles,
         n_kouter: sizes.n_kouter,
     }
+}
+
+/// Back-compat alias for iteration 3 — same as `pack_tile_organized`
+/// but emphasizes the magnitude side of the encoding. Will be
+/// removed once all callers migrate.
+#[deprecated(note = "use pack_tile_organized; sign packing now included")]
+pub fn pack_tile_organized_magnitude(
+    weights: &[i8],
+    m: usize,
+    k: usize,
+    bm: usize,
+    bbk: usize,
+) -> TileLayout {
+    pack_tile_organized(weights, m, k, bm, bbk)
 }
 
 #[cfg(test)]
@@ -262,54 +307,86 @@ mod tests {
     }
 
     #[test]
-    fn pack_tile_organized_zero_input_yields_zero_magnitudes() {
+    fn pack_tile_organized_zero_input_yields_zero_buffers() {
         let weights = vec![0_i8; 256 * 256];
-        let layout = pack_tile_organized_magnitude(&weights, 256, 256, 64, 128);
+        let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
         assert!(layout.magnitudes.iter().all(|&b| b == 0));
+        assert!(layout.signs.iter().all(|&b| b == 0));
     }
 
     #[test]
-    fn pack_tile_organized_all_positive_yields_idx13_pairs() {
+    fn pack_tile_organized_all_positive_yields_idx13_no_signs() {
+        // (+1,+1,+1) → idx=13, sign=0. Magnitudes = 0xDD; signs = 0.
         let weights = vec![1_i8; 256 * 256];
-        let layout = pack_tile_organized_magnitude(&weights, 256, 256, 64, 128);
-        // Every triplet → idx=13=0xD. 2 triplets/byte → byte = 0xDD.
+        let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
         assert!(
             layout.magnitudes.iter().all(|&b| b == 0xDD),
-            "expected all 0xDD; first non-DD byte at {:?}",
+            "expected all 0xDD; first non-DD at {:?}",
             layout.magnitudes.iter().position(|&b| b != 0xDD)
+        );
+        assert!(layout.signs.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn pack_tile_organized_all_negative_yields_idx13_all_signs() {
+        // (-1,-1,-1) → canonical (+1,+1,+1) → idx=13, sign=1.
+        // Magnitudes: 0xDD same as +1 case (canonicalized).
+        // Signs: every triplet has sign bit set. Per (256, 256):
+        //   - 5 valid as_idx values × 8 bit positions = 40 sign bits/lane
+        //   - But we set bit (triplet_in_kouter % 8) for each triplet
+        //   - Per as_idx (covers triplets 8*as_idx..8*as_idx+7), all 8
+        //     bits in that byte set → byte = 0xFF
+        // → all sign bytes should be 0xFF.
+        let weights = vec![-1_i8; 256 * 256];
+        let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
+        assert!(
+            layout.magnitudes.iter().all(|&b| b == 0xDD),
+            "magnitudes for (-1,-1,-1) canonicalize to (+1,+1,+1) idx 13"
+        );
+        assert!(
+            layout.signs.iter().all(|&b| b == 0xFF),
+            "expected all 0xFF signs; first non-FF at {:?}",
+            layout.signs.iter().position(|&b| b != 0xFF)
         );
     }
 
     #[test]
-    fn pack_tile_organized_known_offset_first_triplet() {
-        // Hand-computed: row 0, cols 0..2 = (+1,+1,+1) → idx=13=0xD,
-        // upper nibble of byte 0 → byte 0 = 0xD0 (lower nibble = 0
-        // for the next triplet pair which is (0,0,0) → idx=0).
+    fn pack_tile_organized_known_offset_first_triplet_positive() {
+        // Row 0, cols 0..2 = (+1,+1,+1) → idx=13, sign=0.
+        // → byte 0 magnitudes = 0xD0; all signs zero.
         let mut weights = vec![0_i8; 256 * 256];
         weights[0] = 1;
         weights[1] = 1;
         weights[2] = 1;
-        let layout = pack_tile_organized_magnitude(&weights, 256, 256, 64, 128);
+        let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
         assert_eq!(layout.magnitudes[0], 0xD0);
-        // bytes 1..32 are other lanes (rows 1..31) within the same
-        // ai=0 vector, all having all-zero triplets → byte = 0
         assert!(layout.magnitudes[1..32].iter().all(|&b| b == 0));
+        assert!(layout.signs.iter().all(|&b| b == 0));
     }
 
     #[test]
-    fn pack_tile_organized_signs_still_zero_iter3() {
-        // Iteration 3 marker: sign packing is iteration 4. Once that
-        // lands, this test will need updating.
-        let weights = vec![-1_i8; 256 * 256];
-        let layout = pack_tile_organized_magnitude(&weights, 256, 256, 64, 128);
-        assert!(layout.signs.iter().all(|&b| b == 0));
+    fn pack_tile_organized_known_offset_first_triplet_negative() {
+        // Row 0, cols 0..2 = (-1,-1,-1) → idx=13, sign=1.
+        // Magnitudes: byte 0 = 0xD0 (canonical magnitude same).
+        // Signs: byte 0 has bit 0 set (triplet_in_as=0).
+        let mut weights = vec![0_i8; 256 * 256];
+        weights[0] = -1;
+        weights[1] = -1;
+        weights[2] = -1;
+        let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
+        assert_eq!(layout.magnitudes[0], 0xD0);
+        assert_eq!(
+            layout.signs[0], 0b0000_0001,
+            "expected bit 0 set in sign byte 0; got 0x{:02X}",
+            layout.signs[0]
+        );
+        assert!(layout.signs[1..].iter().all(|&b| b == 0));
     }
 
     #[test]
     fn pack_tile_organized_rejects_size_mismatch() {
         let weights = vec![0_i8; 100]; // wrong: 100 != 256*256
-        let result =
-            std::panic::catch_unwind(|| pack_tile_organized_magnitude(&weights, 256, 256, 64, 128));
+        let result = std::panic::catch_unwind(|| pack_tile_organized(&weights, 256, 256, 64, 128));
         assert!(result.is_err());
     }
 }

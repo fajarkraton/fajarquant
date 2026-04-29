@@ -571,7 +571,7 @@ def pack_tl2_tile_organized(
                 w0 = int(weights[output_row, k_base])
                 w1 = int(weights[output_row, k_base + 1])
                 w2 = int(weights[output_row, k_base + 2])
-                mag_idx, _sign_bit = encode_triplet(w0, w1, w2)
+                mag_idx, sign_bit = encode_triplet(w0, w1, w2)
 
                 ai = triplet_in_kouter // 2
                 nibble_in_byte = triplet_in_kouter % 2
@@ -592,20 +592,40 @@ def pack_tl2_tile_organized(
                 else:
                     a_buf[byte_offset] |= (mag_idx & 0xF)
 
-                # Sign packing — DEFERRED to iteration 3.
-                # Reference layout for that work:
+                # Iteration 4 sign packing — INITIAL GUESS, will be
+                # validated by the parity_real_mlp test in iteration 5.
+                #
+                # Best guess from kernel layout analysis:
+                #   - KK/8 = 5 sign vectors per i_group (`vec_signs[as]`).
+                #   - Each sign vector is 32 bytes covering 32 output
+                #     rows (lanes 0..31).
+                #   - Each byte (1 lane) holds 8 sign bits, one per
+                #     triplet in the 8 triplets covered by that as_idx.
+                #
+                #   as_idx           = triplet_in_kouter // 8
+                #   triplet_in_as    = triplet_in_kouter %  8
                 #   sign_byte_offset = tile_idx * s_per_tile
                 #                    + k_outer * s_per_kouter
                 #                    + i_group * (s_per_kouter // 2)
-                #                    + as_index * 32
+                #                    + as_idx  * 32
                 #                    + lane
-                # where as_index = (triplet_in_kouter // 4) and the
-                # bit position within byte is some function of
-                # (triplet_in_kouter % 4). The exact bit layout
-                # follows the kernel's `slli_epi16(vec_sign, 4*k+sub)`
-                # pattern; trial+parity-test is the cheapest way to
-                # nail it.
-                _ = (s_per_tile, s_per_kouter, s_buf)  # silence unused-var
+                #   bit_in_byte      = triplet_in_as
+                #
+                # If iteration-5 parity fails: the bit_in_byte mapping
+                # likely needs a permutation (e.g., 4*k+sub interleaving
+                # with hi/lo unpack). Iterate via parity-test feedback.
+                if sign_bit:
+                    as_idx = triplet_in_kouter // 8
+                    triplet_in_as = triplet_in_kouter % 8
+                    if as_idx < (kk // 8):  # within KK/8 valid range
+                        sign_byte_off = (
+                            tile_idx * s_per_tile
+                            + k_outer * s_per_kouter
+                            + i_group * (s_per_kouter // 2)
+                            + as_idx * 32
+                            + lane
+                        )
+                        s_buf[sign_byte_off] |= (1 << triplet_in_as)
 
     return TL2TileLayout(
         magnitudes=bytes(a_buf),
