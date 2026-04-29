@@ -389,4 +389,168 @@ mod tests {
             "Three_QLUT should be populated; only {nonzero} non-zero bytes out of 2720 expected"
         );
     }
+
+    /// F.11.4 Branch X-real iteration 5 — parity test against scalar
+    /// baseline. Builds ONE TILE (BM=64 rows, K=256) of ternary
+    /// weights, encodes V31 + TL2 tile-organized, runs both paths,
+    /// compares i32 accumulator outputs.
+    ///
+    /// **Expected status: this test MAY FAIL on first run** —
+    /// iteration 4's sign-bit position is a guess. Failure mode +
+    /// diff guide iteration 6's debug.
+    ///
+    /// Strategy: keep the test atomic (one tile, deterministic
+    /// inputs) so failures are debuggable. Generalize to all 4
+    /// tiles once parity passes.
+    #[test]
+    #[ignore = "iteration 5 — known to potentially fail on sign-bit position; \
+                run with `cargo test --release --features bitnet_tl2 parity -- --ignored --nocapture` \
+                to capture diff for iteration 6 debug"]
+    fn parity_real_mlp_one_tile_at_mini_256_256() {
+        use crate::cpu_kernels::scalar_baseline::{absmax_quantize_i8, bitlinear_packed_scalar};
+        use crate::cpu_kernels::tl2_encoder::pack_tile_organized;
+
+        // Test geometry: ONE tile (BM=64 rows) of (256, 256) shape.
+        const M_FULL: i32 = 256; // shape selector for the kernel dispatch
+        const K: i32 = 256;
+        const BM: usize = 64;
+        const BBK: usize = 128;
+        const BS: i32 = 1;
+
+        // Deterministic synthetic ternary weights. Pattern: cycle
+        // through (0, 0, 0), (1, 0, 0), (0, 1, 0), ..., to exercise
+        // the magnitude index LUT at multiple values.
+        let mut weights = vec![0_i8; BM * K as usize];
+        for j in 0..BM {
+            for i in 0..K as usize {
+                weights[j * K as usize + i] = match (j + i) % 3 {
+                    0 => 0,
+                    1 => 1,
+                    _ => -1,
+                };
+            }
+        }
+
+        // Float activations: triangle wave so absmax = 8.
+        let activations: Vec<f32> = (0..K as usize)
+            .map(|i| ((i % 17) as i32 - 8) as f32)
+            .collect();
+        let (act_i8, _gamma_x) = absmax_quantize_i8(&activations);
+
+        // -------- SCALAR PATH --------
+        // Pack V31 row-major: 4 weights/byte, 2 bits/weight LE.
+        let mut v31_bytes = vec![0_u8; BM * K as usize / 4];
+        for (i, &w) in weights.iter().enumerate() {
+            let code: u8 = match w {
+                -1 => 0b00,
+                0 => 0b01,
+                1 => 0b10,
+                _ => unreachable!(),
+            };
+            v31_bytes[i / 4] |= code << ((i % 4) * 2);
+        }
+        let scalar_y = bitlinear_packed_scalar(&v31_bytes, &act_i8, BM, K as usize)
+            .expect("scalar bitlinear should succeed");
+
+        // -------- TL2 PATH --------
+        let layout = pack_tile_organized(&weights, BM, K as usize, BM, BBK);
+
+        // Allocate aligned buffers. Sizes for BS=1, M=256-shape,
+        // three_k=256, two_k=0:
+        //   B float: K = 256 floats
+        //   LUT_Scales: BS = 1 float (round up to 64B align)
+        //   Three_QLUT: BS * three_k/3 * 32 = 256/3*32 = 2720 bytes
+        //   Two_QLUT: 0 bytes (two_k=0); pass non-null aligned scratch
+        //   A: 1 tile worth = a_per_tile bytes (= 2 * 1344 = 2688)
+        //   sign: 1 tile worth = s_per_tile bytes (= 2 * 320 = 640)
+        //   Scales: 1 float
+        //   C: BM = 64 i32 = 256 bytes
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+        #[repr(align(64))]
+        struct AlignedU8<const N: usize>([u8; N]);
+        #[repr(align(64))]
+        struct AlignedI32<const N: usize>([i32; N]);
+
+        let mut b_buf = AlignedF32([0.0_f32; 256]);
+        for (i, slot) in b_buf.0.iter_mut().enumerate() {
+            *slot = activations[i];
+        }
+        let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]);
+        let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+        let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]);
+        let mut scales_buf = AlignedF32::<8>([1.0_f32; 8]); // β scale
+        let mut c_buf = AlignedI32::<64>([0_i32; 64]);
+
+        // Magnitude buffer must be 64-byte aligned + sized for ONE tile.
+        let mut a_buf = AlignedU8::<2752>([0_u8; 2752]); // pad 2688→2752
+        a_buf.0[..layout.magnitudes.len() / layout.n_tiles]
+            .copy_from_slice(&layout.magnitudes[..layout.magnitudes.len() / layout.n_tiles]);
+        let mut sign_buf = AlignedU8::<704>([0_u8; 704]); // pad 640→704
+        sign_buf.0[..layout.signs.len() / layout.n_tiles]
+            .copy_from_slice(&layout.signs[..layout.signs.len() / layout.n_tiles]);
+
+        // Run preprocessor + qgemm_lut three-path
+        unsafe {
+            super::fjq_tl2_preprocessor(
+                BS,
+                M_FULL,
+                K,
+                0,
+                b_buf.0.as_mut_ptr() as *mut c_void,
+                lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+            );
+            super::fjq_tl2_qgemm_lut(
+                BS,
+                M_FULL,
+                K,
+                K, // BK = K = 128 dispatches three-path
+                a_buf.0.as_mut_ptr() as *mut c_void,
+                sign_buf.0.as_mut_ptr() as *mut c_void,
+                three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                scales_buf.0.as_mut_ptr() as *mut c_void,
+                lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                c_buf.0.as_mut_ptr() as *mut c_void,
+            );
+        }
+
+        // -------- COMPARE --------
+        // Scalar y is i64; TL2 C is i32. Cast for comparison.
+        let mut diffs = Vec::new();
+        for i in 0..BM {
+            let scalar_val = scalar_y[i] as i32;
+            let tl2_val = c_buf.0[i];
+            if scalar_val != tl2_val {
+                diffs.push((i, scalar_val, tl2_val));
+            }
+        }
+
+        if !diffs.is_empty() {
+            eprintln!(
+                "PARITY DIFF — {} of {} outputs mismatch (first 5):",
+                diffs.len(),
+                BM
+            );
+            for &(i, sv, tv) in diffs.iter().take(5) {
+                eprintln!("  row {i}: scalar = {sv}, tl2 = {tv}, diff = {}", tv - sv);
+            }
+            eprintln!(
+                "Likely cause: iteration 4 sign-bit position guess is wrong. \
+                 Iteration 6 debug: try alternative bit-in-byte permutations \
+                 (interleaved hi/lo, 4-bit-per-byte, etc.)"
+            );
+        }
+
+        assert!(
+            diffs.is_empty(),
+            "{} of {} outputs differ — see eprintln above for diff sample",
+            diffs.len(),
+            BM
+        );
+    }
 }
