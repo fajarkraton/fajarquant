@@ -7,6 +7,105 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 chains
+
+**F.5.1.6 G5 forward-equivalence gate** (`6987de3`) — closes the
+§3.3 action item from F.5.1.6 findings.
+`SmoothQuantCalibrator.validate_forward_equivalence` deepcopies
+the model + measures pre/post Δ-loss on a probe batch; catches
+Run-7-style cumulative saturation that per-layer §4.6 gates miss.
+4 unit tests + wired into `eval_smoothquant_posthoc` with
+`--g5-threshold` flag.
+
+**F.5.1.7 Branch A pre-flight audit** (`d9f92bb`) — verdict
+**NO-GO Branch A primary, GO Branch B default** based on three
+load-bearing pieces of literature: BitNet v2 Table 5 (ternary +
+Hadamard weight-fusion ties or hurts at 1.3B/3B), MambaQuant 21%
+drop on Mamba at W8A8, ZERO published QuaRot on HGRN-family.
+Plus F.5.1's RMSNorm γ pre-absorption finding neutralizes
+QuaRot's strongest lever. Mechanical re-entry gates GATE A1/A2/A3
+specified.
+
+**F.11 chain — vendored microsoft/BitNet TL2 AVX2 kernel + FFI
+infrastructure** (15 fajarquant + 2 fajaros-x86 + 1 Fajar Lang
+commits, ~23h cumulative work, infrastructure-only landing):
+
+  Build + integration:
+  - `cpu_kernels/bitnet_tl2/` — vendored microsoft/BitNet TL2
+    (75 KB MIT-licensed source; attribution in
+    `THIRD_PARTY_NOTICES.md`); cc-crate `build.rs` +
+    `BITNET_OMIT_TRANSFORM` gate + freestanding-safe weak
+    `memset` stub
+    [`a098631`, `ea8b10a`, `41621a4`, `98ed310`, `5031e29`]
+  - `src/cpu_kernels/tl2.rs` — Rust shim with 64-byte alignment +
+    shape pre-validation (5 unit tests + preprocessor FFI smoke)
+    [`fffb9b7`, `73a8a45`]
+  - `src/cpu_kernels/scalar_baseline.rs` — Phase D scalar
+    BitLinear baseline ported to Rust (250 LOC, 10 tests)
+    [`2d2ab47`]
+  - `cpu_kernels/bitnet_tl2/codegen/codegen_tl2.py` — vendored
+    microsoft/BitNet codegen with `fajarquant_mini`
+    ModelShapeDict entry covering all 4 Mini BitLinear shapes
+    [`41621a4`]
+  - **fajaros-x86 Makefile `$(TL2_O)` target** + ld step
+    inclusion + `@ffi extern("C")` decls in
+    `kernel/compute/matmulfree.fj`
+    [fajaros-x86 `ac68866`, `7d1de9a`] — TL2 symbols at known
+    addresses in `fajaros-llvm.elf`:
+    `T fjq_tl2_preprocessor @0x1066f0`,
+    `T fjq_tl2_qgemm_lut @0x109010`,
+    `T fjq_tl2_self_test @0x106700`
+
+  Encoders + parity work:
+  - `python/phase_d/scripts/repack_to_tl2.py` (370 LOC, 23 tests)
+    + tile-organized layout extension; iteration 6 sign packing
+    derived from kernel `slli_epi16(vec_sign, 4*k+sub)` pattern
+    [`a098631`, `57bf7a9`, `b53ede3`, `b5a7471`, `1a52f90`]
+  - `src/cpu_kernels/tl2_encoder.rs` — Rust port mirroring Python
+    encoder (315 LOC, 11 tests)
+    [`56a69d2`, `b5a7471`, `1a52f90`]
+  - `parity_real_mlp_one_tile_at_mini_256_256` Rust test
+    (#[ignore]'d) — end-to-end V31 → TL2 → AVX2 → C[i] vs
+    `scalar_baseline::bitlinear_packed_scalar` comparison
+    [`328052b`]
+
+  **What works:**
+  - Vendored kernel + FFI symbols linked into FajarOS Nova ELF
+  - Magnitude byte encoding bit-exact (verified by sentinel +
+    hand-computed-offset tests across Python + Rust)
+  - 50/50 fajarquant lib + 33/33 Python tests PASS
+  - Smoke binary + preprocessor smoke run end-to-end through AVX2
+
+  **What's still BLOCKED (paper v2 narratives DEFERRED):**
+  - Bit-exact parity test fails 64/64 with consistent
+    sign-flip-symmetric diffs — magnitude correct, sign-bit
+    position has ~18 residual error per row after iteration 6
+    derivation + iteration 7 hypothesis exploration (H5/H6/H8
+    rejected; H7 untried).
+  - `make test-intllm-kernel-path` regression NOT yet run with
+    TL2 dispatch — fajaros-x86 builds and links the static lib
+    but no production code path calls `fjq_tl2_qgemm_lut`
+    (would crash on parity gap).
+  - F.11.5 tok/s benchmark + F.11.6 findings + paper v2 §6
+    hardware-perf table — gated on parity closure.
+
+  **Strategic decision branches** (per
+  `docs/FJQ_PHASE_F_F11_CHAIN_CLOSURE.md` +
+  `FJQ_PHASE_F_F11_BRANCH_X_ENCODER_LOCATION.md` +
+  `FJQ_PHASE_F_F11_X7_HYPOTHESIS_FINDINGS.md`):
+  - Path A: try H7 ai-ordering reversal (~1h); cheapest
+  - Path B: kernel disassembly inspection (~2-3h, exceeds budget)
+  - Path C: accept gap, pivot to F.13 dispatch heuristic OR
+    arXiv founder actions
+
+**Cumulative variance**: −47% on aggregate F.11 chain
+(infrastructure burn 12.75h vs 24h budget; full chain including
+parity 23h vs 24h, at practical limit). Per-iteration variances
+in individual commit messages.
+
+**CLAUDE.md V31.1 sync** in fajar-lang (`86989180`) — public
+footer reflects the F.11 infrastructure-only state honestly.
+
 ## [0.4.0] "Phase D IntLLM" — 2026-04-24
 
 V31.C Phase D IntLLM (1.58-bit MatMul-Free LLM training quantization)
