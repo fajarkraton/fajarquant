@@ -27,14 +27,31 @@
 // F.11.3.5: kernel header is now codegen-generated for Mini shapes
 // (256×256, 1536×256, 256×768, 32768×256). The freshly-generated
 // header includes `<cstring>` + `<immintrin.h>` correctly at the
-// top — the F.11.1 include-ordering workaround is no longer
-// strictly necessary, but we keep the early stdlib includes for
-// belt-and-suspenders against future codegen regressions.
-#include <cmath>
+// top.
+//
+// F.11.4(b).1: keep includes freestanding-safe so the same TU
+// compiles for both hosted Cargo builds AND `-ffreestanding
+// -nostdlib` FajarOS Nova kernel builds (under
+// BITNET_OMIT_TRANSFORM):
+//   - `<cstdint>` / `<cstring>` are freestanding-safe (libstdc++
+//     `requires_hosted.h` allows them; `memset` is intrinsified
+//     by `-ffreestanding` so it doesn't pull in libc).
+//   - `<immintrin.h>` is freestanding-safe (it's just an AVX2
+//     intrinsics header).
+//   - `<cmath>` and `<cstdlib>` are HOSTED-ONLY in libstdc++;
+//     replaced below by a tiny constexpr NAN. We use `NAN` only
+//     in `fjq_tl2_self_test` for contract-violation returns.
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <immintrin.h>
+
+// Freestanding-safe NAN constant (avoid <cmath> / <cstdlib>).
+// `__builtin_nanf("")` is a compiler intrinsic available in both
+// gcc and clang; it expands to a quiet-NaN bit pattern at compile
+// time without pulling in libm.
+#ifndef NAN
+#define NAN __builtin_nanf("")
+#endif
 
 #include "bitnet-lut-kernels-tl2.h"
 

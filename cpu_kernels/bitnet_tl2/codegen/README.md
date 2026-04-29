@@ -16,11 +16,29 @@ python3 codegen_tl2.py \
   --bm 32,32,32,32
 
 # Output lands in `../include/bitnet-lut-kernels.h`. Copy it next
-# to the wrapper, applying our standing include patch:
+# to the wrapper, applying our standing patches:
 cp ../include/bitnet-lut-kernels.h ../bitnet-lut-kernels-tl2.h
 sed -i 's|#include "ggml-bitnet.h"|#include "ggml-bitnet-stub.h"|' \
   ../bitnet-lut-kernels-tl2.h
 ```
+
+After the simple `sed` substitution above, manually re-apply the
+F.11.4(b).1 BITNET_OMIT_TRANSFORM gate:
+
+1. Insert `#if !defined(BITNET_OMIT_TRANSFORM)` (and the
+   explanatory comment block) immediately BEFORE the
+   `void ggml_bitnet_transform_tensor(...)` definition near the
+   end of the header.
+2. Insert `#endif  // !defined(BITNET_OMIT_TRANSFORM)` immediately
+   AFTER the closing `}` of `ggml_bitnet_transform_tensor`.
+
+Reason: that single function calls `aligned_malloc` →
+`posix_memalign`/`free`, the only libc symbols in the file. The
+gate excludes it from `-ffreestanding -nostdlib` builds (FajarOS
+Nova kernel) without affecting the active FFI surface
+(`fjq_tl2_qgemm_lut`, `fjq_tl2_preprocessor`,
+`fjq_tl2_self_test`), which never call into it. See
+`docs/FJQ_PHASE_F_F11_4B_INTEGRATION_AUDIT.md` §3.
 
 `include/` is `.gitignore`d — it's a build artifact, not a vendored
 file. Only the codegen source + `bitnet-lut-kernels-tl2.h` (the

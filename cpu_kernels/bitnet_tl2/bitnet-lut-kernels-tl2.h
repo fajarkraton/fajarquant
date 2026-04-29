@@ -3,6 +3,13 @@
 #include <cstring>
 #include <immintrin.h>
 #define GGML_BITNET_MAX_NODES 8192
+// fajarquant F.11.4(b).1 patch: gate aligned_malloc / aligned_free
+// behind BITNET_OMIT_TRANSFORM. They are called only by
+// `ggml_bitnet_transform_tensor` (the dead-code function gated
+// later in this file). Excluding them here avoids pulling in
+// posix_memalign/free for `-ffreestanding -nostdlib` FajarOS
+// kernel builds.
+#if !defined(BITNET_OMIT_TRANSFORM)
 static bool initialized = false;
 static bitnet_tensor_extra * bitnet_tensor_extras = nullptr;
 static size_t bitnet_tensor_extras_index = 0;
@@ -23,6 +30,7 @@ static void aligned_free(void * ptr) {
     free(ptr);
 #endif
 }
+#endif  // !defined(BITNET_OMIT_TRANSFORM) — aligned_malloc / aligned_free
 #define BK2 32
 #if defined __AVX2__
 inline void _mm256_merge_epi32(const __m256i v0, const __m256i v1, __m256i *vl, __m256i *vh)
@@ -1406,6 +1414,18 @@ void ggml_qgemm_lut(int bs, int m, int k, int BK, void* A, void* sign, void* LUT
     }
 }
 
+// fajarquant F.11.4(b).1 patch: gate ggml_bitnet_transform_tensor
+// behind BITNET_OMIT_TRANSFORM. This is the only function in the
+// vendored header that calls libc (posix_memalign / aligned_malloc /
+// free), via line 1442's `aligned_malloc(...)`. Our FFI surface
+// (fjq_tl2_qgemm_lut, fjq_tl2_preprocessor, fjq_tl2_self_test)
+// never calls this function — it's dead code. Define
+// `BITNET_OMIT_TRANSFORM` to exclude it from `-ffreestanding`
+// builds (FajarOS Nova kernel deployment). See
+// `docs/FJQ_PHASE_F_F11_4B_INTEGRATION_AUDIT.md` §3.
+// Re-apply this patch after re-running codegen_tl2.py per
+// `cpu_kernels/bitnet_tl2/codegen/README.md`.
+#if !defined(BITNET_OMIT_TRANSFORM)
 void ggml_bitnet_transform_tensor(struct ggml_tensor * tensor) {
     if (!(is_type_supported(tensor->type) && tensor->backend == GGML_BACKEND_TYPE_CPU && tensor->extra == nullptr)) {
         return;
@@ -1455,4 +1475,5 @@ else if (m == 32768 && k == 256) {
         /* .scales          = */ scales
     };
 }
+#endif  // !defined(BITNET_OMIT_TRANSFORM)
 #endif
