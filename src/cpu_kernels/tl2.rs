@@ -553,4 +553,262 @@ mod tests {
             BM
         );
     }
+
+    /// F.11.4 Branch X-real Path B step 2 — extended derivation
+    /// covering row 0 triplet 1, row 1 triplet 0, row 16 triplet 0,
+    /// row 0 triplet 2 (different ai). Same probe pattern as
+    /// step 1: set magnitude byte for the target (row, triplet)
+    /// to mag=13, all signs zero baseline, then sweep all bit
+    /// positions in the relevant byte pair.
+    #[test]
+    #[ignore = "Path B step 2 — extended derivation across multiple positions"]
+    fn derive_sign_bit_position_extended() {
+        use crate::cpu_kernels::scalar_baseline::absmax_quantize_i8;
+
+        const M_FULL: i32 = 256;
+        const K: i32 = 256;
+        const BS: i32 = 1;
+
+        let activations: Vec<f32> = (0..K as usize)
+            .map(|i| ((i % 17) as i32 - 8) as f32)
+            .collect();
+        let _ = absmax_quantize_i8(&activations);
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+        #[repr(align(64))]
+        struct AlignedU8<const N: usize>([u8; N]);
+        #[repr(align(64))]
+        struct AlignedI32<const N: usize>([i32; N]);
+
+        let test_cases: &[(&str, usize, usize, u8, usize, usize)] = &[
+            // (label, row, mag_byte_offset, mag_byte_value, sign_byte_pair_lo, output_idx_to_check)
+            ("row=0  triplet=0 (ai=0 nib=0)", 0, 0, 0xD0, 0, 0),
+            ("row=0  triplet=1 (ai=0 nib=1)", 0, 0, 0x0D, 0, 0),
+            ("row=0  triplet=2 (ai=1 nib=0)", 0, 32, 0xD0, 0, 0),
+            ("row=1  triplet=0 (ai=0 nib=0)", 1, 1, 0xD0, 2, 1),
+            ("row=15 triplet=0 (ai=0 nib=0)", 15, 15, 0xD0, 30, 15),
+            ("row=16 triplet=0 (ai=0 nib=0)", 16, 672, 0xD0, 0, 16),
+            ("row=17 triplet=0 (ai=0 nib=0)", 17, 673, 0xD0, 2, 17),
+        ];
+
+        for &(label, row, mag_off, mag_val, sign_pair_lo, out_idx) in test_cases {
+            // Run with all signs zero
+            let baseline = run_kernel(mag_off, mag_val, &[0_u8; 704], out_idx);
+            eprintln!("\n{label}: row={row}, baseline (signs=0) C[{out_idx}] = {baseline}");
+
+            for byte_idx in sign_pair_lo..sign_pair_lo + 2 {
+                for bit in 0..8_u8 {
+                    let mut signs = [0_u8; 704];
+                    signs[byte_idx] = 1 << bit;
+                    let result = run_kernel(mag_off, mag_val, &signs, out_idx);
+                    let bit_pos_in_lane = (byte_idx - sign_pair_lo) * 8 + bit as usize;
+                    let flipped = result.signum() != baseline.signum() && baseline != 0;
+                    if flipped || result == -baseline {
+                        eprintln!(
+                            "  byte {byte_idx} bit {bit} (lane bit {bit_pos_in_lane:2}): \
+                             C[{out_idx}] = {result:6}  {}",
+                            if result == -baseline {
+                                "← EXACT NEG"
+                            } else {
+                                "← FLIPS SIGN"
+                            }
+                        );
+                    }
+                }
+            }
+        }
+
+        fn run_kernel(
+            mag_byte_off: usize,
+            mag_byte_val: u8,
+            sign_bytes: &[u8; 704],
+            out_idx: usize,
+        ) -> i32 {
+            const BS: i32 = 1;
+            const M_FULL: i32 = 256;
+            const K: i32 = 256;
+
+            #[repr(align(64))]
+            struct AlignedF32<const N: usize>([f32; N]);
+            #[repr(align(64))]
+            struct AlignedI8<const N: usize>([i8; N]);
+            #[repr(align(64))]
+            struct AlignedU8<const N: usize>([u8; N]);
+            #[repr(align(64))]
+            struct AlignedI32<const N: usize>([i32; N]);
+
+            let mut a_buf = AlignedU8::<2752>([0_u8; 2752]);
+            a_buf.0[mag_byte_off] = mag_byte_val;
+
+            let mut sign_buf = AlignedU8::<704>([0_u8; 704]);
+            sign_buf.0.copy_from_slice(sign_bytes);
+
+            let mut b_buf = AlignedF32([0.0_f32; 256]);
+            for (i, slot) in b_buf.0.iter_mut().enumerate() {
+                *slot = ((i % 17) as i32 - 8) as f32;
+            }
+            let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]);
+            let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+            let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]);
+            let mut scales_buf = AlignedF32::<8>([1.0_f32; 8]);
+            let mut c_buf = AlignedI32::<64>([0_i32; 64]);
+
+            unsafe {
+                super::fjq_tl2_preprocessor(
+                    BS,
+                    M_FULL,
+                    K,
+                    0,
+                    b_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                );
+                super::fjq_tl2_qgemm_lut(
+                    BS,
+                    M_FULL,
+                    K,
+                    K,
+                    a_buf.0.as_mut_ptr() as *mut c_void,
+                    sign_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    scales_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    c_buf.0.as_mut_ptr() as *mut c_void,
+                );
+            }
+            c_buf.0[out_idx]
+        }
+    }
+
+    /// F.11.4 Branch X-real Path B step 1 — derive correct sign-bit
+    /// position empirically by trial-and-error against the live
+    /// AVX2 kernel.
+    ///
+    /// Setup: row 0 triplet 0 = (-1,-1,-1) → magnitude index 13,
+    /// sign should be 1 (negative). All other triplets zero.
+    /// Activations: triangle wave (`(i % 17) - 8`).
+    ///
+    /// Expected behavior:
+    ///   - Sign all-zero baseline: kernel computes Σ q_x[0..2]
+    ///     using LUT-stored canonical magnitude (positive value)
+    ///   - Sign with correct bit set: result sign-flips
+    ///
+    /// Probe ALL 16 bit positions of vec_signs[0] lane 0
+    /// (= bytes 0..1 of sign buffer). Whichever position flips
+    /// the C[0] output sign is THE answer for triplet 0 / row 0.
+    ///
+    /// Run: `cargo test --release --features bitnet_tl2
+    ///   derive_sign -- --ignored --nocapture`
+    #[test]
+    #[ignore = "Path B step 1 — diagnostic harness, prints \
+                bit-position map; not a pass/fail test"]
+    fn derive_sign_bit_position_for_first_triplet() {
+        use crate::cpu_kernels::scalar_baseline::absmax_quantize_i8;
+
+        const M_FULL: i32 = 256;
+        const K: i32 = 256;
+        const BS: i32 = 1;
+
+        let activations: Vec<f32> = (0..K as usize)
+            .map(|i| ((i % 17) as i32 - 8) as f32)
+            .collect();
+        let (_, _gamma_x) = absmax_quantize_i8(&activations);
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+        #[repr(align(64))]
+        struct AlignedU8<const N: usize>([u8; N]);
+        #[repr(align(64))]
+        struct AlignedI32<const N: usize>([i32; N]);
+
+        // Helper closure: run qgemm_lut with given sign byte values,
+        // return C[0].
+        let mut run_with_sign = |sign_bytes: &[u8; 704]| -> i32 {
+            // Magnitude buffer: byte 0 = 0xD0 (upper nibble idx=13
+            // = canonical (1,1,1); lower nibble = 0). All other
+            // bytes 0.
+            let mut a_buf = AlignedU8::<2752>([0_u8; 2752]);
+            a_buf.0[0] = 0xD0;
+
+            let mut sign_buf = AlignedU8::<704>([0_u8; 704]);
+            sign_buf.0.copy_from_slice(sign_bytes);
+
+            let mut b_buf = AlignedF32([0.0_f32; 256]);
+            for (i, slot) in b_buf.0.iter_mut().enumerate() {
+                *slot = activations[i];
+            }
+            let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]);
+            let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+            let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]);
+            let mut scales_buf = AlignedF32::<8>([1.0_f32; 8]);
+            let mut c_buf = AlignedI32::<64>([0_i32; 64]);
+
+            unsafe {
+                super::fjq_tl2_preprocessor(
+                    BS,
+                    M_FULL,
+                    K,
+                    0,
+                    b_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                );
+                super::fjq_tl2_qgemm_lut(
+                    BS,
+                    M_FULL,
+                    K,
+                    K,
+                    a_buf.0.as_mut_ptr() as *mut c_void,
+                    sign_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    scales_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    c_buf.0.as_mut_ptr() as *mut c_void,
+                );
+            }
+            c_buf.0[0]
+        };
+
+        // Baseline: all-zero signs
+        let zero_signs = [0_u8; 704];
+        let baseline = run_with_sign(&zero_signs);
+        eprintln!("baseline (signs=0): C[0] = {baseline}");
+        eprintln!(
+            "Probing bit positions of vec_signs[0] lane 0 (bytes 0..1):\n\
+             For each bit_pos in 0..16, set ONLY that bit, observe C[0]:"
+        );
+
+        for byte_idx in 0..2_usize {
+            for bit in 0..8_u8 {
+                let mut signs = zero_signs;
+                signs[byte_idx] = 1 << bit;
+                let result = run_with_sign(&signs);
+                let bit_pos_in_lane = byte_idx * 8 + bit as usize;
+                let flipped = result.signum() != baseline.signum() && baseline != 0;
+                eprintln!(
+                    "  byte {byte_idx} bit {bit} (lane bit {bit_pos_in_lane:2}): \
+                     C[0] = {result:6}  {} {}",
+                    if flipped { "← FLIPS SIGN" } else { "" },
+                    if result == -baseline {
+                        "← EXACT NEG"
+                    } else {
+                        ""
+                    },
+                );
+            }
+        }
+
+        eprintln!(
+            "\nIf any bit_pos flipped sign, that's THE answer for \
+             row 0 / triplet 0. Iter 6 predicted bit_pos=15 \
+             (byte 1, bit 7). Check above for actual."
+        );
+    }
 }
