@@ -445,8 +445,16 @@ def test_pack_tl2_tile_organized_all_negative_yields_idx13_all_signs() -> None:
 
 def test_pack_tl2_tile_organized_known_offset_negative_first_triplet() -> None:
     """Row 0, cols 0..2 = (-1,-1,-1) → idx=13, sign=1.
-    Magnitudes: byte 0 = 0xD0. Signs: byte 0 = 0b0000_0001
-    (bit 0 set; triplet_in_as=0)."""
+
+    Per iteration 6 sign layout:
+        row 0 → lane=0, lane_in_16=0, row_hi_lo=0
+        triplet 0 → as_idx=0, ai_in_as=0, nibble=0
+        bit_pos_in_lane = 15 - 4*0 - 2*0 - 0 = 15
+        byte_in_lane_pair = 15 // 8 = 1 (high byte of pair)
+        bit_in_byte = 15 % 8 = 7
+        sign_byte_off = 0 + 0 + 0 + 0*32 + 0*2 + 1 = 1
+        → byte 1 has bit 7 set = 0x80
+    """
     weights = np.zeros((256, 256), dtype=np.int8)
     weights[0, 0] = -1
     weights[0, 1] = -1
@@ -454,8 +462,9 @@ def test_pack_tl2_tile_organized_known_offset_negative_first_triplet() -> None:
 
     layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
     assert layout.magnitudes[0] == 0xD0
-    assert layout.signs[0] == 0b0000_0001, (
-        f"expected sign byte 0 = 0b00000001 (bit 0 set), "
-        f"got 0x{layout.signs[0]:02X}"
+    assert layout.signs[0] == 0x00
+    assert layout.signs[1] == 0x80, (
+        f"expected sign byte 1 = 0x80 (bit 7 set), "
+        f"got 0x{layout.signs[1]:02X}"
     )
-    assert all(b == 0 for b in layout.signs[1:])
+    assert all(b == 0 for b in layout.signs[2:])

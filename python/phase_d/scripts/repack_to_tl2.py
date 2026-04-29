@@ -592,40 +592,56 @@ def pack_tl2_tile_organized(
                 else:
                     a_buf[byte_offset] |= (mag_idx & 0xF)
 
-                # Iteration 4 sign packing — INITIAL GUESS, will be
-                # validated by the parity_real_mlp test in iteration 5.
+                # Iteration 6 sign packing — DERIVED from kernel
+                # `slli_epi16(vec_sign, 4*k+sub) → srai_epi16(_, 15)`
+                # bit-extraction pattern, refining iteration 4 guess.
                 #
-                # Best guess from kernel layout analysis:
-                #   - KK/8 = 5 sign vectors per i_group (`vec_signs[as]`).
-                #   - Each sign vector is 32 bytes covering 32 output
-                #     rows (lanes 0..31).
-                #   - Each byte (1 lane) holds 8 sign bits, one per
-                #     triplet in the 8 triplets covered by that as_idx.
+                # Per outer-k iteration (= as_idx), kernel processes 4
+                # ai's × 2 nibbles = 8 triplets per lane. Within one
+                # 16-bit lane of `vec_signs[as_idx]`, bit positions are:
                 #
-                #   as_idx           = triplet_in_kouter // 8
-                #   triplet_in_as    = triplet_in_kouter %  8
-                #   sign_byte_offset = tile_idx * s_per_tile
-                #                    + k_outer * s_per_kouter
-                #                    + i_group * (s_per_kouter // 2)
-                #                    + as_idx  * 32
-                #                    + lane
-                #   bit_in_byte      = triplet_in_as
+                #   For ai (= triplet_in_as // 2) ∈ {0..3}, kernel uses
+                #   bits {15, 14, 13, 12} - 4*ai. Of these:
+                #     - bit 15-4*ai = top_hi sign (top nibble, rows 0-15)
+                #     - bit 14-4*ai = top_lo sign (top nibble, rows 16-31)
+                #     - bit 13-4*ai = bot_hi sign (bot nibble, rows 0-15)
+                #     - bit 12-4*ai = bot_lo sign (bot nibble, rows 16-31)
                 #
-                # If iteration-5 parity fails: the bit_in_byte mapping
-                # likely needs a permutation (e.g., 4*k+sub interleaving
-                # with hi/lo unpack). Iterate via parity-test feedback.
+                # Compact:
+                #   bit_pos_in_lane = 15 - 4*ai - 2*nibble - row_hi_lo
+                #   where row_hi_lo = 0 if (row_in_i_group < 16) else 1
+                #
+                # 16-bit lane is `lane % 16` (within i_group's 32 rows,
+                # rows 0-15 share lanes 0-15 with rows 16-31; the lo/hi
+                # split is encoded in bit_pos_in_lane via row_hi_lo).
+                #
+                # 16-bit lane → 2 bytes in vec_signs. Byte = bit_pos // 8;
+                # bit_in_byte = bit_pos % 8. So:
+                #   byte_offset = i_group_s_off + (lane % 16) * 2
+                #                                + (bit_pos_in_lane // 8)
+                #   bit_set     = bit_pos_in_lane % 8
                 if sign_bit:
                     as_idx = triplet_in_kouter // 8
                     triplet_in_as = triplet_in_kouter % 8
-                    if as_idx < (kk // 8):  # within KK/8 valid range
+                    if as_idx < (kk // 8):
+                        ai_in_as = triplet_in_as // 2
+                        nibble_for_sign = triplet_in_as % 2  # 0=top, 1=bot
+                        row_hi_lo = 1 if lane >= 16 else 0
+                        bit_pos_in_lane = 15 - 4 * ai_in_as - 2 * nibble_for_sign - row_hi_lo
+
+                        byte_in_lane_pair = bit_pos_in_lane // 8  # 0=low, 1=high
+                        bit_in_byte = bit_pos_in_lane % 8
+                        lane_in_16 = lane % 16  # rows 0-15 and 16-31 share
+
                         sign_byte_off = (
                             tile_idx * s_per_tile
                             + k_outer * s_per_kouter
                             + i_group * (s_per_kouter // 2)
                             + as_idx * 32
-                            + lane
+                            + lane_in_16 * 2
+                            + byte_in_lane_pair
                         )
-                        s_buf[sign_byte_off] |= (1 << triplet_in_as)
+                        s_buf[sign_byte_off] |= (1 << bit_in_byte)
 
     return TL2TileLayout(
         magnitudes=bytes(a_buf),

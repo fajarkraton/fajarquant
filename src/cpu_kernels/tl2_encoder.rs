@@ -215,16 +215,31 @@ pub fn pack_tile_organized(
                     a_buf[byte_offset] |= mag_idx & 0xF;
                 }
 
+                // Iteration 6 sign packing — derived from kernel
+                // `slli_epi16+srai_epi16` bit-extraction pattern.
+                // See repack_to_tl2.py::pack_tl2_tile_organized §sign-packing
+                // for full derivation.
                 if sign_bit != 0 {
                     let as_idx = triplet_in_kouter / 8;
                     let triplet_in_as = triplet_in_kouter % 8;
                     if as_idx < max_as_idx {
+                        let ai_in_as = triplet_in_as / 2;
+                        let nibble_for_sign = triplet_in_as % 2; // 0=top, 1=bot
+                        let row_hi_lo = if lane >= 16 { 1 } else { 0 };
+                        let bit_pos_in_lane: usize =
+                            15 - 4 * ai_in_as - 2 * nibble_for_sign - row_hi_lo;
+
+                        let byte_in_lane_pair = bit_pos_in_lane / 8;
+                        let bit_in_byte = bit_pos_in_lane % 8;
+                        let lane_in_16 = lane % 16;
+
                         let sign_byte_off = tile_idx * s_per_tile
                             + k_outer * sizes.sign_per_kouter
                             + i_group * i_group_s_stride
                             + as_idx * 32
-                            + lane;
-                        s_buf[sign_byte_off] |= 1u8 << triplet_in_as;
+                            + lane_in_16 * 2
+                            + byte_in_lane_pair;
+                        s_buf[sign_byte_off] |= 1u8 << bit_in_byte;
                     }
                 }
             }
@@ -368,19 +383,27 @@ mod tests {
     fn pack_tile_organized_known_offset_first_triplet_negative() {
         // Row 0, cols 0..2 = (-1,-1,-1) → idx=13, sign=1.
         // Magnitudes: byte 0 = 0xD0 (canonical magnitude same).
-        // Signs: byte 0 has bit 0 set (triplet_in_as=0).
+        // Signs (per iteration 6 layout):
+        //   row 0 → lane=0, lane_in_16=0, row_hi_lo=0
+        //   triplet 0 → as_idx=0, ai_in_as=0, nibble=0
+        //   bit_pos_in_lane = 15 - 4*0 - 2*0 - 0 = 15
+        //   byte_in_lane_pair = 15 // 8 = 1 (high byte of pair)
+        //   bit_in_byte = 15 % 8 = 7
+        //   sign_byte_off = 0 + 0 + 0 + 0 + 0*2 + 1 = 1
+        //   → byte 1 has bit 7 set = 0x80
         let mut weights = vec![0_i8; 256 * 256];
         weights[0] = -1;
         weights[1] = -1;
         weights[2] = -1;
         let layout = pack_tile_organized(&weights, 256, 256, 64, 128);
         assert_eq!(layout.magnitudes[0], 0xD0);
+        assert_eq!(layout.signs[0], 0x00);
         assert_eq!(
-            layout.signs[0], 0b0000_0001,
-            "expected bit 0 set in sign byte 0; got 0x{:02X}",
-            layout.signs[0]
+            layout.signs[1], 0x80,
+            "expected bit 7 set in sign byte 1; got 0x{:02X}",
+            layout.signs[1]
         );
-        assert!(layout.signs[1..].iter().all(|&b| b == 0));
+        assert!(layout.signs[2..].iter().all(|&b| b == 0));
     }
 
     #[test]
