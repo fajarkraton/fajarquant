@@ -1,10 +1,11 @@
-# Phase F F.11 Branch X — Encoder Location Findings (v1.0)
+# Phase F F.11 Branch X — Encoder Location Findings (v1.1)
 
-> **Status:** Branch X audit COMPLETE. Located the upstream
-> llama.cpp fork; the TL2 weight-encoder logic is **NOT** in any
-> file we found, BUT a structural insight emerged: 3 of 4 Mini
-> shapes use a 2-bpw format that matches V31's existing wire
-> format. Branch X may need to handle only 1 shape, not 4.
+> **Status:** Branch X audit COMPLETE — but **§3.1 X-narrow scope
+> INVALIDATED in v1.1** on a closer kernel read. The (256, 256)
+> kernel dispatch goes through `three_qgemm_lut` (not
+> `two_qgemm_lut`), which requires magnitude+sign split — NOT a
+> compatible interpretation of V31's in-place 2-bit encoding.
+> See §7 below for the revised scope.
 
 ---
 
@@ -166,8 +167,82 @@ dispatch) remains a clean exit per
 
 ---
 
-*v1.0 — F.11 Branch X audit COMPLETE 2026-04-29. Encoder still
-not located, but a path-of-least-resistance subset (Branch
-X-narrow, ~3h) is identified.*
+## 7. v1.1 revision: Branch X-narrow scope INVALIDATED
 
-*Last updated: 2026-04-29 (V32-prep F.11 Branch X scoping).*
+Closer read of `bitnet-lut-kernels-tl2.h:1278` (the
+`ggml_qgemm_lut` dispatch table) shows:
+
+  - For (m=256, k=256), `BK=128` dispatches to
+    `three_qgemm_lut_256_256` (the 3-weight LUT path), NOT
+    `two_qgemm_lut`.
+  - `two_qgemm_lut_256_256` runs `for (k_outer = 0; k_outer < 0/32; ...)`
+    — ZERO iterations of MAC. It only does the dequant pass at the
+    end (`(float*)C[i] = (float)C[i] / LUT_Scales / Scales`).
+  - All actual matmul work for (256, 256) lives in
+    `three_qgemm_lut`, which expects A (4-bit magnitude indices,
+    2 per byte) AND a SEPARATE sign buffer.
+
+V31 stores `00=-1, 01=0, 10=+1` IN-PLACE: each 2-bit lane
+encodes both magnitude (zero or non-zero) AND sign (positive or
+negative) together. TL2's three-path EXTRACTS sign into a
+parallel array and stores only the unsigned magnitude INDEX
+(4 bits per triplet, mapping to one of 14 canonical unsigned
+forms).
+
+**These are different byte semantics. A naive byte-for-byte
+swap won't work, regardless of tile permutation.**
+
+The format formula's "2 bpw" verdict was about TOTAL BYTE
+COUNT, not byte SEMANTICS. The byte-count for our (256, 256)
+shape happens to equal V31's 16,384 bytes via an arithmetic
+coincidence — the kernel ACTUALLY reads 10,752 mag bytes +
+2,560 sign bytes = 13,312 bytes via tile-organized strides.
+
+### 7.1 Revised Branch X scope: X-real (~5-8h)
+
+Per the §6 v1.0 estimate (which was correct before the X-narrow
+detour):
+
+1. Re-use F.11.0's algorithmic encoder (commit `a098631`):
+   per-triplet → 14-entry magnitude index + 1-bit sign.
+   Already shipped, 23/23 tests passing.
+2. Add a **tile-organization pass**: walk output rows in
+   BM=64 chunks, then walk k_outer blocks (BBK=128 chunks),
+   then walk ai-strided 32-byte SIMD vectors. Emit two
+   parallel byte streams (magnitude + sign).
+3. Verify byte counts match empirical strides:
+   - A: 4 tiles × 2 k_outer × 21 vectors × 32 bytes × 2
+     i-groups = **10,752 B**
+   - sign: 4 × 2 × 5 vectors × 32 bytes × 2 i-groups = **2,560 B**
+4. Write `parity_real_mlp` test at (256, 256). Bit-exact.
+5. Adjust on parity failure (likely ≥1 iteration to debug
+   the exact in-byte ordering).
+
+**Total: 5-8h.** Matches the original v1.0 §6.3 X-full estimate
+of 8-12h (slightly tighter because F.11.0 is already done).
+
+### 7.2 What this means for next session entry
+
+The "narrow → quick win → ship" path doesn't exist. The real
+choice is:
+
+- **Branch X-real** (~6h median): commit to the encoder port.
+  9.75h F.11 chain budget headroom fits comfortably.
+- **Branch Z** (~1d): pivot to F.13 dispatch heuristic. F.11
+  ships infrastructure-only.
+- **Pause + review**: 17 commits is a natural review point.
+- **Pivot to founder actions**: arXiv submission (founder
+  time, parallel-able with X).
+
+Honest accounting: my v1.0 scoping was over-optimistic about
+finding a "byte-shuffle" shortcut. Real work is real.
+
+---
+
+*v1.1 — F.11 Branch X v1.0 X-narrow scope INVALIDATED
+2026-04-29 on closer kernel-internals read. X-real (~6h) is
+the correct estimate; matches v1.0 §6.3 X-full minus F.11.0
+re-use.*
+
+*Last updated: 2026-04-29 (V32-prep F.11 Branch X v1.1
+revision).*
