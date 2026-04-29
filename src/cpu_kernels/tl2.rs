@@ -297,12 +297,96 @@ mod tests {
         let buf = Aligned([0u8; 64]);
         let p = buf.0.as_ptr() as *mut c_void;
 
-        // (768, 1024) is the Mini gate_proj-ish shape; not in the
-        // 3B preset's supported set.
+        // (768, 1024) is NOT in TL2_SUPPORTED_SHAPES even after the
+        // F.11.3.5 Mini codegen swap (Mini covers 256 / 1536 / 32768
+        // dims, not 768 outputs).
         let result = unsafe { qgemm_lut(1, 768, 1024, 96, p, p, p, p, p, p) };
         assert!(
             matches!(result, Err(ShimError::UnsupportedShape { m: 768, k: 1024 })),
-            "Mini-shape (768, 1024) should be rejected, got {result:?}"
+            "(768, 1024) should be rejected, got {result:?}"
+        );
+    }
+
+    /// F.11.4(a) PARTIAL: end-to-end exercise the `fjq_tl2_preprocessor`
+    /// FFI surface. The preprocessor takes only activation buffers
+    /// (B, LUT_Scales, Three_QLUT, Two_QLUT) — NOT the A/sign weight
+    /// buffers. This means we can validate preprocessor's correctness
+    /// WITHOUT needing the upstream Python convert.py path that lays
+    /// out tile-organized A/sign (which is the F.11.4(b) prerequisite).
+    ///
+    /// What this test verifies:
+    ///   1. The preprocessor entry point links and runs without
+    ///      segfaulting on properly-aligned, properly-sized buffers.
+    ///   2. LUT_Scales matches `per_tensor_quant`'s formula
+    ///      (127 / max|b|), already validated by `self_test`.
+    ///   3. Three_QLUT gets meaningfully non-zero entries (at least
+    ///      one byte != 0), confirming `three_lut_ctor` actually
+    ///      ran on AVX2 inside the preprocessor.
+    #[test]
+    fn preprocessor_smoke_at_mini_256_256() {
+        // Allocate 64-byte-aligned buffers using a #[repr(align(64))]
+        // struct wrapper. Sizes per upstream codegen:
+        //   B: k floats = 256 floats = 1024 bytes (need to round up)
+        //   LUT_Scales: bs floats = 1 float
+        //   Three_QLUT: bs * three_k / 3 * 32 bytes per upstream
+        //               codegen. For three_k=256, bs=1: 256/3 = 85,
+        //               * 32 = 2720 bytes. Round up to 64-byte
+        //               aligned: 2752 bytes.
+        //   Two_QLUT: bs * two_k / 2 * 32 = 0 for two_k=0; pass a
+        //             non-null aligned pointer regardless to keep
+        //             the FFI guard happy.
+        const K: usize = 256;
+        const M: i32 = 256;
+        const THREE_K: i32 = 256;
+        const TWO_K: i32 = 0;
+        const BS: i32 = 1;
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+
+        // Triangle-wave activations (max|b| = 8 → LUT_Scales = 127/8 = 15.875)
+        let mut b_buf = AlignedF32([0.0_f32; K]);
+        for (i, slot) in b_buf.0.iter_mut().enumerate() {
+            *slot = ((i % 17) as i32 - 8) as f32;
+        }
+        let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]); // 32B aligned to 64B
+        let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+        let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]); // unused, but FFI wants ptr
+
+        // SAFETY: all pointers are 64-byte aligned (repr(align(64)))
+        // and exclusively borrowed; FFI runs single-threaded.
+        unsafe {
+            super::fjq_tl2_preprocessor(
+                BS,
+                M,
+                THREE_K,
+                TWO_K,
+                b_buf.0.as_mut_ptr() as *mut c_void,
+                lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+            );
+        }
+
+        // Verify LUT_Scales[0] matches the self_test formula
+        // (127 / max|b|). Triangle wave max|b| = 8 → expected 15.875.
+        let scale = lut_scales_buf.0[0];
+        let expected = 127.0_f32 / 8.0;
+        let rel_err = (scale - expected).abs() / expected;
+        assert!(
+            rel_err < 1e-3,
+            "LUT_Scales[0] = {scale:.6} should match per_tensor_quant 127/max|b| = {expected:.6} (rel_err {rel_err:.4e})"
+        );
+
+        // Verify Three_QLUT has meaningful content (not still all
+        // zeros). At least 16 bytes should be non-zero — `three_lut_ctor`
+        // emits 14-entry magnitude LUTs at fixed offsets.
+        let nonzero = three_qlut_buf.0.iter().filter(|&&b| b != 0).count();
+        assert!(
+            nonzero > 16,
+            "Three_QLUT should be populated; only {nonzero} non-zero bytes out of 2720 expected"
         );
     }
 }
