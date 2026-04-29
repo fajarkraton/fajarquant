@@ -20,14 +20,16 @@
 //! adopt **64-byte alignment** uniformly so callers don't have to
 //! reason per-pointer about which threshold applies.
 //!
-//! **Shape-locking caveat.** The vendored preset header is
-//! shape-locked to `bitnet_b1_58-3B` ({3200×8640, 3200×3200,
-//! 8640×3200}). `fjq_tl2_qgemm_lut` ONLY produces meaningful
-//! output for those `(m, k)` pairs; calling it with anything else
-//! is undefined. F.11.3 will either generate a Mini-shape preset
-//! via `utils/codegen_tl2.py` or implement a shape-generic Rust
-//! fallback. For F.11.2 we expose `qgemm_lut` with the shape
-//! constraint enforced as a returned error, NOT silently.
+//! **Shape support.** F.11.3.5 ships the `fajarquant_mini` codegen
+//! output via `utils/codegen_tl2.py`. Supported shapes are the
+//! Phase D Mini ckpt's BitLinears: (256, 256) for the four attention
+//! projections, (1536, 256) for `mlp.gate_proj` (output is
+//! `2 × intermediate` per HGRNBitMLP swiglu chunking), (256, 768) for
+//! `mlp.down_proj`, and (32768, 256) for `lm_head`. Other `(m, k)`
+//! pairs return `ShimError::UnsupportedShape`. To support new
+//! shapes, add them to `ModelShapeDict["fajarquant_mini"]` in
+//! `cpu_kernels/bitnet_tl2/codegen/codegen_tl2.py` and re-run
+//! codegen (see that directory's README at the top of the script).
 
 use core::ffi::c_void;
 
@@ -83,10 +85,17 @@ unsafe extern "C" {
 /// per-pointer requirements.
 pub const TL2_ALIGNMENT: usize = 64;
 
-/// Vendored preset shapes (shape-locked to bitnet_b1_58-3B per §1).
+/// Vendored preset shapes. F.11.3.5 ships the
+/// `fajarquant_mini` codegen output: BitLinear shapes for the
+/// Phase D Mini ckpt (hidden=256, intermediate=768, vocab=32768).
 /// Any (m, k) pair not in this set returns
 /// `ShimError::UnsupportedShape` from `qgemm_lut`.
-pub const TL2_SUPPORTED_SHAPES: &[(i32, i32)] = &[(3200, 8640), (3200, 3200), (8640, 3200)];
+pub const TL2_SUPPORTED_SHAPES: &[(i32, i32)] = &[
+    (256, 256),   // attn.{i,f,g,o}_proj × 4 sites
+    (1536, 256),  // mlp.gate_proj (out = 2 × intermediate)
+    (256, 768),   // mlp.down_proj
+    (32768, 256), // lm_head
+];
 
 /// Errors surfaced by the safe shim BEFORE calling into FFI. By
 /// validating up-front, we turn UB-class bugs (mis-aligned ptr,
@@ -228,14 +237,16 @@ mod tests {
             "ptr+1 from a 64-byte-aligned base must NOT be 64-byte aligned"
         );
 
-        // Demonstrate the safe wrapper's ShimError surface using a
-        // shape-violation signal (which doesn't require constructing
-        // valid buffers); the alignment branch is symmetric.
+        // Demonstrate the safe wrapper's ShimError surface: pass a
+        // SUPPORTED Mini shape with an unaligned pointer. The shape
+        // check fires FIRST (before alignment), so we MUST use a
+        // current Mini shape here — (256, 256) is in the
+        // F.11.3.5 supported set.
         let bogus_ptr = 1usize as *mut c_void; // unaligned by construction
         assert!(!is_tl2_aligned(bogus_ptr));
         let result = unsafe {
             qgemm_lut(
-                1, 3200, 8640, 96, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr,
+                1, 256, 256, 128, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr, bogus_ptr,
             )
         };
         assert!(matches!(result, Err(ShimError::NotAligned { .. })));

@@ -94,3 +94,8 @@ Thumbs.db
 .env
 paper/mlsys_template/
 paper/mlsys2026style.zip
+
+# V32-prep F.11.3.5 — codegen intermediate (regenerable from
+# cpu_kernels/bitnet_tl2/codegen/codegen_tl2.py; tracked output
+# is bitnet-lut-kernels-tl2.h)
+cpu_kernels/bitnet_tl2/include/

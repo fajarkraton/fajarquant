@@ -24,21 +24,17 @@
 
 #define GGML_BITNET_X86_TL2 1
 
-// stdlib headers MUST be included before the upstream kernel header:
-// the upstream `bitnet-lut-kernels-tl2.h` references `memset` /
-// `posix_memalign` / `_aligned_malloc` etc. inside its template
-// definitions WITHOUT including the corresponding stdlib headers
-// itself. In upstream's build path, this works because
-// `ggml-bitnet-lut.cpp` includes them first; we mirror that order
-// here.
+// F.11.3.5: kernel header is now codegen-generated for Mini shapes
+// (256×256, 1536×256, 256×768, 32768×256). The freshly-generated
+// header includes `<cstring>` + `<immintrin.h>` correctly at the
+// top — the F.11.1 include-ordering workaround is no longer
+// strictly necessary, but we keep the early stdlib includes for
+// belt-and-suspenders against future codegen regressions.
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <immintrin.h>  // upstream header has `<immintrin.h>` at line
-                        // 269 but uses __m256i/_mm256_* helpers from
-                        // line 25 onward. Include early so the
-                        // pre-line-269 inline functions parse.
+#include <immintrin.h>
 
 #include "bitnet-lut-kernels-tl2.h"
 
