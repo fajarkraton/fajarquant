@@ -509,7 +509,7 @@ mod tests {
                 BS,
                 M_FULL,
                 K,
-                K, // BK = K = 128 dispatches three-path
+                128, // BK=128 (= BBK256_256) dispatches three-path
                 a_buf.0.as_mut_ptr() as *mut c_void,
                 sign_buf.0.as_mut_ptr() as *mut c_void,
                 three_qlut_buf.0.as_mut_ptr() as *mut c_void,
@@ -671,7 +671,7 @@ mod tests {
                     BS,
                     M_FULL,
                     K,
-                    K,
+                    128, // BK=128 dispatches three-path
                     a_buf.0.as_mut_ptr() as *mut c_void,
                     sign_buf.0.as_mut_ptr() as *mut c_void,
                     three_qlut_buf.0.as_mut_ptr() as *mut c_void,
@@ -764,7 +764,7 @@ mod tests {
                     BS,
                     M_FULL,
                     K,
-                    K,
+                    128, // BK=128 dispatches three-path (was K=256, no-op)
                     a_buf.0.as_mut_ptr() as *mut c_void,
                     sign_buf.0.as_mut_ptr() as *mut c_void,
                     three_qlut_buf.0.as_mut_ptr() as *mut c_void,
