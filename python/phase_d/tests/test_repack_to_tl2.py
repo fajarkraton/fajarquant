@@ -298,3 +298,87 @@ def test_layout_namedtuple_immutable() -> None:
     layout = TL2WireLayout(b"", b"", b"", 0, 0, "none")
     with pytest.raises(AttributeError):
         layout.n_weights = 99  # type: ignore[misc]
+
+
+# -----------------------------------------------------------------
+# §X. Tile-organized encoder (V32-prep F.11.4 Branch X-real, scaffold)
+# -----------------------------------------------------------------
+
+from repack_to_tl2 import (  # noqa: E402
+    TL2TileLayout,
+    pack_tl2_tile_organized,
+    tl2_tile_layout_sizes,
+)
+
+
+def test_tl2_tile_layout_sizes_mini_256_256() -> None:
+    """Per kernel strides for the smallest Mini shape (256, 256)
+    with BM=64 / BBK=128:
+        a_bytes    = 4 tiles × 2 k_outer × (2 × 21 × 32) = 10,752 B
+        sign_bytes = 4 tiles × 2 k_outer × (2 × 5  × 32) = 2,560 B
+    """
+    sizes = tl2_tile_layout_sizes(m=256, k=256, bm=64, bbk=128)
+    assert sizes["a_bytes"] == 10_752, (
+        f"expected 10,752 A bytes for (256, 256), got {sizes['a_bytes']}"
+    )
+    assert sizes["sign_bytes"] == 2_560, (
+        f"expected 2,560 sign bytes for (256, 256), got {sizes['sign_bytes']}"
+    )
+    assert sizes["n_tiles"] == 4
+    assert sizes["n_kouter"] == 2
+    assert sizes["a_per_kouter"] == 1_344
+    assert sizes["sign_per_kouter"] == 320
+
+
+def test_tl2_tile_layout_sizes_mini_1536_256() -> None:
+    """Larger Mini shape: gate_proj (1536, 256). 24 tiles × 2 k_outer."""
+    sizes = tl2_tile_layout_sizes(m=1536, k=256, bm=64, bbk=128)
+    assert sizes["n_tiles"] == 24
+    assert sizes["n_kouter"] == 2
+    assert sizes["a_bytes"] == 24 * 2 * 1_344  # = 64,512
+    assert sizes["sign_bytes"] == 24 * 2 * 320  # = 15,360
+
+
+def test_tl2_tile_layout_sizes_rejects_non_divisible() -> None:
+    with pytest.raises(ValueError, match="not divisible by BM"):
+        tl2_tile_layout_sizes(m=200, k=256, bm=64, bbk=128)
+    with pytest.raises(ValueError, match="not divisible by BBK"):
+        tl2_tile_layout_sizes(m=256, k=200, bm=64, bbk=128)
+
+
+def test_pack_tl2_tile_organized_scaffold_returns_correct_sizes() -> None:
+    """Scaffold check: byte-count matches tl2_tile_layout_sizes
+    (content is zero-initialized; populated in next iteration)."""
+    weights = np.zeros((256, 256), dtype=np.int8)
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    assert isinstance(layout, TL2TileLayout)
+    assert len(layout.magnitudes) == 10_752
+    assert len(layout.signs) == 2_560
+    assert layout.m == 256
+    assert layout.k == 256
+    assert layout.bm == 64
+    assert layout.bbk == 128
+    assert layout.n_tiles == 4
+    assert layout.n_kouter == 2
+
+
+def test_pack_tl2_tile_organized_rejects_wrong_dim() -> None:
+    """1-D weight arrays are rejected; only 2-D (m, k) supported."""
+    weights_1d = np.zeros(256 * 256, dtype=np.int8)
+    with pytest.raises(ValueError, match="must be 2-D"):
+        pack_tl2_tile_organized(weights_1d, bm=64, bbk=128)
+
+
+def test_pack_tl2_tile_organized_scaffold_zero_content() -> None:
+    """Scaffold STATUS: byte content is currently zero (TODO marker
+    in the function body). This test will FAIL once the next
+    iteration populates the bytes — at which point swap to
+    `assert all(b != 0 for b in ...)` or a parity-vs-scalar test."""
+    weights = np.full((256, 256), -1, dtype=np.int8)  # non-zero ternary
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    assert all(b == 0 for b in layout.magnitudes), (
+        "scaffold expected zero content; if non-zero seen, the next "
+        "iteration's content logic landed — update this test to a "
+        "real parity check"
+    )
+    assert all(b == 0 for b in layout.signs)

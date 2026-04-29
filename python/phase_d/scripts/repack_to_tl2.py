@@ -394,7 +394,165 @@ def tl2_storage_bytes(n_weights: int) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# §7. CLI driver — repack a Mini-ckpt MLP weight tensor (smoke validation)
+# §7. Tile-organized encoder (V32-prep F.11.4 Branch X-real)
+# ---------------------------------------------------------------------------
+#
+# Per `cpu_kernels/bitnet_tl2/bitnet-lut-kernels-tl2.h`
+# `three_tbl_impl_<m>_<k>` inner loops, the AVX2 kernel reads:
+#
+#     vec_as[ai] = a[i * KK / 2 + ai * 32]    for ai ∈ [0, KK/2)
+#     vec_signs[as] = sign[i * KK / 8 + as * 32]  for as ∈ [0, KK/8)
+#
+# where KK = BBK / 3 and i ∈ {0, 32} (two i-groups for BM=64).
+#
+# This means the magnitude buffer A and sign buffer are NOT
+# row-major; they're organized by (output-tile, k-outer block,
+# i-group, ai-vector, lane). The encoder below emits them in
+# this layout so a single `fjq_tl2_qgemm_lut(A, sign, ...)` call
+# Just Works on real ternary data.
+#
+# Tile geometry per F.11.4 Branch X v1.1 (`e038acf`):
+#
+#     tile_idx          = output_row // BM            (e.g., 4 tiles for m=256, BM=64)
+#     row_in_tile       = output_row %  BM
+#     i_group           = row_in_tile // 32
+#     lane              = row_in_tile %  32
+#
+#     k_outer           = triplet_col_idx // KK       (KK=42 for BBK=128)
+#     triplet_in_kouter = triplet_col_idx %  KK
+#     ai                = triplet_in_kouter // 2
+#     nibble_in_byte    = triplet_in_kouter %  2      (0=upper, 1=lower)
+#
+# Per (tile, k_outer) sub-block, A buffer length:
+#     2 i-groups × 21 ai-vectors × 32 bytes   = 1344 bytes
+# Per matrix: tile_count × kouter_count × 1344 bytes.
+#
+# Sign buffer per (tile, k_outer) sub-block:
+#     2 i-groups × 5  as-vectors × 32 bytes   = 320  bytes
+#
+# **CURRENT STATUS: SCAFFOLD ONLY.** The byte-count math is
+# verified by §7-tests; the byte CONTENT logic is TODO. F.11.4
+# Branch X-real next iteration will populate the per-byte
+# magnitude+sign emission per the indexing rule above.
+
+class TL2TileLayout(NamedTuple):
+    """Tile-organized TL2 wire layout produced by
+    :func:`pack_tl2_tile_organized`. Output dtype is bytes; the
+    kernel reads via uint8_t* so endianness is not relevant.
+
+    Attributes:
+        magnitudes: A buffer (4-bit magnitude indices, 2 per byte
+            via upper/lower nibbles), tile-organized.
+        signs: parallel sign buffer (1 bit per triplet, packed).
+        m, k: matrix dimensions (rows × cols).
+        bm: row-tile dimension (typically 64 for Mini shapes).
+        bbk: inner k-block dimension (typically 128 for Mini shapes).
+        n_tiles: m // bm.
+        n_kouter: K // BBK (number of inner k blocks per tile).
+    """
+
+    magnitudes: bytes
+    signs: bytes
+    m: int
+    k: int
+    bm: int
+    bbk: int
+    n_tiles: int
+    n_kouter: int
+
+
+def tl2_tile_layout_sizes(m: int, k: int, bm: int = 64, bbk: int = 128) -> dict[str, int]:
+    """Compute byte counts for the tile-organized layout.
+
+    Per the kernel stride formulas at the top of §7:
+
+        kk            = bbk // 3
+        a_per_kouter  = 2 * (kk // 2) * 32      (2 i-groups; ceiling for KK/2)
+        s_per_kouter  = 2 * (kk // 8) * 32      (2 i-groups; floor for KK/8)
+        a_total       = (m // bm) * (k // bbk) * a_per_kouter
+        s_total       = (m // bm) * (k // bbk) * s_per_kouter
+
+    For (m=256, k=256, BM=64, BBK=128) — the smallest Mini shape:
+        kk            = 42
+        a_per_kouter  = 2 * 21 * 32 = 1344
+        s_per_kouter  = 2 * 5  * 32 = 320
+        a_total       = 4 * 2 * 1344 = 10,752 bytes
+        s_total       = 4 * 2 * 320  = 2,560 bytes
+
+    Returns:
+        Dict with keys ``a_bytes``, ``sign_bytes``, ``a_per_kouter``,
+        ``sign_per_kouter``, ``n_tiles``, ``n_kouter``.
+
+    Raises:
+        ValueError: if m % bm != 0 or k % bbk != 0 (kernel preconditions).
+    """
+    if m % bm != 0:
+        raise ValueError(f"m={m} not divisible by BM={bm}")
+    if k % bbk != 0:
+        raise ValueError(f"k={k} not divisible by BBK={bbk}")
+    kk = bbk // 3
+    a_per_kouter = 2 * (kk // 2) * 32
+    s_per_kouter = 2 * (kk // 8) * 32
+    n_tiles = m // bm
+    n_kouter = k // bbk
+    return {
+        "a_bytes": n_tiles * n_kouter * a_per_kouter,
+        "sign_bytes": n_tiles * n_kouter * s_per_kouter,
+        "a_per_kouter": a_per_kouter,
+        "sign_per_kouter": s_per_kouter,
+        "n_tiles": n_tiles,
+        "n_kouter": n_kouter,
+    }
+
+
+def pack_tl2_tile_organized(
+    weights: np.ndarray,
+    bm: int = 64,
+    bbk: int = 128,
+) -> TL2TileLayout:
+    """SCAFFOLD ONLY — emits zero-initialized buffers of the
+    correct sizes per the kernel stride formulas. Byte CONTENT
+    logic is the next Branch X-real iteration's deliverable.
+
+    Args:
+        weights: int8 ndarray, shape ``(m, k)``, values in
+            ``{-1, 0, +1}``.
+        bm: row-tile dim (default 64 — matches all 4 Mini shapes
+            from `fajarquant_mini` codegen ModelShapeDict).
+        bbk: inner k-block dim (default 128 — same).
+
+    Returns:
+        :class:`TL2TileLayout` with `magnitudes` / `signs` byte
+        streams of correct length but zero content. Bit-exact
+        parity test will fail until §7's TODO section is
+        implemented.
+    """
+    if weights.ndim != 2:
+        raise ValueError(f"weights must be 2-D (m, k); got shape {weights.shape}")
+    m, k = int(weights.shape[0]), int(weights.shape[1])
+    sizes = tl2_tile_layout_sizes(m, k, bm, bbk)
+
+    # TODO(F.11.4 Branch X-real iteration 2): populate bytes per
+    # the indexing rule at the top of §7. Each output_row × triplet
+    # combination maps to a specific byte offset + nibble + sign-bit
+    # position; encode per F.11.0's `encode_triplet`.
+    a_bytes = bytes(sizes["a_bytes"])
+    sign_bytes = bytes(sizes["sign_bytes"])
+
+    return TL2TileLayout(
+        magnitudes=a_bytes,
+        signs=sign_bytes,
+        m=m,
+        k=k,
+        bm=bm,
+        bbk=bbk,
+        n_tiles=sizes["n_tiles"],
+        n_kouter=sizes["n_kouter"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# §8. CLI driver — repack a Mini-ckpt MLP weight tensor (smoke validation)
 # ---------------------------------------------------------------------------
 
 def _main() -> int:  # pragma: no cover  (CLI entry; tests cover library API)
