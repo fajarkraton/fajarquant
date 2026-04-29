@@ -510,38 +510,106 @@ def pack_tl2_tile_organized(
     bm: int = 64,
     bbk: int = 128,
 ) -> TL2TileLayout:
-    """SCAFFOLD ONLY — emits zero-initialized buffers of the
-    correct sizes per the kernel stride formulas. Byte CONTENT
-    logic is the next Branch X-real iteration's deliverable.
+    """Pack ternary weights into TL2 tile-organized wire format.
+
+    F.11.4 Branch X-real iteration 2: populates the magnitude
+    byte stream per the indexing rule documented at §7's docstring.
+    Sign byte stream remains ZERO (deferred to iteration 3 — the
+    in-byte sign-bit position requires unfolding the kernel's
+    `_mm256_slli_epi16(vec_sign, 4*k+sub)` pattern, easier to
+    debug against a real parity test that catches sign-flip
+    failures).
+
+    Algorithm: walk every full triplet `(w0, w1, w2)` at
+    `(output_row, k_idx*3 .. k_idx*3+2)`; encode via
+    :func:`encode_triplet` to get `(magnitude_index, sign_bit)`;
+    place `magnitude_index` into the byte at the computed offset
+    + nibble. K-mod-3 leftover (e.g., 256 mod 3 == 1) is dropped —
+    the kernel's KK = BBK/3 truncation matches this behavior.
 
     Args:
         weights: int8 ndarray, shape ``(m, k)``, values in
             ``{-1, 0, +1}``.
-        bm: row-tile dim (default 64 — matches all 4 Mini shapes
-            from `fajarquant_mini` codegen ModelShapeDict).
+        bm: row-tile dim (default 64 — matches all 4 Mini shapes).
         bbk: inner k-block dim (default 128 — same).
 
     Returns:
-        :class:`TL2TileLayout` with `magnitudes` / `signs` byte
-        streams of correct length but zero content. Bit-exact
-        parity test will fail until §7's TODO section is
-        implemented.
+        :class:`TL2TileLayout` with magnitude bytes populated +
+        zero sign bytes. Use the parity test in
+        `src/cpu_kernels/tl2.rs` (iteration 3) to validate.
     """
     if weights.ndim != 2:
         raise ValueError(f"weights must be 2-D (m, k); got shape {weights.shape}")
     m, k = int(weights.shape[0]), int(weights.shape[1])
     sizes = tl2_tile_layout_sizes(m, k, bm, bbk)
+    kk = bbk // 3
+    a_per_kouter = sizes["a_per_kouter"]      # bytes per (tile, k_outer) sub-block
+    s_per_kouter = sizes["sign_per_kouter"]
+    a_per_tile = sizes["n_kouter"] * a_per_kouter
+    s_per_tile = sizes["n_kouter"] * s_per_kouter
 
-    # TODO(F.11.4 Branch X-real iteration 2): populate bytes per
-    # the indexing rule at the top of §7. Each output_row × triplet
-    # combination maps to a specific byte offset + nibble + sign-bit
-    # position; encode per F.11.0's `encode_triplet`.
-    a_bytes = bytes(sizes["a_bytes"])
-    sign_bytes = bytes(sizes["sign_bytes"])
+    a_buf = bytearray(sizes["a_bytes"])
+    s_buf = bytearray(sizes["sign_bytes"])  # zero — sign deferred to iter 3
+
+    n_triplets_per_kouter = kk            # 42 for BBK=128
+    n_kouter = sizes["n_kouter"]
+
+    for output_row in range(m):
+        tile_idx = output_row // bm
+        row_in_tile = output_row % bm
+        i_group = row_in_tile // 32
+        lane = row_in_tile % 32
+
+        for k_outer in range(n_kouter):
+            for triplet_in_kouter in range(n_triplets_per_kouter):
+                # Source-side k coordinate: where we read 3 weights from
+                k_base = k_outer * bbk + triplet_in_kouter * 3
+                if k_base + 2 >= k:
+                    # K-mod-3 tail — kernel truncates KK = BBK/3 too,
+                    # so this triplet is also implicitly dropped.
+                    continue
+                w0 = int(weights[output_row, k_base])
+                w1 = int(weights[output_row, k_base + 1])
+                w2 = int(weights[output_row, k_base + 2])
+                mag_idx, _sign_bit = encode_triplet(w0, w1, w2)
+
+                ai = triplet_in_kouter // 2
+                nibble_in_byte = triplet_in_kouter % 2
+
+                byte_offset = (
+                    tile_idx * a_per_tile
+                    + k_outer * a_per_kouter
+                    + i_group * (a_per_kouter // 2)
+                    + ai * 32
+                    + lane
+                )
+                # Per the kernel: vec_v_top = (a >> 4) & 0xF
+                #                  vec_v_bot = a & 0xF
+                # So upper nibble = "top" path = first triplet of pair (even index)
+                #    lower nibble = "bot" path = second triplet of pair (odd index)
+                if nibble_in_byte == 0:
+                    a_buf[byte_offset] |= (mag_idx & 0xF) << 4
+                else:
+                    a_buf[byte_offset] |= (mag_idx & 0xF)
+
+                # Sign packing — DEFERRED to iteration 3.
+                # Reference layout for that work:
+                #   sign_byte_offset = tile_idx * s_per_tile
+                #                    + k_outer * s_per_kouter
+                #                    + i_group * (s_per_kouter // 2)
+                #                    + as_index * 32
+                #                    + lane
+                # where as_index = (triplet_in_kouter // 4) and the
+                # bit position within byte is some function of
+                # (triplet_in_kouter % 4). The exact bit layout
+                # follows the kernel's `slli_epi16(vec_sign, 4*k+sub)`
+                # pattern; trial+parity-test is the cheapest way to
+                # nail it.
+                _ = (s_per_tile, s_per_kouter, s_buf)  # silence unused-var
 
     return TL2TileLayout(
-        magnitudes=a_bytes,
-        signs=sign_bytes,
+        magnitudes=bytes(a_buf),
+        signs=bytes(s_buf),
         m=m,
         k=k,
         bm=bm,

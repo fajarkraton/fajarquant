@@ -369,16 +369,75 @@ def test_pack_tl2_tile_organized_rejects_wrong_dim() -> None:
         pack_tl2_tile_organized(weights_1d, bm=64, bbk=128)
 
 
-def test_pack_tl2_tile_organized_scaffold_zero_content() -> None:
-    """Scaffold STATUS: byte content is currently zero (TODO marker
-    in the function body). This test will FAIL once the next
-    iteration populates the bytes — at which point swap to
-    `assert all(b != 0 for b in ...)` or a parity-vs-scalar test."""
-    weights = np.full((256, 256), -1, dtype=np.int8)  # non-zero ternary
+def test_pack_tl2_tile_organized_zero_input_yields_zero_magnitudes() -> None:
+    """All-zero input → magnitude index 0 everywhere → all bytes zero.
+    (Index 0 is the canonical encoding for triplet (0, 0, 0).)"""
+    weights = np.zeros((256, 256), dtype=np.int8)
     layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
-    assert all(b == 0 for b in layout.magnitudes), (
-        "scaffold expected zero content; if non-zero seen, the next "
-        "iteration's content logic landed — update this test to a "
-        "real parity check"
+    assert all(b == 0 for b in layout.magnitudes)
+
+
+def test_pack_tl2_tile_organized_all_positive_yields_idx13() -> None:
+    """All-+1 input → every triplet is (+1, +1, +1) → idx=13 = 0xD.
+    Per the kernel's nibble interpretation:
+        upper nibble = first triplet of pair = 0xD
+        lower nibble = second triplet of pair = 0xD
+    → every byte = 0xDD.
+    """
+    weights = np.full((256, 256), 1, dtype=np.int8)
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    # Note: kk=42 triplets per k_outer × 2 k_outer = 84 triplets per row.
+    # 84 * 3 = 252 weights covered. The remaining 4 weights per row
+    # (256 - 252 = 4) are dropped by the kernel's KK = BBK/3 truncation.
+    # So we expect all populated bytes to be 0xDD; no zero gaps for
+    # this all-+1 input.
+    assert all(b == 0xDD for b in layout.magnitudes), (
+        f"expected all 0xDD; first non-DD byte at "
+        f"{next((i for i, b in enumerate(layout.magnitudes) if b != 0xDD), -1)}"
     )
-    assert all(b == 0 for b in layout.signs)
+
+
+def test_pack_tl2_tile_organized_known_offset_first_triplet() -> None:
+    """Hand-computed offset for output_row=0, triplet_col_idx=0:
+        tile_idx=0, row_in_tile=0, i_group=0, lane=0
+        k_outer=0, triplet_in_kouter=0, ai=0, nibble=0 (upper)
+    → byte_offset = 0
+    → upper nibble holds magnitude index for this triplet.
+
+    Construct an array where ONLY the first triplet (cols 0..2 of
+    row 0) is (+1, +1, +1) → idx=13 = 0xD. All other triplets are
+    zero → idx=0.
+
+    Expected: byte 0 has upper nibble = 0xD, lower nibble = 0
+    (next triplet pair, also zero in our setup) → byte 0 = 0xD0.
+    All other bytes should be zero.
+    """
+    weights = np.zeros((256, 256), dtype=np.int8)
+    weights[0, 0] = 1
+    weights[0, 1] = 1
+    weights[0, 2] = 1
+
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    assert layout.magnitudes[0] == 0xD0, (
+        f"expected byte 0 = 0xD0 (upper nibble = idx 13 for triplet "
+        f"(+1,+1,+1) at lane 0, lower nibble = 0); got "
+        f"0x{layout.magnitudes[0]:02X}"
+    )
+    # Spot-check: bytes 1..31 (rest of the ai=0 vector for output row 0,
+    # but those lanes are output rows 1..31) should be zero — those
+    # rows have no non-zero triplets in our setup.
+    assert all(b == 0 for b in layout.magnitudes[1:32])
+
+
+def test_pack_tl2_tile_organized_signs_still_zero_iter2() -> None:
+    """Iteration 2 STATUS: sign byte stream is still zero (sign
+    packing deferred to iteration 3). Once iteration 3 lands, this
+    test will need updating — likely flips to a hand-computed
+    sign-bit position check or replaced by parity_real_mlp."""
+    weights = np.full((256, 256), -1, dtype=np.int8)  # all sign-bit-1
+    layout = pack_tl2_tile_organized(weights, bm=64, bbk=128)
+    assert all(b == 0 for b in layout.signs), (
+        "iteration 2 expected sign bytes still zero; if non-zero, "
+        "iteration 3 sign-packing landed — replace this test with a "
+        "real sign-bit-offset check or parity test"
+    )
