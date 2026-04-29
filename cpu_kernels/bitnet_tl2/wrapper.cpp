@@ -53,6 +53,41 @@
 #define NAN __builtin_nanf("")
 #endif
 
+// F.11.4(b).3: provide a self-contained memset implementation so
+// the freestanding .o links into FajarOS Nova kernel without
+// pulling libc OR requiring fajaros-x86 to provide its own memset.
+// The TL2 kernels call `memset(CBits, 0, ...)` to zero the per-tile
+// accumulator before each `three_tbl_impl` invocation. gcc usually
+// intrinsifies constant-size memset; for variable-size or larger
+// buffers it emits a `call memset`.
+//
+// Gated by `BITNET_OMIT_TRANSFORM` so:
+//   - HOSTED build (cargo) does NOT define this — links libc's
+//     glibc memset (faster + battle-tested). Defining a weak
+//     `memset` in a hosted build also triggers gcc's
+//     tree-loop-distribute-patterns optimization, which detects
+//     the byte-loop and rewrites it as `call memset` → infinite
+//     recursion → stack overflow.
+//   - FREESTANDING build (FajarOS) defines this weak fallback.
+//     `__attribute__((optimize("no-tree-loop-distribute-patterns")))`
+//     prevents the same optimization from emitting a recursive
+//     `call memset`.
+//
+// `__attribute__((weak))` lets a future fajaros-x86 SIMD memset
+// override via linker symbol resolution.
+#if defined(BITNET_OMIT_TRANSFORM)
+extern "C"
+__attribute__((weak))
+__attribute__((optimize("no-tree-loop-distribute-patterns")))
+void * memset(void *dest, int ch, std::size_t count) {
+    auto *p = static_cast<unsigned char *>(dest);
+    for (std::size_t i = 0; i < count; ++i) {
+        p[i] = static_cast<unsigned char>(ch);
+    }
+    return dest;
+}
+#endif
+
 #include "bitnet-lut-kernels-tl2.h"
 
 extern "C" {
