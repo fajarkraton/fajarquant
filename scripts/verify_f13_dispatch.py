@@ -142,6 +142,31 @@ def check_invariants(fixture: dict[str, Any], r: CheckResult) -> None:
     else:
         r.fail("I4 FajarOS envelope falls outside CPU-wins region -- F.13.2 dispatch needed")
 
+    # I5 — F.13.1 measured anchor reinforces G3 (added 2026-04-30 post-F.13.1)
+    measured = fixture.get("gpu_hgrn_bit_mini_batch1_measured")
+    if measured is None:
+        r.fail("I5 measured anchor [gpu_hgrn_bit_mini_batch1_measured] MISSING -- F.13.1 outcome lost")
+    else:
+        measured_tps = float(measured.get("value_tok_per_sec_median", 0.0))
+        floor_max = float(inv.get("i5_measured_gpu_tok_per_sec_max", 200.0))
+        floor_min = float(inv.get("i5_measured_gpu_tok_per_sec_min", 5.0))
+        if floor_min <= measured_tps <= floor_max:
+            r.ok(
+                f"I5 measured GPU = {measured_tps:.1f} tok/s within sanity band "
+                f"[{floor_min}, {floor_max}] (verdict G3 reinforced)"
+            )
+        elif measured_tps > floor_max:
+            r.fail(
+                f"I5 measured GPU = {measured_tps:.1f} > {floor_max} tok/s -- "
+                f"verdict G3 no longer reinforced; if bench was upgraded to optimized "
+                f"stack (KV cache + torch.compile), re-derive verdict"
+            )
+        else:
+            r.fail(
+                f"I5 measured GPU = {measured_tps:.1f} < {floor_min} tok/s -- "
+                f"sanity floor violation; bench broken or hardware regressed"
+            )
+
 
 def check_anchor_completeness(fixture: dict[str, Any], r: CheckResult) -> None:
     required = {
@@ -149,6 +174,13 @@ def check_anchor_completeness(fixture: dict[str, Any], r: CheckResult) -> None:
         "llama_cpp_tq2_cpu_decode": ["value_tok_per_sec_min", "value_tok_per_sec_max", "source"],
         "cuda_launch_overhead": ["value_us_min", "value_us_max", "source"],
         "gpu_small_model_batch1_decode": ["value_tok_per_sec_min", "value_tok_per_sec_max"],
+        "gpu_hgrn_bit_mini_batch1_measured": [
+            "value_tok_per_sec_median",
+            "value_ms_per_token_median",
+            "hardware",
+            "inference_stack",
+            "source",
+        ],
         "mini_ckpt_size": ["params_million", "fp16_size_mb", "ternary_packed_mb"],
         "host_cpu_envelope": ["model", "logical_cpus", "l3_cache_mib", "isa_features"],
         "host_gpu_envelope_expected": ["model", "vram_gb"],
@@ -157,6 +189,8 @@ def check_anchor_completeness(fixture: dict[str, Any], r: CheckResult) -> None:
             "i2_cpu_tl2_minus_gpu_min_margin_tok_per_sec",
             "i3_min_gpu_launch_total_us",
             "i4_fajaros_max_batch",
+            "i5_measured_gpu_tok_per_sec_max",
+            "i5_measured_gpu_tok_per_sec_min",
         ],
     }
     for anchor_name, required_keys in required.items():

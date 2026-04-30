@@ -160,3 +160,15 @@ i3_min_gpu_launch_total_us = 720
 i4_fajaros_max_batch = 8
 i4_fajaros_max_model_params = 5_000_000_000
 i4_fajaros_max_seq_len = 4096
+
+# I5 (added F.13.1 close 2026-04-30): measured GPU MUST stay below CPU-TL2
+# lower-bound projection — i.e. live measurement reinforces verdict G3.
+# Floor: measured GPU tok/s ≤ 200 (CPU-TL2 conservative lower bound).
+# Sanity ceiling: measured GPU tok/s ≥ 5 (catches silent regression where
+# bench accidentally reports near-zero, e.g. CPU fallback eating GPU bench).
+# If measurement drifts to ≥200, the bench has been rebuilt with optimized
+# stack (KV cache + torch.compile) and the verdict needs re-derivation.
+# If measurement drops to <5, bench is broken or hardware massively
+# regressed (driver issue, GPU thermal throttle, etc).
+i5_measured_gpu_tok_per_sec_max = 200.0  # below CPU-TL2 lower bound — verdict G3 holds
+i5_measured_gpu_tok_per_sec_min = 5.0    # sanity floor — bench must produce real measurement
