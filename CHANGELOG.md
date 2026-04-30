@@ -98,10 +98,59 @@ commits, ~23h cumulative work, infrastructure-only landing):
   - Path C: accept gap, pivot to F.13 dispatch heuristic OR
     arXiv founder actions
 
+  **F.11.4 Path B advancement** (`429a171..a296c4f`, 2026-04-30,
+  +3.5h): three commits restored F.11 chain narrative and tightened
+  the parity gap from "structural unknown" to "well-defined
+  row-uniform residual":
+
+  - `429a171` — `facb256` reversed. Empirical kernel-header re-read
+    proved BK=256 is the three-path dispatch arm (line 1303), NOT
+    BK=128 as facb256 had claimed. After reverting BK=128 → BK=256,
+    baseline `C[0]` flips from 0 (no kernel ran) to -333 (kernel
+    fires correctly). Iter 5/6/7's `32, -31, -1` diff cycle
+    RESTORED as REAL kernel output, not memory garbage. Iter 6
+    bit_pos=15 prediction CONFIRMED for row 0/triplet 0.
+
+  - `4064c3e` — Byte→row lane-cross fix. New diagnostic
+    `derive_byte_to_row_mapping` empirically derived the kernel's
+    AVX2 unpacklo/unpackhi byte routing:
+      `bp=0..7→C[0..7]`, `bp=8..15→C[16..23]` (cross),
+      `bp=16..23→C[8..15]` (cross), `bp=24..31→C[24..31]`.
+    Encoder fix in Rust + Python places row r's mag at
+    `byte_in_vec(r%32)` not `r%32`. A/B test: without fix, rows
+    8-23 had wild scrambled diffs (±443/±126/±97); with fix, ALL
+    64 rows show row-uniform `+32, -31, -1` cycle.
+
+  - `a296c4f` — ai=8 false-positive resolved. New diagnostic
+    `probe_ai_block_with_nonzero_b` uses monotonic non-zero
+    activations (b[i]=1.0+0.1·i) so LUT[idx=13] cannot cancel.
+    With monotonic b, ai=8 produces +174 to C[0] — confirming
+    the prior "ai=8 dropped" finding from the cycling -8..7
+    activation b_buf was activation noise. ai=20 confirmed truly
+    dropped (kernel inner loop bound).
+
+  **Updated F.11 chain status (after Path B advancement):**
+  - ✅ Magnitude byte→row lane-cross fix verified (rows 8-23 unscrambled)
+  - ✅ Sign bit_pos=15 confirmed for row 0/triplet 0
+  - ✅ ai=8/ai=20 drop accounting clarified (only ai=20 dropped)
+  - ⚠ Row-uniform residual `+32, -31, -1` cycle UNRESOLVED.
+    Hypotheses narrowed but full explanation requires kernel
+    disassembly (Path B continuation, ~2-3h beyond budget). One
+    unexplained finding: zeroing the sign buffer changes row 0's
+    tl2 from 32 to 316 despite row 0 having all sign_bit=0
+    (period 0). Suggests deeper kernel-state interaction.
+
 **Cumulative variance**: −47% on aggregate F.11 chain
 (infrastructure burn 12.75h vs 24h budget; full chain including
-parity 23h vs 24h, at practical limit). Per-iteration variances
-in individual commit messages.
+parity 28h vs 24h, +4h overrun, at "milestone closure" point).
+Per-iteration variances in individual commit messages.
+
+**Verdict per CLAUDE.md §6.6 R1 (honest end-to-end):** F.11 ships
+as "infrastructure complete with documented row-uniform parity
+gap" milestone. Future work (closing the residual via kernel
+disassembly) is NOT in V32-prep scope. Recommended bandwidth
+pivot: F.13 dispatch heuristic, founder arXiv actions, OR F.10
+GPU 2:4 Sparse-BitNet.
 
 **CLAUDE.md V31.1 sync** in fajar-lang (`86989180`) — public
 footer reflects the F.11 infrastructure-only state honestly.
