@@ -963,4 +963,105 @@ mod tests {
             }
         }
     }
+
+    /// F.11.4 Path B step 5 — investigate the ai=8 mystery. Probe
+    /// vary-ai with all-non-zero, monotonic b_buf so LUT[idx=13] for
+    /// every k-block is provably nonzero. If ai=8 STILL produces no
+    /// output, the issue is structural (kernel does not consume
+    /// vec_as[8] for some reason); else the prior probe's b_buf
+    /// (cycling -8..7 with zero at i=8, 25, 42, ...) caused triplet
+    /// sums to cancel and produce LUT[13]=0 at that k-position.
+    #[test]
+    #[ignore = "Path B step 5 — ai-block sweep with non-cancelling activations"]
+    fn probe_ai_block_with_nonzero_b() {
+        const M_FULL: i32 = 256;
+        const K: i32 = 256;
+        const BS: i32 = 1;
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+        #[repr(align(64))]
+        struct AlignedU8<const N: usize>([u8; N]);
+        #[repr(align(64))]
+        struct AlignedI32<const N: usize>([i32; N]);
+
+        let run_with_mag = |mag_byte_off: usize, mag_byte_val: u8| -> [i32; 64] {
+            let mut a_buf = AlignedU8::<2752>([0_u8; 2752]);
+            a_buf.0[mag_byte_off] = mag_byte_val;
+            let mut sign_buf = AlignedU8::<704>([0_u8; 704]);
+            let mut b_buf = AlignedF32([0.0_f32; 256]);
+            // All-positive monotonic activations: b[i] = 1.0 + 0.1*i.
+            // Range 1.0..=26.5, no zeros, no triplet cancellation.
+            for (i, slot) in b_buf.0.iter_mut().enumerate() {
+                *slot = 1.0 + 0.1 * i as f32;
+            }
+            let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]);
+            let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+            let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]);
+            let mut scales_buf = AlignedF32::<8>([1.0_f32; 8]);
+            let mut c_buf = AlignedI32::<64>([0_i32; 64]);
+
+            unsafe {
+                super::fjq_tl2_preprocessor(
+                    BS,
+                    M_FULL,
+                    K,
+                    0,
+                    b_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                );
+                super::fjq_tl2_qgemm_lut(
+                    BS,
+                    M_FULL,
+                    K,
+                    256,
+                    a_buf.0.as_mut_ptr() as *mut c_void,
+                    sign_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    scales_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    c_buf.0.as_mut_ptr() as *mut c_void,
+                );
+            }
+            c_buf.0
+        };
+
+        let baseline = run_with_mag(0, 0);
+        eprintln!("Baseline (all zeros): C[0..8] = {:?}", &baseline[0..8]);
+
+        eprintln!(
+            "Sweep ai-block (byte 0 of vec_as[ai] for ai=0..21) \
+             with NON-ZERO monotonic b_buf:"
+        );
+        for ai in 0..21_usize {
+            let bp = ai * 32;
+            let c = run_with_mag(bp, 0xDD);
+            let diffs: Vec<(usize, i32)> = c
+                .iter()
+                .zip(baseline.iter())
+                .enumerate()
+                .filter(|(_, (cv, bv))| **cv != **bv)
+                .map(|(i, (cv, bv))| (i, *cv - *bv))
+                .collect();
+            if diffs.is_empty() {
+                eprintln!("  ai={ai:2} (bp={bp:3}): NO C[r] changed");
+            } else {
+                let summary: Vec<String> = diffs
+                    .iter()
+                    .take(4)
+                    .map(|(r, d)| format!("C[{r}]+={d}"))
+                    .collect();
+                let total = diffs.len();
+                eprintln!(
+                    "  ai={ai:2} (bp={bp:3}): {total} rows: {} {}",
+                    summary.join(", "),
+                    if total > 4 { "..." } else { "" }
+                );
+            }
+        }
+    }
 }
