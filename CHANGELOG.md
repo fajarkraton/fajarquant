@@ -7,7 +7,63 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
-## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 + F.13.1-v2 chains
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 + F.13.1-v2 chains + F.11 demotion
+
+**F.11 chain DEMOTED to PERMANENT-DEFERRED (2026-05-01).** Per F.13.3
+dispatch verdict (decision-doc §11), FajarOS Nova's deployment workload
+(batch=1, ≤100M params) is well-served by F.11.3 scalar Rust BitLinear path
+(50-100 tok/s on Mini, 10/10 tests passing). TL2 acceleration (projected
+200-400 tok/s) would be 3-5× faster but is **NOT critical-path** for any
+planned FajarOS deployment.
+
+After ~31 cumulative hours across F.11.0-3 setup, F.11.4 parity iterations
+1-7 + Path B, Tier 2E kernel disassembly, and Branch X-real attempted
+verbatim port: parity gap unresolved (row-uniform `+32, -31, -1` cycle on
+all 64 rows of `parity_real_mlp_one_tile_at_mini_256_256`). Branch X-real
+blocked by upstream encoder structural gap — `preprocess_weights_tl2` raises
+`NotImplementedError` for K=256 (only supports KEMD=1536, KGQA=4096). Each
+hour from iteration 6 onward eliminated hypotheses but did not close
+parity. Diminishing-returns analysis in `docs/FJQ_PHASE_F_F11_BRANCH_X_REAL_FINDINGS.md`
+§4-5 documents the cost-to-close ratio.
+
+  Re-entry conditions (any one triggers reactivation):
+  1. Paper v2 reviewer requests bit-exact TL2 parity
+  2. FajarOS workload shifts where scalar tok/s is insufficient
+  3. Microsoft/BitNet upstream ships encoder for custom shapes
+  4. Contributor volunteers kernel-disassembly bandwidth
+
+  What ships AS-IS (no regression):
+  - Vendored microsoft/BitNet TL2 AVX2 kernel (75 KB MIT-licensed)
+  - cc-crate build chain (linkable, smoke binary works)
+  - Rust FFI shim with 64-byte alignment + shape pre-validation
+  - Magnitude byte encoding (bit-exact, sentinel tests pass)
+  - F.11.3 scalar Rust BitLinear baseline (10/10 tests, production path)
+  - 60+ cpu_kernels::tl2 unit tests
+  - Cross-references in fajaros-x86 kernel ELF (`fjq_tl2_*` extern decls)
+
+  What stays infrastructure-only / NOT activated:
+  - `fjq_tl2_qgemm_lut` runtime invocation in production code path
+  - Sign byte encoding (~80% of observed parity gap unattributed)
+  - Paper v2 fajarquant TL2-acceleration claim (was: deferred; now: future-work)
+
+  Documents:
+  - `docs/FJQ_PHASE_F_F11_BRANCH_X_REAL_FINDINGS.md` — Branch X-real
+    closeout (1.5h actual / 6-8h grant; 4.5-6.5h budget bank UNUSED)
+  - `docs/FJQ_PHASE_F_F11_TIER2E_KERNEL_DISASSEMBLY_FINDINGS.md` — earlier
+    Tier 2E kernel disassembly findings (2.5h)
+  - `docs/FJQ_PHASE_F_TAX_VERTICAL_ROADMAP.md` §F.11 status block updated
+    with PERMANENT-DEFERRED label + 4-condition re-entry gate
+
+  Cross-repo impact:
+  - fajaros-x86 plan §3.10 needs status flip: F.11 closure removed from
+    critical-path (separate commit in fajaros-x86 repo)
+  - CLAUDE.md (fajar-lang) V31.3 → V31.4 footer reflects demotion
+
+  No code reverted; F.11 infrastructure is shipping-ready foundation.
+  Next session unblocks for paper v2 narrative, founder external arXiv
+  actions, F.6.4 / F.10 GPU research, or other Phase F work.
+
+
 
 **F.13.1 v2 (2026-05-01) — Tier 2D enhancement: kvcache + torch.compile +
 GPU clock stabilization. Two material findings flip parts of v1 reading:**

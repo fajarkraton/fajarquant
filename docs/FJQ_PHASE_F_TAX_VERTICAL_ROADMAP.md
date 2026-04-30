@@ -260,6 +260,21 @@ Items deferred to Phase F because the V32-prep autonomous research surfaced spec
 
 ### F.11 CPU bitnet.cpp TL2 kernel port to Fajar Lang `@kernel` context
 
+**Status (2026-05-01): DEMOTED to PERMANENT-DEFERRED / future-work.** F.11
+chain consumed ~31 cumulative hours (F.11.0-3 setup, F.11.4 parity
+iterations 1-7 + Path B, Tier 2E kernel disassembly, Branch X-real
+attempted port). Vendored kernel + FFI binding + scalar baseline + magnitude
+encoder all bit-exact and shipping. **Sign-byte parity gap unresolved:**
+row-uniform `+32, -31, -1` cycle on parity test attributable to multiple
+layout bugs. Branch X-real `verbatim port` attempt blocked by upstream
+encoder structural gap (raises `NotImplementedError` for K=256). Per F.13.3
+dispatch verdict (decision-doc §11), FajarOS Nova's deployment workload is
+batch=1, ≤100M params, where the F.11.3 scalar Rust path (50-100 tok/s) is
+adequate for the kernel-resident embedded-ML use case. TL2 acceleration
+(projected 200-400 tok/s) would be 3-5× faster but is **not critical-path**
+for any planned FajarOS deployment. Re-entry condition documented at end
+of this section.
+
 **Origin:** V32-prep research 2026-04-28. User asked "bagaimana dengan teknologi yang ada di CPU yang kita pakai?" (Indonesian: what about the CPU technology we use?). Detected hardware: Intel Core i9-14900HX (Raptor Lake Refresh-HX, 24C/32T, AVX-VNNI present, AVX-512 + AMX absent, DDR5-5600 dual-channel ~70 GB/s sustained). Codebase audit confirmed: ZERO CPU-targeted SIMD code in either `fajarquant/python/phase_d/` or `Fajar Lang/src/`. FajarOS Nova kernel-path runs ternary inference **pure scalar** inside `@kernel` context — leaves all CPU SIMD performance on the table.
 
 **Critical insight from research:** AVX-VNNI's `VPDPBUSD` accelerates **INT8×INT8** — NOT {-1,0,+1}×INT8. Both bitnet.cpp's TL2 (x86) and llama.cpp's TQ2_0 use `vpshufb-LUT + vpmaddubsw + vpaddw`, NOT VPDPBUSD. Having AVX-VNNI does NOT automatically accelerate the dominant ternary kernel.
@@ -278,6 +293,23 @@ Items deferred to Phase F because the V32-prep autonomous research surfaced spec
 - microsoft/BitNet TL2 kernel — vendor via Cargo external crate or git submodule
 - Fajar Lang FFI v2 `extern "C"` bridge for kernel-context calls
 - FajarOS Nova `km_mf_*` symbol table extension (matmulfree.fj path)
+
+**Re-entry conditions for F.11 (any one triggers reactivation):**
+1. Paper v2 reviewer specifically requests bit-exact TL2 parity on
+   fajarquant infrastructure claim.
+2. FajarOS deployment ask shifts to a workload where current scalar tok/s
+   (50-100 on Mini) is insufficient AND production blocker is the kernel
+   path (not training/quality).
+3. Microsoft/BitNet upstream releases an encoder that supports custom
+   shapes (M, K) including (256, 256) — would unblock verbatim port.
+4. A new contributor with reverse-engineering / kernel disassembly
+   bandwidth volunteers the work (printf-instrument the kernel for
+   sign-byte read trace, ~3-4h). Documented strategic Option B in
+   `docs/FJQ_PHASE_F_F11_BRANCH_X_REAL_FINDINGS.md` §5.
+
+Until any of those conditions: F.11 stays in this PERMANENT-DEFERRED state.
+Vendored kernel + FFI infrastructure remain in the codebase as a
+shipping-ready foundation; F.11.3 scalar baseline is the production path.
 
 ---
 
