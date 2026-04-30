@@ -1,15 +1,69 @@
-# IntLLM Paper — arXiv Submission Checklist (v1.0)
+# IntLLM Paper — arXiv Submission Checklist (v1.1)
 
 > **Status:** Path A Week 4 polish complete; submission tarball
-> built and verified. Founder actions remain before public arXiv
-> upload.
+> built and verified. Post-Week-4 findings (V31 bonus +
+> F.5.1/F.6.2/F.13 chains) refine §7.4 future-work pointers but do
+> not contradict v1 paper text — see §0.1 below for trajectory.
+> Founder actions remain before public arXiv upload.
 >
 > **Companion docs:**
 > - `docs/FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0 (paper structure)
 > - `docs/INTLLM_RELATED_WORK.md` v1.0 (18-paper synthesis backing the citations)
 > - `paper/intllm/intllm.tex` (manuscript source, 2400+ LOC)
-> - `paper/intllm/intllm.pdf` (compiled PDF, 20 pages, 787 KB)
-> - `paper/intllm/intllm-arxiv.tar.gz` (the submission tarball, 77 KB)
+> - `paper/intllm/intllm.pdf` (compiled PDF, 21 pages, 810 KB)
+> - `paper/intllm/intllm-arxiv.tar.gz` (the submission tarball, 78 KB)
+
+---
+
+## 0.1. Trajectory since Path A Week 4 (v1.0 → v1.1 of this checklist)
+
+The original checklist at `f493ba5` (2026-04-26) reported 32/32
+verified claims. Between then and the v1.1 update, three sets of
+post-Week-4 measurements landed:
+
+1. **V31 bonus measurements** — `f0160d3` (F.6.1 outlier-concentration,
+   +4 claims) and `d4b1f82` (F.5.0 cross-comparison, +4 claims). These
+   strengthened the §7.2/§7.3 negative-result attribution; verify-gate
+   grew from 32 → 40 activated claims.
+
+2. **F.5.1 SmoothQuant PTQ cycle** — closed PARTIAL on 2026-04-28.
+   Result: HGRN-ternary trained model is INVARIANT to activation-only
+   SmoothQuant (paper §7.4 future-work item ran). Cumulative-saturation
+   gap at `sites=all × α=0.3` surfaced a §3.3 action item that closed
+   in `6987de3` (G5 forward-equivalence gate).
+   See `docs/FJQ_PHASE_F_F5_1_FINDINGS.md`.
+
+3. **F.6.2 honest verdict correction** — `7fec08f` clarified that
+   post-hoc Hadamard's regression is a *recipe-incompleteness* finding
+   (activation-only pre-hook breaks FP path), NOT an "HGRN-architecture
+   incompatibility" finding. v1 paper §7.3 narrative remains accurate
+   as written; this correction is an ADDITION to future-work pointers,
+   not a contradiction.
+
+4. **F.5.1.7 Branch A pre-flight audit** — verdict NO-GO Branch A
+   primary, GO Branch B default. BitNet v2 Table 5 + MambaQuant 21%
+   drop + zero published QuaRot on HGRN-family combine to make
+   canonical QuaRot's expected outcome null-to-mildly-negative on
+   ternary HGRN. Re-entry gates GATE A1/A2/A3 documented.
+   See `docs/FJQ_PHASE_F_F5_1_7_BRANCH_A_PREFLIGHT.md`.
+
+5. **F.13 dispatch heuristic Branch Z-narrow** — `4846045` shipped
+   verdict "CPU default; GPU optional for batch ≥ 8" with paper v2
+   §6 LaTeX-ready snippet. See `docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md` §7.
+
+**v1 vs v2 question.** Items 2-5 above are post-v1 *refinements*; none
+contradict the v1 paper's text. Founder may choose:
+
+- **Ship v1 as-is now (recommended for fast public timestamp).** v1 is
+  internally consistent and verify-gate green. Any future findings
+  ship as arxiv v2 revision with no penalty.
+- **Hold for v2.** Integrate F.5.1 PARTIAL + F.6.2 honest correction +
+  F.13 §6 narrative before initial submission. ~3-5 founder hours of
+  text editing; tarball would need rebuild.
+
+This decision is the only non-mechanical item between v1.1 checklist
+and arxiv upload. If choosing v2, the new findings docs are already
+published — only paper text edits remain.
 
 ---
 
@@ -20,9 +74,9 @@
 | Manuscript drafted (§1-§10 + abstract) | ✅ DONE | Path A Weeks 1-4 |
 | All 5 figures generated + integrated | ✅ DONE | `scripts/generate_paper_figures.py` |
 | `refs.bib` with 15 verified citations | ✅ DONE | `paper/intllm/refs.bib` |
-| `verify_intllm_tables.py --strict` 32/32 PASS | ✅ DONE | R7 audit gate |
+| `verify_intllm_tables.py --strict` 40/40 activated PASS (+22 deferred) | ✅ DONE | R7 audit gate |
 | Standalone tarball builds cleanly | ✅ DONE | `scripts/build_intllm_arxiv_tarball.sh` |
-| 20-page compiled PDF (arXiv-quality) | ✅ DONE | `paper/intllm/intllm.pdf` |
+| 21-page compiled PDF (arXiv-quality) | ✅ DONE | `paper/intllm/intllm.pdf` |
 | Real ORCID iD activated | ⏳ PENDING | **Founder action** (§1) |
 | Real Zenodo DOI minted | ⏳ PENDING | **Founder action** (§2) |
 | arxiv.org account + endorsement | ⏳ PENDING | **Founder action** (§3) |
@@ -176,7 +230,7 @@ pdflatex intllm.tex
 bibtex intllm
 pdflatex intllm.tex
 pdflatex intllm.tex
-ls -la intllm.pdf  # should be ~787 KB / 20 pages
+ls -la intllm.pdf  # should be ~810 KB / 21 pages
 ```
 
 Or, if the builder has access to the fajarquant repo:
@@ -191,5 +245,5 @@ warnings on the final pass.
 
 ---
 
-*Document version: 1.0. Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
-*Path A Week 4 polish — submission tarball verification complete; founder action items remain before public arXiv upload.*
+*Document version: 1.1 (2026-04-30 update). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*v1.1 changes: claim count 32 → 40 (V31 bonus measurements), PDF stats refreshed, §0.1 trajectory addendum noting post-Week-4 findings (F.5.1, F.6.2, F.13). v1 paper text unchanged; founder action items remain before public arXiv upload.*
