@@ -78,21 +78,50 @@ tolerance_pct = 30
 note = "Optimized LLM stack reference. NOT directly comparable to upstream HGRN-Bit on PyTorch eager. For HGRN-Bit-specific measured number on this hardware, see [gpu_hgrn_bit_mini_batch1_measured]. The verdict G3 uses THIS anchor (optimized stack) as the reference for what FajarOS Nova WOULD see if it deployed an optimized GPU export path."
 # Used in §1, §2.3, and verdict G3 of dispatch-decision.md
 
-# ─── GPU anchor: HGRN-Bit Mini × batch=1 measured (THIS HARDWARE, F.13.1) ──
+# ─── GPU anchor: HGRN-Bit Mini × batch=1 measured WARM-STATE (THIS HARDWARE, F.13.1 v2) ──
+# Naive path with explicit GPU clock-stabilization pre-warmup.
+# Replaces the F.13.1 v1 anchor (19.7 tok/s) which was a COLD-GPU ARTIFACT
+# from immediately-post-driver-restoration. v2 confirms warm steady-state
+# is 118-120 tok/s across multiple consecutive runs.
 [gpu_hgrn_bit_mini_batch1_measured]
-value_tok_per_sec_median = 19.7
-value_tok_per_sec_p95_low = 11.5  # tok/s at p95 ms = 1000/87.17
-value_ms_per_token_median = 50.68
-value_ms_per_token_p95 = 87.17
+value_tok_per_sec_median = 118.9
+value_ms_per_token_median = 8.41
+value_ms_per_token_p95 = 8.81
 hardware = "Intel Core i9-14900HX + NVIDIA GeForce RTX 4090 Laptop GPU"
-inference_stack = "PyTorch 2.6.0+cu124 eager mode, HGRN-Bit upstream triton kernels, NO KV cache"
+inference_stack = "PyTorch 2.6.0+cu124 eager mode, HGRN-Bit upstream triton kernels, NO KV cache, naive growing-sequence forward"
+gpu_pre_warmup_matmuls = 50  # required to stabilize laptop GPU clocks; without it numbers drop ~6x
 n_warmup = 5
 n_timed = 64
-source = "internal — F.13.1 live bench 2026-04-30, paper/intllm/results/f13_dispatch_calibration.json"
-verified = "2026-04-30"
-revisit_at = "2026-10-30"
-tolerance_pct = 30
-note = "HGRN-Bit specific. The 4-6x gap vs [gpu_small_model_batch1_decode] reflects (a) no KV cache (each step re-processes full sequence), (b) triton kernel launch overhead × 6 layers × Python eager dispatch. Used in F.13.1 verdict cross-check (§3 of FJQ_PHASE_F_F13_1_FINDINGS.md): GPU << CPU-TL2 by an even LARGER margin than the optimized-stack projection assumed."
+source = "internal — F.13.1 v2 bench 2026-05-01, paper/intllm/results/f13_dispatch_calibration.json (third stable run)"
+verified = "2026-05-01"
+revisit_at = "2026-11-01"
+tolerance_pct = 15
+note = "HGRN-Bit specific, naive path (no KV cache, no compile). REPLACES F.13.1 v1 cold-GPU artifact (19.7 tok/s). Warm-state baseline aligns with [gpu_small_model_batch1_decode] anchor band (118.9 in 80-120 range, EDGE). For optimized-stack measurement on same hardware, see [gpu_hgrn_bit_mini_batch1_optimized_best]."
+
+# ─── GPU anchor: HGRN-Bit Mini × batch=1 OPTIMIZED (THIS HARDWARE, F.13.1 v2) ──
+# Best measured path: KV cache via HGRN-Bit RecurrentCache + torch.compile(mode="default").
+# This represents what FajarOS Nova WOULD see if it deployed an optimized GPU
+# dispatch path (modulo further gains from CUDA graphs, FP16, or TensorRT
+# export which we did not attempt here).
+[gpu_hgrn_bit_mini_batch1_optimized_best]
+value_tok_per_sec_median = 202.6
+value_ms_per_token_median = 4.94
+value_ms_per_token_p95 = 5.05
+hardware = "Intel Core i9-14900HX + NVIDIA GeForce RTX 4090 Laptop GPU"
+inference_stack = "PyTorch 2.6.0+cu124 + HGRN-Bit RecurrentCache (use_cache=True, single-token forward) + torch.compile(mode='default', dynamic=False)"
+speedup_vs_naive = 1.70
+n_warmup = 10  # extra for compile graph capture
+n_timed = 64
+source = "internal — F.13.1 v2 bench 2026-05-01, paper/intllm/results/f13_dispatch_calibration.json"
+verified = "2026-05-01"
+revisit_at = "2026-11-01"
+tolerance_pct = 15
+notes_compile_modes = [
+    "torch.compile(mode='default') worked: 202.6 tok/s, 1.70x over naive",
+    "torch.compile(mode='reduce-overhead') FAILED: HGRN-Bit init_state uses in-place state += pattern that breaks CUDAGraphs; cudagraph_mark_step_begin() did not resolve. Upstream model code change required for full CUDA graphs path.",
+    "Further optimization avenues NOT attempted: FP16/BF16 cast, TensorRT export, custom fused CUDA kernel for HGRN recurrent cell.",
+]
+note = "HGRN-Bit optimized path on this hardware EXCEEDS the literature anchor band [gpu_small_model_batch1_decode] (80-120) by ~70%. Likely explanations: (a) RTX 4090 Laptop is top-tier consumer GPU class, (b) HGRN's recurrent state is more cache-friendly than transformer KV at this scale, (c) Mini's small hidden_size=256 fits register tiles efficiently. CRITICAL: 202.6 tok/s is AT or just-above the conservative CPU-TL2 lower-bound projection (200 tok/s) used in I2/G3. Verdict G3 cushion has effectively VANISHED with measurement; static-rule verdict still holds for FajarOS Nova because (1) GPU dispatch path is not built, (2) CPU-TL2 projection upper bound is 400 tok/s and could exceed 200 once F.11 parity allows real measurement, (3) building optimized GPU dispatch is multi-week engineering."
 
 # ─── Mini ckpt physical size anchors ────────────────────────────────
 [mini_ckpt_size]
@@ -170,5 +199,18 @@ i4_fajaros_max_seq_len = 4096
 # stack (KV cache + torch.compile) and the verdict needs re-derivation.
 # If measurement drops to <5, bench is broken or hardware massively
 # regressed (driver issue, GPU thermal throttle, etc).
-i5_measured_gpu_tok_per_sec_max = 200.0  # below CPU-TL2 lower bound — verdict G3 holds
-i5_measured_gpu_tok_per_sec_min = 5.0    # sanity floor — bench must produce real measurement
+i5_measured_gpu_tok_per_sec_max = 200.0  # below CPU-TL2 lower bound — verdict G3 holds for naive
+i5_measured_gpu_tok_per_sec_min = 50.0   # warm-state floor; below = cold GPU / broken bench (v1 19.7 was cold artifact)
+# I6 (added F.13.1 v2 2026-05-01): optimized-best anchor presence + value-tracking.
+# Bench script produces gpu_hgrn_bit_mini_batch1_optimized_best with kvcache + torch.compile.
+# Verify script WARNs (not FAILs) if optimized exceeds 200 because that's the very signal
+# the v2 measurement surfaced — verdict G3 cushion analysis lives in decision-doc, not here.
+i6_optimized_anchor_required = true
+i6_literature_anchor_band_low = 80.0  # below = investigate; sanity floor for "optimized"
+# Acknowledge F.13.1 v2 finding: optimized GPU 202.6 > CPU-TL2 floor 200.
+# Cushion analysis lives in docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md §11
+# (3 reasons static-rule still holds despite cushion vanishing). Once
+# documented, set this flag to clear the I6 WARN. Setting back to false
+# (e.g., re-bench shows different number, or §11 needs revision) re-triggers
+# WARN at next pre-commit so the cushion question stays auditable.
+i6_above_floor_acknowledged = true

@@ -97,6 +97,6 @@ fi
 # ── Final summary ──
 SUMMARY="✅ pre-commit OK (fmt, clippy, 0 production unwraps"
 if [ "$TRIGGER" -eq 1 ]; then SUMMARY="$SUMMARY, bilingual-corpus 8/8"; fi
-if [ "$F13_TRIGGER" -eq 1 ]; then SUMMARY="$SUMMARY, f13-dispatch 21/21"; fi
+if [ "$F13_TRIGGER" -eq 1 ]; then SUMMARY="$SUMMARY, f13-dispatch 23/23"; fi
 SUMMARY="$SUMMARY)"
 echo "$SUMMARY"

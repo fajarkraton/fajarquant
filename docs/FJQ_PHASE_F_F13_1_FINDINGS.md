@@ -189,5 +189,76 @@ Append a §10 (post-publication F.13.1 update) to `FJQ_PHASE_F_F13_DISPATCH_DECI
 
 ---
 
+## 9. v2 update (2026-05-01) — kvcache + torch.compile + GPU clock stabilization
+
+The v1 measurement from §2.1 (19.7 tok/s naive) turned out to be a **cold-GPU
+artifact**, not a representative warm-state number. v2 added:
+
+1. **GPU clock-stabilization pre-warmup** (50 dummy 512×512 matmuls before
+   any timing) to push laptop GPU out of P4/P5 power state.
+2. **HGRN-Bit RecurrentCache path** (`use_cache=True` + `past_key_values`)
+   for single-token forward each step.
+3. **torch.compile path** with both `mode='default'` and `mode='reduce-overhead'`.
+
+### v2 results — 4 paths, third stable run 2026-05-01
+
+| Path | tok/s median | ms/tok median | speedup vs naive |
+|---|---|---|---|
+| GPU naive (warm) | 118.9 | 8.41 | 1.00× |
+| GPU + KV cache | 157.8 | 6.34 | 1.33× |
+| GPU + KV cache + torch.compile(default) | **202.6** | **4.94** | **1.70×** |
+| GPU + KV cache + torch.compile(reduce-overhead) | FAIL | — | — |
+
+Two consecutive runs gave 120.2 / 158.1 / 202.6+ and 118.9 / 157.8 / 202.6 →
+warm-state variance ~1% across runs. Compare to v1 cold-state 19.7 = ~6×
+swing on identical naive code path. Pre-warmup is essential.
+
+### v2 finding: torch.compile(reduce-overhead) failure
+
+Error: `RuntimeError: Error: accessing tensor output of CUDAGraphs that
+has been overwritten by a subsequent run` from `mmfreelm/layers/hgrn_bit.py:154`
+where `init_state` does `state += (param.new_zeros(...),)`. CUDAGraphs
+require non-mutating tensor ops. `cudagraph_mark_step_begin()` did not
+resolve (HGRN's mutation pattern is deeper than the marker can accommodate).
+Upstream HGRN-Bit code change required to fix. Documented as known
+limitation in fixture's `[gpu_hgrn_bit_mini_batch1_optimized_best]` notes.
+
+### v2 finding: verdict G3 cushion has VANISHED with measurement
+
+| Side | v1 projection | v2 measurement |
+|---|---|---|
+| GPU best | 120 (anchor band upper) | 202.6 |
+| CPU-TL2 lower bound | 200 | 200 (still projection) |
+| Margin (G3 floor 50) | +80 (PASS by 30) | −2.6 (mathematically violated) |
+
+The cushion-analysis paragraph and 3 reasons-static-rule-still-holds live
+in `docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md` §11 (added 2026-05-01).
+
+### v2 fixture changes
+
+- REPLACED `[gpu_hgrn_bit_mini_batch1_measured]` value 19.7 → 118.9
+  (warm-state naive)
+- ADDED `[gpu_hgrn_bit_mini_batch1_optimized_best]` value 202.6
+  (kvcache + compile(default))
+- I5 invariant floor tightened: 5 → 50 tok/s (warm-state minimum)
+- I6 invariant added: optimized anchor required + presence + value tracking
+- I6 acknowledgment flag `i6_above_floor_acknowledged = true` after
+  decision-doc §11 documents the cushion analysis
+
+### v2 closeout
+
+F.13.1 v2 closes PARTIAL (same status as v1 — CPU side still structurally
+blocked by HGRN-Bit triton CUDA-only kernels; F.13.2 still DEFERRED).
+What changed is the PRECISION of the GPU side: from 19.7 cold artifact
+to 202.6 optimized warm. This precision actually narrows the verdict G3
+cushion from "comfortable margin" to "edge case rescued by 3 deployment-
+specific arguments." Net effect: verdict still HOLDS but with explicit
+caveat in §11.
+
+---
+
 *F.13.1 closed PARTIAL 2026-04-30. GPU measurement done; CPU measurement structurally
 blocked by triton CUDA-only kernels. Verdict G3 reinforced.*
+*F.13.1 v2 closed PARTIAL 2026-05-01. v1 cold-GPU artifact corrected (19.7 → 118.9 warm).
+Optimized-best path measured (202.6 = 1.70× over naive). Verdict G3 cushion vanished
+in measurement; static-rule still HOLDS for FajarOS deployment per decision-doc §11.*

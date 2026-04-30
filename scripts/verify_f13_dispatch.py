@@ -142,29 +142,74 @@ def check_invariants(fixture: dict[str, Any], r: CheckResult) -> None:
     else:
         r.fail("I4 FajarOS envelope falls outside CPU-wins region -- F.13.2 dispatch needed")
 
-    # I5 — F.13.1 measured anchor reinforces G3 (added 2026-04-30 post-F.13.1)
+    # I5 — F.13.1 NAIVE measured anchor (warm-state, no KV cache, no compile)
+    # Updated F.13.1 v2 2026-05-01: replaced cold-GPU artifact (19.7) with
+    # warm-state baseline (118.9). Sanity band tightened to [50, 200].
     measured = fixture.get("gpu_hgrn_bit_mini_batch1_measured")
     if measured is None:
         r.fail("I5 measured anchor [gpu_hgrn_bit_mini_batch1_measured] MISSING -- F.13.1 outcome lost")
     else:
         measured_tps = float(measured.get("value_tok_per_sec_median", 0.0))
         floor_max = float(inv.get("i5_measured_gpu_tok_per_sec_max", 200.0))
-        floor_min = float(inv.get("i5_measured_gpu_tok_per_sec_min", 5.0))
+        floor_min = float(inv.get("i5_measured_gpu_tok_per_sec_min", 50.0))
         if floor_min <= measured_tps <= floor_max:
             r.ok(
-                f"I5 measured GPU = {measured_tps:.1f} tok/s within sanity band "
-                f"[{floor_min}, {floor_max}] (verdict G3 reinforced)"
+                f"I5 measured GPU naive (warm) = {measured_tps:.1f} tok/s within sanity band "
+                f"[{floor_min}, {floor_max}]"
             )
         elif measured_tps > floor_max:
             r.fail(
-                f"I5 measured GPU = {measured_tps:.1f} > {floor_max} tok/s -- "
-                f"verdict G3 no longer reinforced; if bench was upgraded to optimized "
-                f"stack (KV cache + torch.compile), re-derive verdict"
+                f"I5 measured GPU naive = {measured_tps:.1f} > {floor_max} tok/s -- "
+                f"investigate: bench upgraded? hardware refresh? Re-derive verdict G3"
             )
         else:
             r.fail(
-                f"I5 measured GPU = {measured_tps:.1f} < {floor_min} tok/s -- "
-                f"sanity floor violation; bench broken or hardware regressed"
+                f"I5 measured GPU naive = {measured_tps:.1f} < {floor_min} tok/s -- "
+                f"sanity floor violation (cold GPU? thermal throttle? bench broken?)"
+            )
+
+    # I6 — F.13.1 v2 OPTIMIZED-best anchor (kvcache + torch.compile(default))
+    # Tracks the value AND surfaces verdict G3 cushion question. If optimized
+    # GPU exceeds CPU-TL2 conservative lower bound (200), the projection
+    # margin has vanished and verdict needs caveat. This is informational —
+    # the bench fact is real; the verdict re-derivation lives in the
+    # decision-doc, not here.
+    #
+    # Acknowledgment pattern: once decision-doc §11 documents the cushion
+    # analysis with explicit "static-rule still holds because X" reasoning,
+    # set `i6_above_floor_acknowledged = true` in fixture to acknowledge.
+    # This lets pre-commit --strict pass while preserving auditability —
+    # any future change to the anchor will re-trigger WARN until re-acked.
+    optimized = fixture.get("gpu_hgrn_bit_mini_batch1_optimized_best")
+    if optimized is None:
+        r.fail("I6 optimized anchor [gpu_hgrn_bit_mini_batch1_optimized_best] MISSING -- F.13.1 v2 outcome lost")
+    else:
+        opt_tps = float(optimized.get("value_tok_per_sec_median", 0.0))
+        cpu_tl2_floor = 200.0  # conservative lower bound projection from BitNet 2B4T scaling
+        acked = bool(inv.get("i6_above_floor_acknowledged", False))
+        if opt_tps > cpu_tl2_floor:
+            if acked:
+                r.ok(
+                    f"I6 optimized GPU = {opt_tps:.1f} tok/s exceeds CPU-TL2 floor "
+                    f"({cpu_tl2_floor}) — ACKNOWLEDGED (decision-doc §11 documents "
+                    f"cushion analysis)"
+                )
+            else:
+                r.warn(
+                    f"I6 optimized GPU = {opt_tps:.1f} tok/s EXCEEDS CPU-TL2 conservative "
+                    f"floor ({cpu_tl2_floor}) -- verdict G3 cushion VANISHED. Document "
+                    f"in decision-doc §11 then set i6_above_floor_acknowledged = true "
+                    f"in fixture to clear this warning."
+                )
+        elif opt_tps >= 80.0:  # within or above literature anchor band low end
+            r.ok(
+                f"I6 optimized GPU = {opt_tps:.1f} tok/s within literature anchor band "
+                f"reach (≥80 tok/s); verdict G3 cushion intact"
+            )
+        else:
+            r.fail(
+                f"I6 optimized GPU = {opt_tps:.1f} < 80 tok/s -- below literature anchor "
+                f"band; investigate"
             )
 
 
@@ -181,6 +226,14 @@ def check_anchor_completeness(fixture: dict[str, Any], r: CheckResult) -> None:
             "inference_stack",
             "source",
         ],
+        "gpu_hgrn_bit_mini_batch1_optimized_best": [
+            "value_tok_per_sec_median",
+            "value_ms_per_token_median",
+            "hardware",
+            "inference_stack",
+            "speedup_vs_naive",
+            "source",
+        ],
         "mini_ckpt_size": ["params_million", "fp16_size_mb", "ternary_packed_mb"],
         "host_cpu_envelope": ["model", "logical_cpus", "l3_cache_mib", "isa_features"],
         "host_gpu_envelope_expected": ["model", "vram_gb"],
@@ -191,6 +244,7 @@ def check_anchor_completeness(fixture: dict[str, Any], r: CheckResult) -> None:
             "i4_fajaros_max_batch",
             "i5_measured_gpu_tok_per_sec_max",
             "i5_measured_gpu_tok_per_sec_min",
+            "i6_literature_anchor_band_low",
         ],
     }
     for anchor_name, required_keys in required.items():

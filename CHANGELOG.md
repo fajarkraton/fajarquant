@@ -7,7 +7,75 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
-## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 chains
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 + F.13.1-v2 chains
+
+**F.13.1 v2 (2026-05-01) — Tier 2D enhancement: kvcache + torch.compile +
+GPU clock stabilization. Two material findings flip parts of v1 reading:**
+
+  1. **v1 cold-GPU artifact corrected.** Bench script now does 50-matmul
+     pre-warmup before any timing. Naive path on identical code goes from
+     19.7 tok/s (v1, immediately-post-driver-restoration cold GPU) to
+     118.9 tok/s (v2, warm steady-state). Two consecutive runs gave
+     stable 120.2 / 158.1 then 118.9 / 157.8 → ~1% variance on warm.
+
+  2. **Optimized-best lands ABOVE literature anchor band.**
+       GPU naive (warm)              = 118.9 tok/s (1.00x)
+       GPU + KV cache                = 157.8 tok/s (1.33x)
+       GPU + KV cache + compile(default) = 202.6 tok/s (1.70x BEST)
+       GPU + KV cache + compile(reduce-overhead) = FAIL
+         (HGRN init_state in-place state += breaks CUDAGraphs even with
+         cudagraph_mark_step_begin marker; upstream model-code change
+         required to fix; documented as known limitation)
+
+  3. **Verdict G3 cushion has vanished with measurement.** Original
+     projection: CPU-TL2 (200) - GPU upper (120) = +80 tok/s margin.
+     v2 measurement: CPU-TL2 (200 still projection) - GPU best
+     (202.6) = -2.6 tok/s. Static-rule verdict STILL HOLDS for FajarOS
+     Nova because (a) GPU dispatch path is not built — multi-week
+     engineering investment, (b) CPU-TL2 upper bound projection 400
+     still exceeds 202.6, (c) FajarOS workload is batch=1 inside
+     verdict G1 envelope. Cushion analysis fully documented in
+     decision-doc §11.
+
+  Files:
+  - `docs/FJQ_PHASE_F_F13_1_FINDINGS.md` — added §9 v2 update with
+    4-path comparison table, torch.compile failure analysis,
+    cushion vanishing finding, fixture-change list
+  - `docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md` — added §11 cushion
+    analysis with 3 reasons static-rule holds + paper v2 §6 Option A
+    (concise) and Option B (precise) text alternatives + cross-repo
+    impact note for fajaros-x86 plan §3.4
+  - `tests/fixtures/f13_dispatch_anchors.toml` — REPLACED
+    `[gpu_hgrn_bit_mini_batch1_measured]` (19.7 → 118.9 warm-state),
+    ADDED `[gpu_hgrn_bit_mini_batch1_optimized_best]` (202.6),
+    tightened I5 floor (5 → 50), added I6 invariant +
+    `i6_above_floor_acknowledged=true` flag
+  - `scripts/verify_f13_dispatch.py` — added I6 check with
+    acknowledgment-pattern (WARN if optimized > CPU-TL2 floor 200
+    AND not acked; PASS if acked or below floor)
+  - `python/phase_d/scripts/bench_f13_dispatch_calibration.py` —
+    refactored: `bench_decode` → `bench_decode_naive`, added
+    `bench_decode_kvcache`, `bench_decode_kvcache_compiled` (with
+    fallback chain default → reduce-overhead), 50-matmul GPU pre-
+    warmup phase, comparison table output, anchor cross-check that
+    flags above-band cases
+  - `paper/intllm/results/f13_dispatch_calibration.json` — multi-path
+    measurement artifact (host envelope, model config, all 4 GPU
+    paths with median/mean/p95 timing, CPU error)
+  - `scripts/git-hooks/pre-commit` — summary line 21/21 → 23/23
+    (anchor completeness +1, I6 check +1)
+
+  Verify gate: 21 → 23 PASS strict (anchor completeness +1, I6 +1).
+
+  Cross-repo impact (NOT actioned this commit, surfaced for next
+  fajaros-x86 plan revision): `FAJAROS_PRODUCTION_PLAN_V1.md` §3.4
+  LLM benchmarks close-plan should cite v2 measured numbers (118.9
+  naive, 158 kvcache, 203 optimized) as GPU dispatch targets.
+
+  Variance: ~2h actual vs 2-3h estimate, 0% to -33% (single-session
+  with 2 stable bench runs + 1 cold-artifact discovery).
+
+
 
 **F.13.1 live calibration — CLOSED PARTIAL on this hardware (after nvidia
 driver restoration 2026-04-30)**: GPU measured 19.7 tok/s median (50.68 ms/tok)

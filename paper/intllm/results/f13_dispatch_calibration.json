@@ -17,15 +17,98 @@
     "vocab_size": 32768
   },
   "results": {
-    "gpu": {
-      "ms_per_token_median": 50.67953950037918,
-      "ms_per_token_mean": 55.836630281248745,
-      "ms_per_token_p95": 87.17221799997787,
-      "tokens_per_sec_median": 19.73182885753171,
-      "tokens_per_sec_mean": 17.909390215043537,
+    "gpu_naive": {
+      "ms_per_token_median": 8.409275501435332,
+      "ms_per_token_mean": 8.447030546790302,
+      "ms_per_token_p95": 8.813043999907677,
+      "tokens_per_sec_median": 118.91630852495149,
+      "tokens_per_sec_mean": 118.38479741025436,
       "n_warmup": 5,
       "n_timed": 64,
-      "total_timed_seconds": 3.5735443379999197,
+      "total_timed_seconds": 0.5406099549945793,
+      "generated_tokens": [
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502
+      ]
+    },
+    "gpu": {
+      "ms_per_token_median": 8.409275501435332,
+      "ms_per_token_mean": 8.447030546790302,
+      "ms_per_token_p95": 8.813043999907677,
+      "tokens_per_sec_median": 118.91630852495149,
+      "tokens_per_sec_mean": 118.38479741025436,
+      "n_warmup": 5,
+      "n_timed": 64,
+      "total_timed_seconds": 0.5406099549945793,
+      "generated_tokens": [
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502
+      ]
+    },
+    "gpu_kvcache": {
+      "ms_per_token_median": 6.337429999803135,
+      "ms_per_token_mean": 6.3540177812342336,
+      "ms_per_token_p95": 6.4599750003253575,
+      "tokens_per_sec_median": 157.79266990421416,
+      "tokens_per_sec_mean": 157.38073679198226,
+      "n_warmup": 5,
+      "n_timed": 64,
+      "total_timed_seconds": 0.40665713799899095,
+      "generated_tokens": [
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502
+      ]
+    },
+    "gpu_kvcache_compiled_default": {
+      "ms_per_token_median": 4.935545998705493,
+      "ms_per_token_mean": 4.94619532832985,
+      "ms_per_token_p95": 5.049052000686061,
+      "tokens_per_sec_median": 202.61182861273758,
+      "tokens_per_sec_mean": 202.17559833765472,
+      "n_warmup": 10,
+      "n_timed": 64,
+      "total_timed_seconds": 0.3165565010131104,
+      "generated_tokens": [
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502
+      ]
+    },
+    "gpu_kvcache_compiled_reduce_overhead": {
+      "error": "compiled(mode=reduce-overhead) warmup failed: RuntimeError: Error: accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run. Stack trace: File \"/home/primecore/Documents/fajarquant/python/phase_d/_upstream/mmfreelm/layers/hgrn_bit.py\", line 154, in init_state\n    state += (param.new_zeros(batch_size, self.num_heads, self.head_dim),). To prevent overwriting, clone the tensor outside of torch.compile() or call torch.compiler.cudagraph_mark_step_begin() before each model invocation."
+    },
+    "gpu_kvcache_compiled": {
+      "ms_per_token_median": 4.935545998705493,
+      "ms_per_token_mean": 4.94619532832985,
+      "ms_per_token_p95": 5.049052000686061,
+      "tokens_per_sec_median": 202.61182861273758,
+      "tokens_per_sec_mean": 202.17559833765472,
+      "n_warmup": 10,
+      "n_timed": 64,
+      "total_timed_seconds": 0.3165565010131104,
       "generated_tokens": [
         29502,
         29502,
