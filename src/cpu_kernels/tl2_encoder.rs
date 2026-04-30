@@ -204,11 +204,31 @@ pub fn pack_tile_organized(
                 let ai = triplet_in_kouter / 2;
                 let nibble = triplet_in_kouter % 2;
 
+                // F.11.4 Path B step 4 finding (`derive_byte_to_row_mapping`):
+                // kernel uses unpacklo/unpackhi to combine LUT results,
+                // which crosses AVX2 lanes. Empirically (single-byte
+                // sweep with K=256, BK=256, signs=0):
+                //   row 0..7   ← input byte 0..7
+                //   row 8..15  ← input byte 16..23   (lane-crossed)
+                //   row 16..23 ← input byte 8..15    (lane-crossed)
+                //   row 24..31 ← input byte 24..31
+                // Encoder must place row r's mag byte at the position
+                // the kernel will read it from. Without this fix, rows
+                // 8-23 produce DRAMATICALLY scrambled output (diffs of
+                // ±97/±126/±443 instead of the uniform per-period
+                // ±32/±31/±1 cycle that signals a row-uniform residual).
+                let byte_in_vec = match lane {
+                    l if l < 8 => l,
+                    l if l < 16 => l + 8,
+                    l if l < 24 => l - 8,
+                    _ => lane,
+                };
+
                 let byte_offset = tile_idx * a_per_tile
                     + k_outer * sizes.a_per_kouter
                     + i_group * i_group_a_stride
                     + ai * 32
-                    + lane;
+                    + byte_in_vec;
                 if nibble == 0 {
                     a_buf[byte_offset] |= (mag_idx & 0xF) << 4;
                 } else {

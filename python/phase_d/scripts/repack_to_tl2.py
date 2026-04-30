@@ -576,12 +576,30 @@ def pack_tl2_tile_organized(
                 ai = triplet_in_kouter // 2
                 nibble_in_byte = triplet_in_kouter % 2
 
+                # F.11.4 Path B step 4: kernel unpacklo/unpackhi
+                # crosses AVX2 lanes for bytes 8..23. Encoder must
+                # place row r's mag at the input byte position the
+                # kernel will route to output row r. Empirical sweep
+                # (Rust harness derive_byte_to_row_mapping) confirmed:
+                #   row 0..7   ↔ input byte 0..7
+                #   row 8..15  ↔ input byte 16..23   (lane-crossed)
+                #   row 16..23 ↔ input byte 8..15    (lane-crossed)
+                #   row 24..31 ↔ input byte 24..31
+                if lane < 8:
+                    byte_in_vec = lane
+                elif lane < 16:
+                    byte_in_vec = lane + 8
+                elif lane < 24:
+                    byte_in_vec = lane - 8
+                else:
+                    byte_in_vec = lane
+
                 byte_offset = (
                     tile_idx * a_per_tile
                     + k_outer * a_per_kouter
                     + i_group * (a_per_kouter // 2)
                     + ai * 32
-                    + lane
+                    + byte_in_vec
                 )
                 # Per the kernel: vec_v_top = (a >> 4) & 0xF
                 #                  vec_v_bot = a & 0xF

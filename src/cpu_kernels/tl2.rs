@@ -536,7 +536,7 @@ mod tests {
                 diffs.len(),
                 BM
             );
-            for &(i, sv, tv) in diffs.iter().take(5) {
+            for &(i, sv, tv) in diffs.iter().take(20) {
                 eprintln!("  row {i}: scalar = {sv}, tl2 = {tv}, diff = {}", tv - sv);
             }
             eprintln!(
@@ -810,5 +810,157 @@ mod tests {
              row 0 / triplet 0. Iter 6 predicted bit_pos=15 \
              (byte 1, bit 7). Check above for actual."
         );
+    }
+
+    /// F.11.4 Branch X-real Path B step 4 — byte→row mapping probe.
+    ///
+    /// For each magnitude byte position `bp` in vec_as[0] (bytes
+    /// 0..32 of A buffer), set ONLY a_buf[bp]=0xDD (canonical (1,1,1)
+    /// for both nibbles), signs=0, run kernel, observe which C[r] is
+    /// non-zero. This reveals the byte→row mapping inside vec_as[0]
+    /// definitively. Then probe vec_as[1] (bytes 32..64), vec_as[2]
+    /// (bytes 64..96), … to see if k-block offset shifts the active
+    /// row.
+    ///
+    /// What we learn:
+    ///   - Whether byte b in vec_as[0] maps to row b (linear) or
+    ///     some shuffled mapping per AVX2 vpshufb + unpackhi/unpacklo.
+    ///   - Whether different vec_as[ai] hit the same rows (k-stride
+    ///     accumulation) or different rows (row-stride layout).
+    ///   - Whether vec_as[20] is genuinely dropped (resume-protocol
+    ///     iter 7 finding from FJQ_PHASE_F_F11_X7_HYPOTHESIS_FINDINGS).
+    #[test]
+    #[ignore = "Path B step 4 — byte→row mapping probe; prints map, not pass/fail"]
+    fn derive_byte_to_row_mapping() {
+        const M_FULL: i32 = 256;
+        const K: i32 = 256;
+        const BS: i32 = 1;
+
+        #[repr(align(64))]
+        struct AlignedF32<const N: usize>([f32; N]);
+        #[repr(align(64))]
+        struct AlignedI8<const N: usize>([i8; N]);
+        #[repr(align(64))]
+        struct AlignedU8<const N: usize>([u8; N]);
+        #[repr(align(64))]
+        struct AlignedI32<const N: usize>([i32; N]);
+
+        let run_with_mag = |mag_byte_off: usize, mag_byte_val: u8| -> [i32; 64] {
+            let mut a_buf = AlignedU8::<2752>([0_u8; 2752]);
+            a_buf.0[mag_byte_off] = mag_byte_val;
+            let mut sign_buf = AlignedU8::<704>([0_u8; 704]);
+            let mut b_buf = AlignedF32([0.0_f32; 256]);
+            for (i, slot) in b_buf.0.iter_mut().enumerate() {
+                *slot = ((i % 17) as i32 - 8) as f32;
+            }
+            let mut lut_scales_buf = AlignedF32::<8>([0.0_f32; 8]);
+            let mut three_qlut_buf = AlignedI8::<2752>([0_i8; 2752]);
+            let mut two_qlut_buf = AlignedI8::<64>([0_i8; 64]);
+            let mut scales_buf = AlignedF32::<8>([1.0_f32; 8]);
+            let mut c_buf = AlignedI32::<64>([0_i32; 64]);
+
+            unsafe {
+                super::fjq_tl2_preprocessor(
+                    BS,
+                    M_FULL,
+                    K,
+                    0,
+                    b_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    two_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                );
+                super::fjq_tl2_qgemm_lut(
+                    BS,
+                    M_FULL,
+                    K,
+                    256,
+                    a_buf.0.as_mut_ptr() as *mut c_void,
+                    sign_buf.0.as_mut_ptr() as *mut c_void,
+                    three_qlut_buf.0.as_mut_ptr() as *mut c_void,
+                    scales_buf.0.as_mut_ptr() as *mut c_void,
+                    lut_scales_buf.0.as_mut_ptr() as *mut c_void,
+                    c_buf.0.as_mut_ptr() as *mut c_void,
+                );
+            }
+            c_buf.0
+        };
+
+        let baseline = run_with_mag(0, 0); // all-zero magnitude
+        eprintln!("Baseline (all zeros): C[0..8] = {:?}", &baseline[0..8]);
+        let nonzero_baseline: Vec<usize> = baseline
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v != 0)
+            .map(|(i, _)| i)
+            .collect();
+        eprintln!("Baseline non-zero rows: {:?}\n", nonzero_baseline);
+
+        eprintln!(
+            "Sweep 1 — vary magnitude byte offset bp in 0..32 (vec_as[0]):\n\
+             For each bp, set a_buf[bp]=0xDD (idx=13 both nibbles), \
+             signs=0, observe non-zero C rows."
+        );
+        for bp in 0..32_usize {
+            let c = run_with_mag(bp, 0xDD);
+            let diffs: Vec<(usize, i32)> = c
+                .iter()
+                .zip(baseline.iter())
+                .enumerate()
+                .filter(|(_, (cv, bv))| **cv != **bv)
+                .map(|(i, (cv, bv))| (i, *cv - *bv))
+                .collect();
+            if diffs.is_empty() {
+                eprintln!("  bp={bp:2}: NO C[r] changed (byte ignored?)");
+            } else {
+                let summary: Vec<String> = diffs
+                    .iter()
+                    .take(8)
+                    .map(|(r, d)| format!("C[{r}]+={d}"))
+                    .collect();
+                let total = diffs.len();
+                eprintln!(
+                    "  bp={bp:2}: {total} rows changed: {} {}",
+                    summary.join(", "),
+                    if total > 8 { "..." } else { "" }
+                );
+            }
+        }
+
+        eprintln!(
+            "\nSweep 2 — vary ai-block (byte 0 of each vec_as[ai] for \
+             ai=0..21):\n\
+             For each ai, set a_buf[ai*32]=0xDD, signs=0, observe \
+             non-zero C rows. If kernel uses ai=0..19 only and drops \
+             ai=20, ai=20 should produce no change.\n\
+             Per kernel inner-loop bound (KK/8=5 outer × 4 inner = 20 \
+             ai-vectors used), ai=20 should be the dropped one."
+        );
+        for ai in 0..21_usize {
+            let bp = ai * 32;
+            let c = run_with_mag(bp, 0xDD);
+            let diffs: Vec<(usize, i32)> = c
+                .iter()
+                .zip(baseline.iter())
+                .enumerate()
+                .filter(|(_, (cv, bv))| **cv != **bv)
+                .map(|(i, (cv, bv))| (i, *cv - *bv))
+                .collect();
+            if diffs.is_empty() {
+                eprintln!("  ai={ai:2} (bp={bp:3}): NO C[r] changed");
+            } else {
+                let summary: Vec<String> = diffs
+                    .iter()
+                    .take(4)
+                    .map(|(r, d)| format!("C[{r}]+={d}"))
+                    .collect();
+                let total = diffs.len();
+                eprintln!(
+                    "  ai={ai:2} (bp={bp:3}): {total} rows changed: {} {}",
+                    summary.join(", "),
+                    if total > 4 { "..." } else { "" }
+                );
+            }
+        }
     }
 }
