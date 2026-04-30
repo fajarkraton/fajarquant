@@ -304,15 +304,19 @@ Items deferred to Phase F because the V32-prep autonomous research surfaced spec
 
 ### F.13 CPU-vs-GPU dispatch heuristic in FajarOS Nova kernel-path runtime
 
+**Status (2026-04-30):** F.13.0 + F.13.3 + F.13.5 SHIPPED in Branch Z-narrow scope. F.13.1 + F.13.2 DEFERRED. Verdict: static rule "CPU default; GPU optional for batch ≥ 8." See `FJQ_PHASE_F_F13_DISPATCH_DECISION.md` (paper v2 §6 narrative ready). Verify gate: `make verify-f13-decision` (19/19 PASS).
+
 **Origin:** Same research turn as F.11/F.12. Insight: at batch=1 + small model (≤100M params), CPU + bitnet.cpp TL2 kernel can **beat the GPU** because PCIe + cudaLaunch overhead dominates over the actual GEMM cost. Concrete numbers: Mini (22M, ~5 MB packed) is L2-resident → "hundreds of tok/s on CPU"; GPU at batch=1 lands ~80–120 tok/s for the same size due to dispatch overhead. This crossover is the ACTUAL differentiator vs llama.cpp / transformers which assume "GPU always wins."
 
 **What to investigate in Phase F:**
 
 | Sub-task | Description | Risk / cost |
 |---|---|---|
-| F.13.1 | Build cost model: (model size in bytes, batch size, sequence length, KV cache size) → predicted CPU tok/s vs GPU tok/s. Calibrate on i9-14900HX + RTX 4090 Laptop measurements across {Mini, Base, Medium, 2B} × {batch=1, 8, 32}. | ~1 week human. The "hello world" case where CPU wins is `Mini × batch=1`; the boundary case is `Base × batch=1`. |
-| F.13.2 | Implement runtime dispatch in FajarOS Nova kernel-path: at inference start, evaluate cost model + select CPU or GPU path. Both paths must be available (F.11 + GPU export). | ~3 days. |
-| F.13.3 | Decision-doc mode: if cost model says crossover happens beyond what FajarOS realistically deploys (i.e., FajarOS embedded use case is always small-model batch=1), simplify to "CPU is the default; GPU is optional for batch ≥ N" rather than runtime dispatch. Likely outcome given embedded-ML vision. | ~½ day. |
+| F.13.0 | Pre-flight audit. **CLOSED 2026-04-30** — see `FJQ_PHASE_F_F13_FINDINGS.md`. Surfaced GPU driver blocker that forked Branch Z into Z-narrow (no live measurements). | ~1h actual. |
+| F.13.1 | Build cost model: (model size in bytes, batch size, sequence length, KV cache size) → predicted CPU tok/s vs GPU tok/s. Calibrate on i9-14900HX + RTX 4090 Laptop measurements across {Mini, Base, Medium, 2B} × {batch=1, 8, 32}. **DEFERRED** — needs nvidia driver + F.11 parity for the TL2 datapoint. Z-narrow projects from BitNet 2B4T anchor instead. | ~1 week human (when both prereqs return). |
+| F.13.2 | Implement runtime dispatch in FajarOS Nova kernel-path: at inference start, evaluate cost model + select CPU or GPU path. Both paths must be available (F.11 + GPU export). **DEFERRED** — F.13.3 verdict says static rule supersedes runtime dispatch for FajarOS workload. Re-entry gates F.13.2-A and F.13.2-B documented in decision-doc §5.2. | ~3 days. |
+| F.13.3 | Decision-doc mode: if cost model says crossover happens beyond what FajarOS realistically deploys (i.e., FajarOS embedded use case is always small-model batch=1), simplify to "CPU is the default; GPU is optional for batch ≥ N" rather than runtime dispatch. Likely outcome given embedded-ML vision. **CLOSED 2026-04-30** — verdict 3/3 G1+G2+G3 PASS, N=8. Static rule confirmed. See `FJQ_PHASE_F_F13_DISPATCH_DECISION.md`. | ~½ day est, ~3h actual. |
+| F.13.5 | Prevention layer: pinned-anchors fixture (`tests/fixtures/f13_dispatch_anchors.toml`) + verify script (`scripts/verify_f13_dispatch.py`) + Makefile gate (`make verify-f13-decision`) + pre-commit hook layer 5 (conditional on staged F.13 docs/fixture/script). **CLOSED 2026-04-30** — 19/19 PASS. | ~1.5h actual. |
 
 **Entry condition for F.13:** F.11 has shipped (need a real CPU path to compare GPU against). F.13 is the natural completion of the F.11 + F.12 stack; without it, FajarOS Nova kernel-path doesn't exploit the CPU-wins-batch-1 crossover that is unique vs commodity LLM inference frameworks.
 

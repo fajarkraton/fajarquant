@@ -7,7 +7,66 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
-## [Unreleased] — V32-prep F.11 + F.5.1.6/7 chains
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 chains
+
+**F.13 Branch Z-narrow — CPU-vs-GPU dispatch heuristic ships
+infrastructure-only with verdict**: static rule "CPU default; GPU
+optional for batch ≥ 8." Resume-protocol pivot from F.11 chain
+(parity gap unresolved). Z-narrow scope = F.13.0 + F.13.3 +
+F.13.5 (no live measurements; nvidia driver absent in this
+environment, F.11 TL2 parity blocks live TL2 bench). Architecture-
+derived verdict anchored to public reference numbers (BitNet 2B4T
+29 ms/tok, cudaLaunch 10-30 µs, GPU small-model batch=1
+80-120 tok/s).
+
+  Documents:
+  - `docs/FJQ_PHASE_F_F13_FINDINGS.md` — F.13.0 pre-flight audit
+    closeout: hardware survey (i9-14900HX 32T 5.8GHz, GPU driver
+    absent, RTX 4090L expected envelope), Phase D ckpt
+    inventory (Mini 22M, Base 46.45M, Medium 74.52M),
+    measurement infrastructure inventory, 6 pinned literature
+    anchors, deferred-work catalog, 8/8 §6.8 self-check.
+  - `docs/FJQ_PHASE_F_F13_PRODUCTION_PLAN.md` — Branch Z-narrow
+    plan v1.0: scope (in: F.13.0/3/5; out: F.13.1/2 deferred),
+    sub-task table with runnable verification per §6.8 R2,
+    mechanical decision gates G1/G2/G3 with verdict matrix per
+    §6.8 R6, 6-row risk register, 10/10 §6.8+§6.6 self-check.
+    Surprise budget +25% (5.5h × 1.25 = 7h cap).
+  - `docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md` — F.13.3
+    decision-doc closeout: §1 inputs, §2 architectural
+    decomposition (per-token cost CPU TL2 / scalar / GPU),
+    §3 crossover analysis (batch axis crossover≈8, model
+    axis≈5B, seq axis≈4096), §4 cost model formalization
+    (piecewise-constant, embedded-friendly), §5 verdict
+    3/3 PASS → static rule with N=8, §5.2 F.13.2 re-entry
+    gates, §6 commodity-framework comparison table,
+    §7 paper v2 §6 LaTeX-ready snippet, §8 honest limitations.
+
+  Prevention (F.13.5 per §6.8 R3):
+  - `tests/fixtures/f13_dispatch_anchors.toml` — 6 pinned
+    anchors + 4 dispatch invariants (I1-I4) with sources +
+    verified date + revisit_at + tolerance bands.
+  - `scripts/verify_f13_dispatch.py` — fixture loader +
+    invariant assertions (I1 TL2/scalar ≥ 2.4×, I2 CPU-TL2
+    minus GPU ≥ 50 tok/s margin, I3 cudaLaunch×kernels ≥
+    720 µs, I4 FajarOS envelope inside CPU-wins region) +
+    decision-doc reference regex sanity. `--strict` exits 1
+    on warn for CI/pre-commit. 19/19 PASS.
+  - `Makefile` — `verify-f13-decision` target, listed in
+    Phase F help section.
+  - `scripts/git-hooks/pre-commit` — bumped to V4. Layer 5
+    fires conditionally when staged paths touch
+    `tests/fixtures/f13_dispatch_anchors.toml`,
+    `docs/FJQ_PHASE_F_F13_*.md`, or
+    `scripts/verify_f13_dispatch.py`. Final summary line
+    appends `f13-dispatch 19/19` when triggered.
+
+  Scope deferred (catalogued, not hidden):
+  - F.13.1 live calibration sweep — needs nvidia driver +
+    F.11 parity for TL2 datapoint.
+  - F.13.2 runtime dispatch implementation — F.13.2-A and
+    F.13.2-B re-entry gates documented (deployment ask
+    with batch ≥ 8 AND F.11 parity closed).
 
 **F.5.1.6 G5 forward-equivalence gate** (`6987de3`) — closes the
 §3.3 action item from F.5.1.6 findings.

@@ -9,7 +9,7 @@
 #   ./scripts/git-hooks/install-hooks.sh
 #
 # Hooks installed:
-#   - pre-commit  (V3 — fmt + clippy + audit_unwrap + Phase E1.6 corpus gate)
+#   - pre-commit  (V4 — fmt + clippy + audit_unwrap + Phase E1.6 corpus gate + Phase F.13 dispatch gate)
 
 set -e
 

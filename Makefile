@@ -36,6 +36,9 @@ help:
 	@echo "  test-intllm-en             Phase E1.2 — EN corpus shim smoke gate (constants + math, ~1s)"
 	@echo "  verify-bilingual-corpus    Phase E1.6 — bilingual corpus packaging gate (spec ↔ manifests, ~1s)"
 	@echo "  train-mini-ablation TAG=X  Phase E2.1.0 — Mini-scale ablation harness (TAG=baseline|hadamard|fp8_lmhead|distill|balanced_calib|lang_cond_a|combined; --proof-of-life or --dry-run for fast wiring sanity)"
+	@echo ""
+	@echo "FajarQuant Phase F Make targets:"
+	@echo "  verify-f13-decision        Phase F.13.5 — dispatch decision-doc anchors + invariants gate (~<1s)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -431,3 +434,21 @@ train-mini-ablation:
 .PHONY: verify-bilingual-corpus
 verify-bilingual-corpus:
 	@$(PYTHON) $(PHASE_E)/scripts/verify_bilingual_corpus.py
+
+# ─── Phase F.13.5 ─── Dispatch-decision anchors + invariants gate ────
+#
+# Re-asserts that `docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md` (the
+# Z-narrow CPU-vs-GPU dispatch verdict) stays consistent with the
+# pinned literature anchors in `tests/fixtures/f13_dispatch_anchors.toml`.
+#
+# The decision is architecture-derived but anchored to public reference
+# numbers (BitNet 2B4T 29 ms/tok, cudaLaunch 10-30 µs, etc). If those
+# anchors drift, or if the decision-doc is edited inconsistently with
+# the fixture, the verdict "CPU-first static rule" may no longer hold.
+# This gate catches that.
+#
+# Also fires from the pre-commit hook when any docs/FJQ_PHASE_F_F13_*.md
+# or the fixture is staged. Per CLAUDE.md §6.8 R3 prevention layer.
+.PHONY: verify-f13-decision
+verify-f13-decision:
+	@$(PYTHON) scripts/verify_f13_dispatch.py --strict

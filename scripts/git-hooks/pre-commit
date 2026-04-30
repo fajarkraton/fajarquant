@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fajarquant pre-commit hook (v3 — adds Phase E E1.6 bilingual-corpus gate).
+# fajarquant pre-commit hook (v4 — adds Phase F F.13 dispatch-decision gate).
 #
 # Source of truth for `.git/hooks/pre-commit`. Install via:
 #   ./scripts/git-hooks/install-hooks.sh
@@ -9,12 +9,9 @@
 #   2. cargo clippy --lib -- -D warnings                      (Rust lint)
 #   3. scripts/audit_unwrap.py --summary                      (no production .unwrap())
 #   4. make verify-bilingual-corpus                           (Phase E1.6 gate, conditional)
+#   5. make verify-f13-decision                               (Phase F.13.5 gate, conditional)
 #
-# Layer 4 only fires when staged changes touch ANY of:
-#   - data/phase_e/corpus_id_dedup_exact/*/_manifest.json
-#   - python/phase_e/intllm_en.py
-#   - python/phase_e/scripts/verify_bilingual_corpus.py
-#   - docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md
+# Layers 4-5 only fire when staged changes touch their trigger paths.
 # This keeps the hook fast for unrelated commits (~<0.1 s no-op).
 
 set -e
@@ -72,7 +69,34 @@ if [ "$TRIGGER" -eq 1 ]; then
         echo "   See docs/FJQ_PHASE_E_BILINGUAL_CORPUS_V1.md §5 for invariants."
         exit 1
     fi
-    echo "✅ pre-commit OK (fmt, clippy, 0 production unwraps, bilingual-corpus 8/8)"
-else
-    echo "✅ pre-commit OK (fmt, clippy, 0 production unwraps)"
 fi
+
+# Layer 5: Phase F F.13 dispatch-decision gate (conditional on staged changes).
+# Trigger paths (any one staged ⇒ run gate):
+#   - tests/fixtures/f13_dispatch_anchors.toml
+#   - docs/FJQ_PHASE_F_F13_*.md  (any of FINDINGS, PRODUCTION_PLAN, DISPATCH_DECISION)
+#   - scripts/verify_f13_dispatch.py
+F13_TRIGGER=0
+while IFS= read -r f; do
+    case "$f" in
+        tests/fixtures/f13_dispatch_anchors.toml) F13_TRIGGER=1 ;;
+        docs/FJQ_PHASE_F_F13_*.md) F13_TRIGGER=1 ;;
+        scripts/verify_f13_dispatch.py) F13_TRIGGER=1 ;;
+    esac
+done <<< "$STAGED"
+
+if [ "$F13_TRIGGER" -eq 1 ]; then
+    if ! make verify-f13-decision 2>&1; then
+        echo ""
+        echo "❌ verify-f13-decision FAIL. Anchors / decision-doc / invariants drift."
+        echo "   See docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md §5 for verdict gates."
+        exit 1
+    fi
+fi
+
+# ── Final summary ──
+SUMMARY="✅ pre-commit OK (fmt, clippy, 0 production unwraps"
+if [ "$TRIGGER" -eq 1 ]; then SUMMARY="$SUMMARY, bilingual-corpus 8/8"; fi
+if [ "$F13_TRIGGER" -eq 1 ]; then SUMMARY="$SUMMARY, f13-dispatch 19/19"; fi
+SUMMARY="$SUMMARY)"
+echo "$SUMMARY"

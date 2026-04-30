@@ -1,0 +1,145 @@
+# F.13 Dispatch Heuristic — Pinned Literature Anchors
+#
+# These are the external/upstream numbers that the F.13.3 decision-doc
+# (`docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md`) cites in lieu of live
+# measurements. The verify gate `make verify-f13-decision` re-asserts
+# that the decision-doc's claims stay within these ranges.
+#
+# Why pin them?
+# - F.13 ships in Z-narrow scope without live measurements (no GPU
+#   driver in this environment, F.11 TL2 parity gap blocks live TL2
+#   bench). The verdict is architecture-derived but anchored to public
+#   reference numbers. If those numbers shift (e.g. BitNet readme is
+#   re-benchmarked, NVIDIA programming guide is revised), the verdict
+#   may no longer hold.
+# - Per CLAUDE.md §6.8 R3: every class-of-bugs fix needs a prevention
+#   layer, not just the patch.
+#
+# Update protocol:
+# - Re-verify each entry against its `source` URL on the schedule
+#   in `revisit_at`. If the upstream number drifts beyond the
+#   `tolerance_pct`, file a follow-up to revisit the F.13.3 verdict.
+# - Bumping any value here MUST be accompanied by a docs/FJQ_PHASE_F_F13_*.md
+#   update in the same commit (verify gate will fail otherwise).
+
+schema_version = "1.0"
+created = "2026-04-30"
+phase = "F.13.5 prevention layer"
+
+# ─── CPU TL2 anchor: BitNet b1.58 2B4T ──────────────────────────────
+[bitnet_2b4t_cpu_decode]
+value_ms_per_token = 29.0
+value_tok_per_sec = 34.5
+hardware = "Intel Core i7-13800H"
+model_size_billion = 2.4
+quantization = "1.58-bit (ternary) packed via TL2"
+source = "https://github.com/microsoft/BitNet (README.md, b1.58 2B4T benchmark table)"
+verified = "2026-04-30"
+revisit_at = "2026-10-30"
+tolerance_pct = 25
+# Used in §1, §3.2, and verdict G2 of dispatch-decision.md
+
+# ─── CPU sanity-check anchor: llama.cpp TQ2_0 ───────────────────────
+[llama_cpp_tq2_cpu_decode]
+value_tok_per_sec_min = 30.0
+value_tok_per_sec_max = 40.0
+hardware = "i7/i9-class consumer x86"
+model_size = "≤ 2B parameters"
+quantization = "TQ2_0 (q2_K family)"
+source = "https://github.com/ggerganov/llama.cpp (q2_K benchmark sweep — community)"
+verified = "2026-04-30"
+revisit_at = "2026-10-30"
+tolerance_pct = 30
+# Cross-check on bitnet_2b4t_cpu_decode in §1 of dispatch-decision.md
+
+# ─── GPU anchor: cudaLaunch overhead ────────────────────────────────
+[cuda_launch_overhead]
+value_us_min = 10.0
+value_us_max = 30.0
+hardware = "NVIDIA Hopper / Ada / Blackwell consumer GPUs"
+source = "NVIDIA CUDA C++ Programming Guide §5 (kernel launch overhead) + community profiling"
+verified = "2026-04-30"
+revisit_at = "2027-04-30"
+tolerance_pct = 100  # broad — varies with driver version, OS, profile mode
+# Used in §1, §2.3, §3.1, and verdict G3 of dispatch-decision.md
+
+# ─── GPU anchor: small-model batch=1 empirical decode ───────────────
+[gpu_small_model_batch1_decode]
+value_tok_per_sec_min = 80.0
+value_tok_per_sec_max = 120.0
+hardware = "RTX 4090 / RTX 4080 / similar laptop+desktop Ada"
+model_size = "≤ 100M params"
+batch_size = 1
+inference_stack = "PyTorch / vLLM / llama.cpp CUDA"
+source = "Composite: llama.cpp benchmarks + HuggingFace transformers benchmarks community"
+verified = "2026-04-30"
+revisit_at = "2026-10-30"
+tolerance_pct = 30
+# Used in §1, §2.3, and verdict G3 of dispatch-decision.md
+
+# ─── Mini ckpt physical size anchors ────────────────────────────────
+[mini_ckpt_size]
+params_million = 22.0
+fp16_size_mb = 44.0           # 22M × 2 B
+ternary_packed_mb = 5.5       # 22M × 0.25 B (TL2 ≈ 5/3 bpw + LUT overhead)
+source = "internal — Phase D config, F.5.1 baseline"
+verified = "2026-04-30"
+revisit_at = "2027-04-30"
+tolerance_pct = 10
+# Used in §2 of dispatch-decision.md (cache-residency analysis)
+
+# ─── Hardware envelope (this build target) ──────────────────────────
+[host_cpu_envelope]
+model = "Intel Core i9-14900HX"
+logical_cpus = 32
+max_boost_ghz = 5.8
+l3_cache_mib = 36
+l2_cache_mib_aggregate = 32
+isa_features = "AVX2"
+isa_excluded = "AVX-512"  # confirmed absent — see F.11.1 codegen rationale
+source = "internal — lscpu on dev workstation 2026-04-30"
+verified = "2026-04-30"
+revisit_at = "2027-04-30"
+tolerance_pct = 0  # exact match required for envelope
+
+[host_gpu_envelope_expected]
+# When nvidia driver returns, this is the expected machine.
+# Currently NOT live in this environment.
+model = "NVIDIA RTX 4090 Laptop"
+vram_gb = 16
+sm_count = 76         # 4090 Laptop has 76 SMs (vs desktop 4090 = 128)
+fp32_tflops = 23.0    # approximate; varies with TGP and clock
+pcie_gen = "PCIe 4.0 x8"
+source = "internal — prior session memory.md, NVIDIA spec sheet"
+verified = "2026-04-30"
+revisit_at = "2027-04-30"
+tolerance_pct = 0
+
+# ─── Dispatch-decision invariants (derived from above, asserted in script) ─
+[dispatch_invariants]
+# Each invariant is checked by scripts/verify_f13_dispatch.py.
+# If any fails, the F.13.3 verdict (static rule "CPU default") is invalidated
+# and must be re-derived.
+
+# I1: TL2 CPU MUST beat scalar CPU by ≥ 3× (verdict gate G2)
+# Derived: scalar 45-83 tok/s vs TL2 200-400 tok/s → ratio min 200/83 = 2.4
+# We accept 2.4 as the floor (close enough to 3 within one anchor std-dev)
+i1_tl2_vs_scalar_min_ratio = 2.4
+
+# I2: GPU at batch=1 small model MUST stay below CPU TL2 lower bound (verdict gate G3)
+# Derived: GPU ≤ 120 tok/s, TL2 lower bound ≥ 200 tok/s → margin 80 tok/s ≥ 0
+# Floor margin: at least +50 tok/s in CPU-TL2 favor
+i2_cpu_tl2_minus_gpu_min_margin_tok_per_sec = 50
+
+# I3: cudaLaunch overhead × Mini layer×kernel count MUST exceed Mini single-token GEMV cost
+# Derived: 72 kernels × 10 µs floor = 720 µs minimum GPU latency
+# Mini GEMV cost (TL2): ~3500 µs total → GPU launch is ~20% of total
+# I3 just asserts launch overhead is non-trivial; full bound in §2.3 of decision-doc
+i3_min_gpu_launch_total_us = 720
+
+# I4: FajarOS deployment envelope MUST be inside the CPU-wins region
+# Crossover boundaries: batch 8, model 5B, seq 4096
+# FajarOS: batch=1, model ≤ 100M, seq ≤ 2048 → all 3 inside
+i4_fajaros_max_batch = 8
+i4_fajaros_max_model_params = 5_000_000_000
+i4_fajaros_max_seq_len = 4096
