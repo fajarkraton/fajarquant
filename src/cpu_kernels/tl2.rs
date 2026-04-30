@@ -509,7 +509,7 @@ mod tests {
                 BS,
                 M_FULL,
                 K,
-                128, // BK=128 (= BBK256_256) dispatches three-path
+                256, // BK=256 dispatches three-path per kernel header line 1303
                 a_buf.0.as_mut_ptr() as *mut c_void,
                 sign_buf.0.as_mut_ptr() as *mut c_void,
                 three_qlut_buf.0.as_mut_ptr() as *mut c_void,
@@ -671,7 +671,7 @@ mod tests {
                     BS,
                     M_FULL,
                     K,
-                    128, // BK=128 dispatches three-path
+                    256, // BK=256 dispatches three-path per kernel header line 1303
                     a_buf.0.as_mut_ptr() as *mut c_void,
                     sign_buf.0.as_mut_ptr() as *mut c_void,
                     three_qlut_buf.0.as_mut_ptr() as *mut c_void,
@@ -764,7 +764,7 @@ mod tests {
                     BS,
                     M_FULL,
                     K,
-                    128, // BK=128 dispatches three-path (was K=256, no-op)
+                    256, // BK=256 dispatches three-path per dispatcher line 1303 (BK=128 was the no-op)
                     a_buf.0.as_mut_ptr() as *mut c_void,
                     sign_buf.0.as_mut_ptr() as *mut c_void,
                     three_qlut_buf.0.as_mut_ptr() as *mut c_void,

@@ -172,9 +172,14 @@ dispatch) remains a clean exit per
 Closer read of `bitnet-lut-kernels-tl2.h:1278` (the
 `ggml_qgemm_lut` dispatch table) shows:
 
-  - For (m=256, k=256), `BK=128` dispatches to
+  - For (m=256, k=256), `BK=256` dispatches to
     `three_qgemm_lut_256_256` (the 3-weight LUT path), NOT
-    `two_qgemm_lut`.
+    `two_qgemm_lut`. (This doc previously stated `BK=128`; that
+    was a misread of the dispatcher — `bitnet-lut-kernels-tl2.h:1303`
+    is `else if (BK == 256)`. The `BK` argument is the `three_k`
+    column count, not the BBK tile size. Empirically verified by
+    `derive_sign_bit_position_for_first_triplet` flipping baseline
+    `C[0]` from `0` (BK=128 no-op) → `-333` (BK=256, kernel fires).)
   - `two_qgemm_lut_256_256` runs `for (k_outer = 0; k_outer < 0/32; ...)`
     — ZERO iterations of MAC. It only does the dequant pass at the
     end (`(float*)C[i] = (float)C[i] / LUT_Scales / Scales`).
