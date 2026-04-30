@@ -288,4 +288,52 @@ This is the structural differentiator. Paper v2 §6 framing: fajarquant is built
 
 ---
 
+## 10. Post-publication update — F.13.1 live bench 2026-04-30
+
+After Z-narrow Chain shipped (`4846045`), the nvidia driver was restored same day
+via dpkg upgrade chain (590-open prebuilt module became available for kernel
+`6.17.0-22-generic`). With GPU access back, F.13.1 ran on this machine
+(`paper/intllm/checkpoints/mini/mini_final.pt`) — full findings doc in
+`FJQ_PHASE_F_F13_1_FINDINGS.md`.
+
+**Measured GPU on RTX 4090 Laptop, Mini × batch=1, PyTorch+HGRN-Bit upstream
+triton, no KV cache: 19.7 tok/s median (50.68 ms/token).** This is below the
+optimized-LLM 80-120 tok/s anchor band by 4-6×, attributable to:
+- triton kernel launch overhead × 6 transformer-class layers × Python eager dispatch
+- no KV cache (each token re-processes the full sequence)
+
+**The verdict is REINFORCED, not invalidated.** Verdict gate G3 requires
+GPU < CPU-TL2 by ≥50 tok/s margin. Original projection: margin 80-320 tok/s
+(CPU-TL2 200-400 vs GPU 80-120). With measured GPU at 19.7 tok/s, the margin
+grows to 180-380 tok/s — CPU wins by even more than the projection assumed.
+
+**CPU bench could not run on this code path.** HGRN-Bit upstream triton kernels
+hard-fail on CPU tensors (`ValueError: Pointer argument cannot be accessed from
+Triton (cpu tensor?)`). This is structural; PyTorch fallback would require
+monkey-patching the model. The CPU number that *matters for FajarOS Nova
+deployment* is the F.11.3 scalar Rust BitLinear path, which is independently
+benched in F.11.3 (10/10 tests pass) and is a different code path entirely.
+
+**An apples-to-apples FajarOS-realistic GPU benchmark would require optimized-
+stack export** (ONNX → TensorRT, or hand-written CUDA fused kernels). That work
+belongs to F.13.2 runtime dispatch implementation, which remains DEFERRED per
+F.13.2-A and F.13.2-B re-entry gates in §5.2 above.
+
+**Fixture additions (`tests/fixtures/f13_dispatch_anchors.toml`):**
+- `[gpu_hgrn_bit_mini_batch1_measured]` — new anchor with measured 19.7 tok/s
+  median, 50.68 ms/token, on this hardware, with explicit "HGRN-Bit specific,
+  no KV cache" note so future readers don't conflate this with the optimized-
+  stack reference band.
+- `[gpu_small_model_batch1_decode]` — kept the 80-120 band but added a `note`
+  field clarifying it references *optimized* stacks (vLLM, llama.cpp with KV
+  cache + flash-attention) as the projection target for what FajarOS Nova would
+  see *if* it deployed a GPU export path. Verdict gate G3 still uses this band
+  as the reference.
+
+**F.13.1 closeout: PARTIAL** — GPU measured, CPU structurally blocked, F.13.2
+remains DEFERRED. `make verify-f13-decision` 19/19 PASS unchanged.
+
+---
+
 *F.13.3 closed 2026-04-30. Verdict: static rule, 3/3 G1+G2+G3 PASS. Ready for paper v2.*
+*F.13.1 closed PARTIAL 2026-04-30. Verdict reinforced by live measurement. F.13.2 deferred.*

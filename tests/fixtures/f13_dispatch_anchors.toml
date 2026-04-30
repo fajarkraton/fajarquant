@@ -63,19 +63,36 @@ revisit_at = "2027-04-30"
 tolerance_pct = 100  # broad — varies with driver version, OS, profile mode
 # Used in §1, §2.3, §3.1, and verdict G3 of dispatch-decision.md
 
-# ─── GPU anchor: small-model batch=1 empirical decode ───────────────
+# ─── GPU anchor: small-model batch=1 empirical decode (OPTIMIZED stack) ──
 [gpu_small_model_batch1_decode]
 value_tok_per_sec_min = 80.0
 value_tok_per_sec_max = 120.0
 hardware = "RTX 4090 / RTX 4080 / similar laptop+desktop Ada"
 model_size = "≤ 100M params"
 batch_size = 1
-inference_stack = "PyTorch / vLLM / llama.cpp CUDA"
+inference_stack = "PyTorch / vLLM / llama.cpp CUDA — OPTIMIZED (KV cache + flash-attention + fused kernels)"
 source = "Composite: llama.cpp benchmarks + HuggingFace transformers benchmarks community"
 verified = "2026-04-30"
 revisit_at = "2026-10-30"
 tolerance_pct = 30
+note = "Optimized LLM stack reference. NOT directly comparable to upstream HGRN-Bit on PyTorch eager. For HGRN-Bit-specific measured number on this hardware, see [gpu_hgrn_bit_mini_batch1_measured]. The verdict G3 uses THIS anchor (optimized stack) as the reference for what FajarOS Nova WOULD see if it deployed an optimized GPU export path."
 # Used in §1, §2.3, and verdict G3 of dispatch-decision.md
+
+# ─── GPU anchor: HGRN-Bit Mini × batch=1 measured (THIS HARDWARE, F.13.1) ──
+[gpu_hgrn_bit_mini_batch1_measured]
+value_tok_per_sec_median = 19.7
+value_tok_per_sec_p95_low = 11.5  # tok/s at p95 ms = 1000/87.17
+value_ms_per_token_median = 50.68
+value_ms_per_token_p95 = 87.17
+hardware = "Intel Core i9-14900HX + NVIDIA GeForce RTX 4090 Laptop GPU"
+inference_stack = "PyTorch 2.6.0+cu124 eager mode, HGRN-Bit upstream triton kernels, NO KV cache"
+n_warmup = 5
+n_timed = 64
+source = "internal — F.13.1 live bench 2026-04-30, paper/intllm/results/f13_dispatch_calibration.json"
+verified = "2026-04-30"
+revisit_at = "2026-10-30"
+tolerance_pct = 30
+note = "HGRN-Bit specific. The 4-6x gap vs [gpu_small_model_batch1_decode] reflects (a) no KV cache (each step re-processes full sequence), (b) triton kernel launch overhead × 6 layers × Python eager dispatch. Used in F.13.1 verdict cross-check (§3 of FJQ_PHASE_F_F13_1_FINDINGS.md): GPU << CPU-TL2 by an even LARGER margin than the optimized-stack projection assumed."
 
 # ─── Mini ckpt physical size anchors ────────────────────────────────
 [mini_ckpt_size]

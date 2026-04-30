@@ -1,0 +1,44 @@
+{
+  "phase": "F.13.1",
+  "scope": "Mini \u00d7 batch=1 \u00d7 greedy decode (autoregressive, fresh KV per step)",
+  "host": {
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4090 Laptop GPU",
+      "compute_capability": "8.9",
+      "total_memory_gb": 16.72,
+      "torch_cuda_version": "12.4"
+    },
+    "torch_version": "2.6.0+cu124"
+  },
+  "model": {
+    "n_params_million": 21.91,
+    "hidden_size": 256,
+    "num_hidden_layers": 6,
+    "vocab_size": 32768
+  },
+  "results": {
+    "gpu": {
+      "ms_per_token_median": 50.67953950037918,
+      "ms_per_token_mean": 55.836630281248745,
+      "ms_per_token_p95": 87.17221799997787,
+      "tokens_per_sec_median": 19.73182885753171,
+      "tokens_per_sec_mean": 17.909390215043537,
+      "n_warmup": 5,
+      "n_timed": 64,
+      "total_timed_seconds": 3.5735443379999197,
+      "generated_tokens": [
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502,
+        29502
+      ]
+    },
+    "cpu_torch": {
+      "error": "ValueError: Pointer argument (at 0) cannot be accessed from Triton (cpu tensor?)"
+    }
+  }
+}

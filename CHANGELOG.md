@@ -7,7 +7,48 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
-## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 chains
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 chains
+
+**F.13.1 live calibration — CLOSED PARTIAL on this hardware (after nvidia
+driver restoration 2026-04-30)**: GPU measured 19.7 tok/s median (50.68 ms/tok)
+on RTX 4090 Laptop, Mini × batch=1, PyTorch 2.6.0+cu124 with HGRN-Bit upstream
+triton, no KV cache. CPU bench structurally blocked — HGRN-Bit triton kernels
+are CUDA-only (`ValueError: Pointer argument cannot be accessed from Triton`).
+Verdict G3 (GPU margin ≥50 tok/s below CPU-TL2) **REINFORCED**: original
+projection margin 80-320 tok/s grows to 180-380 tok/s with measured GPU 4-6×
+below optimized-stack anchor band.
+
+  Documents:
+  - `docs/FJQ_PHASE_F_F13_1_FINDINGS.md` — full findings: §1 setup, §2 results
+    (GPU measured + CPU triton failure), §3 cross-check vs anchor band (4-6×
+    gap explained: triton overhead × 6 layers × no KV cache vs optimized
+    llama.cpp/vLLM stack reference), §4 updated verdict matrix (G3 reinforced),
+    §5 fixture update plan, §6 decision-doc update plan, §7 explicit
+    deferred-work catalog (F.13.2 still deferred).
+
+  Fixture (`tests/fixtures/f13_dispatch_anchors.toml`):
+  - NEW `[gpu_hgrn_bit_mini_batch1_measured]` — measured anchor 19.7 tok/s
+    median + 50.68 ms/token median + 87.17 ms p95, with explicit
+    "HGRN-Bit specific, no KV cache" note.
+  - UPDATED `[gpu_small_model_batch1_decode]` — kept 80-120 band but added
+    `note` field clarifying it's the OPTIMIZED-stack projection target.
+
+  Decision-doc (`docs/FJQ_PHASE_F_F13_DISPATCH_DECISION.md`):
+  - NEW §10 "Post-publication update — F.13.1 live bench 2026-04-30":
+    measurement summary, why verdict is reinforced not invalidated, fixture
+    additions, F.13.2 still deferred.
+
+  Tooling:
+  - `python/phase_d/scripts/bench_f13_dispatch_calibration.py` — repro bench
+    (5 warmup + 64 timed greedy decode tokens, batch=1, captures median +
+    mean + p95 ms/tok, saves JSON).
+  - `paper/intllm/results/f13_dispatch_calibration.json` — calibration
+    artifact (host envelope, model config, GPU result, CPU error).
+
+  Pre-flight: nvidia driver restored same-day via dpkg upgrade chain
+  (`linux-modules-nvidia-595-open-6.17.0-22-generic` prebuilt, dkms 595
+  also installed for kernel-update resilience). RTX 4090 Laptop visible,
+  CUDA 13.2 ABI exposed, 16 GB VRAM.
 
 **F.13 Branch Z-narrow — CPU-vs-GPU dispatch heuristic ships
 infrastructure-only with verdict**: static rule "CPU default; GPU
