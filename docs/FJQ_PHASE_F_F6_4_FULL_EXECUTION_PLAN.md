@@ -44,7 +44,7 @@ ablation-budget runs.
 |---|---|---|---|---|---|
 | 1 | Base baseline | `train_base_ablation.py` | `--tag baseline` | 4.5–5.0 nat (gate 4.2 won't pass at 24K) | ~5.1h |
 | 2 | Medium baseline | `train_medium_ablation.py` | `--tag baseline` | 4.5–5.0 nat (gate 4.0 won't pass at 24K) | ~5.8h |
-| 3 | Medium hadamard | `train_medium_ablation.py` | `--hadamard --tag hadamard_o` | comparable to #2 ± delta | ~6.5h |
+| 3 | Medium hadamard | `train_medium_ablation.py` | `--hadamard --tag hadamard` (default `--hadamard-sites o`) | comparable to #2 ± delta | ~6.5h |
 
 Total: **~17.4h GPU**. +25% surprise budget = **21.7h cap**.
 
@@ -78,12 +78,13 @@ PYTHONPATH=. ../../.venv/bin/python scripts/train_medium_ablation.py \
     > ../../logs/f6_4_medium_baseline.log 2>&1
 
 # Cell 3: Medium hadamard (24K steps, ~6.5h) — sequential after Cell 2
+# (--hadamard-sites o is the default, matches E2.1 Mini convention; produces medium_hadamard.json)
 PYTHONPATH=. ../../.venv/bin/python scripts/train_medium_ablation.py \
-    --hadamard --hadamard-sites o \
-    --tag hadamard_o \
+    --hadamard \
+    --tag hadamard \
     --ckpt-every 4000 \
     --watchdog-idle-seconds 1800 \
-    > ../../logs/f6_4_medium_hadamard_o.log 2>&1
+    > ../../logs/f6_4_medium_hadamard.log 2>&1
 ```
 
 Resume command (any cell, after suspend or kill):
@@ -100,7 +101,7 @@ Verification (post-run):
 cd ~/Documents/fajarquant
 python3 -c "import json; r = json.load(open('paper/intllm/ablations/base_baseline.json')); print(r['_schema_version'], r['n_steps'], r['val_loss'], r['gate_pass'])"
 python3 -c "import json; r = json.load(open('paper/intllm/ablations/medium_baseline.json')); print(r['_schema_version'], r['n_steps'], r['val_loss'], r['gate_pass'])"
-python3 -c "import json; r = json.load(open('paper/intllm/ablations/medium_hadamard_o.json')); print(r['_schema_version'], r['n_steps'], r['val_loss'], r['gate_pass'])"
+python3 -c "import json; r = json.load(open('paper/intllm/ablations/medium_hadamard.json')); print(r['_schema_version'], r['n_steps'], r['val_loss'], r['gate_pass'])"
 ```
 
 ## 4. Decision gates (mechanical, post-cells-1+2+3)
@@ -108,7 +109,7 @@ python3 -c "import json; r = json.load(open('paper/intllm/ablations/medium_hadam
 Per E2.1 Mini-scale baseline (memory: "Hadamard FAIL by 0.12 nat regression
 in val_loss vs baseline @ Mini scale"), the F.6.4 decision is:
 
-**Δ_medium = val_loss(medium_hadamard_o) − val_loss(medium_baseline)**
+**Δ_medium = val_loss(medium_hadamard) − val_loss(medium_baseline)**
 
 | Δ_medium range | Verdict | Action |
 |---|---|---|
