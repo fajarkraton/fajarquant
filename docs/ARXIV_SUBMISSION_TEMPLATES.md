@@ -378,10 +378,17 @@ Step 3 — arxiv.org account
                                 Step 5 metadata)
       Career Status: Grad Student
       URL: https://github.com/fajarkraton
-  [x] Endorsement: NOT NEEDED (auto-endorsed via Grad Student status +
-      profile pattern — Indonesian academic pipeline recognized by arxiv
-      classifier; saved 1-3 day waiting period)
-  Date completed: 2026-05-01
+  [x] Endorsement: REQUIRED for cs.LG (CORRECTED 2026-05-01 — earlier
+      assumption that Grad Student auto-endorsed was WRONG; arxiv
+      requires endorsement for cs.LG submitters regardless of career
+      status field)
+      Endorsement code: 9MVVS4
+      Endorsement URL: https://arxiv.org/auth/endorse?x=9MVVS4
+      Email sent to: fajar@pajak.com (contains same code)
+  [ ] Endorser identified: ______________
+  [ ] Endorsement received
+  Date account created: 2026-05-01
+  Date endorsement received: __________
 
 Step 4 — Editorial review
   [x] All sections reviewed (10-item checklist completed Outcome 1
