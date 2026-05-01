@@ -361,10 +361,14 @@ Step 2 — Zenodo DOI
   [x] DOI reserved: 10.5281/zenodo.19938436
   [x] paper/intllm/intllm.tex line 55 updated
   [x] make arxiv-tarball re-run
-  [ ] Files uploaded to Zenodo deposit form
-  [ ] Save as Draft OR Publish (user decided on Publish-now path)
-  Date completed: 2026-05-01 DOI reservation (commit 3c8e7a6); Publish
-                  pending after files fully uploaded
+  [x] Files uploaded to Zenodo deposit form (3/3, 619.6 MB total)
+  [x] Published 2026-05-01 05:01:33 UTC (resource type: Software)
+  [x] ORCID metadata edit: linked to author entry 2026-05-01 05:16:42 UTC
+      Verified via Zenodo API: creators[0].orcid = 0009-0005-0118-2269
+  [ ] arXiv ID added to Related identifiers (after Step 5 upload)
+  Date completed: 2026-05-01 (DOI reservation + Publish + ORCID link)
+  Public landing: https://zenodo.org/records/19938436
+  DOI: https://doi.org/10.5281/zenodo.19938436
 
 Step 3 — arxiv.org account
   [x] Account created at arxiv.org (username: fajarputranto)
