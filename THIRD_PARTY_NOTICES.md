@@ -52,4 +52,42 @@ once F.11.3 parity tests pass against the 3B preset shape.
 
 ---
 
-*Last updated: 2026-04-29 (V32-prep F.11.1).*
+## AAzdi/Sparse-BitNet — N:M sparsity mask creator (Triton)
+
+**License:** MIT (see `python/phase_d/intllm/sparse_kernel_LICENSE.txt`)
+**Copyright:** (c) 2025 (per upstream LICENSE; no individual author
+attribution in upstream LICENSE file)
+**Upstream:** https://github.com/AAzdi/Sparse-BitNet
+**Vendored at:** `python/phase_d/intllm/sparse_kernel.py`
+**Vendored on:** 2026-05-01 (V32-prep F.10.1)
+**Files vendored:**
+  - `python/phase_d/intllm/sparse_kernel.py` — verbatim copy of
+    upstream `llm/kernel/mask_creator_kernel.py` (385 LOC of Triton
+    kernels + PyTorch fallback for N:M structured sparsity mask
+    generation). Modifications: a 17-line `# F.10.1` attribution
+    block prepended ABOVE the original module docstring; original
+    code below the header is unchanged. Future modifications below
+    the header MUST tag with `F.10.*` phase + commit reference.
+  - `python/phase_d/intllm/sparse_kernel_LICENSE.txt` — verbatim copy
+    of upstream LICENSE file (1056 bytes).
+
+**Why vendor (not pip-install):** Sparse-BitNet is a research codebase,
+not a published pip package. Vendoring keeps the kernel under our
+hash-pinned versioning and allows targeted modifications without
+forking upstream if Phase D HGRN-Bit shape requirements diverge.
+
+**Phase F context:** Used by F.10 chain (GPU 2:4 structured sparsity
+via Sparse-BitNet recipe). Per `docs/FJQ_PHASE_F_F10_PRODUCTION_PLAN_V0.md`
+sub-task F.10.1: vendor + Apex install + 2:4 invariant unit test.
+Apex install deferred to F.10.5 PoL smoke time.
+
+**Attribution requirement:** Per MIT, redistribution preserves the
+copyright notice. Both this entry and the LICENSE archive satisfy that.
+
+**Upstream tracking:** Sparse-BitNet repo had 13 stars + last commit
+2026-04-22 at vendor time. Re-vendor when upstream releases material
+kernel improvements; check changelog before applying.
+
+---
+
+*Last updated: 2026-05-01 (V32-prep F.10.1).*
