@@ -590,7 +590,7 @@ deployment. ``$\checkmark$'' = present, ``$\circ$'' = partial,
 ``$-$'' = absent. The integer-native column requires
 zero floating-point matmuls in the forward path.}
 \label{tab:arch-comparison}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{l c c c c c}
 \toprule
                   & Tern.\ wts & Int.\ acts & No softmax & No FP $\sigma$ & Kernel \\
@@ -850,7 +850,7 @@ the per-scale decision documents
 verdict mechanically. \emph{Margin} is gate~$-$~val\_loss; positive
 margin~=~PASS.}
 \label{tab:scaling-gates}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lrrrrr}
 \toprule
 Config & Params & Tokens & val\_loss & Gate & Margin \\
@@ -1054,7 +1054,7 @@ pre-stage). Numbers reproducible via the manifest files committed
 alongside each ID-side parquet shard. Deduplication uses exact SHA-256
 hashing on NFKC-lowercase-whitespace-normalized text.}
 \label{tab:corpus-comp}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lrrr}
 \toprule
 Source & Docs kept & Size & Tokens \\
@@ -1293,7 +1293,7 @@ training runs use identical step budget and bilingual stream;
 training trajectories agree with Q5 to within seed-variance, so the
 val\_loss differences are attributable to the feature itself.}
 \label{tab:negatives-summary}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lrrrr}
 \toprule
                          & val\_loss(EN) & $\Delta$ vs Q5 & outlier\_red. & gate \\
@@ -1426,7 +1426,7 @@ because the Hadamard rotation pre-hook actually does spread the
 energy in eval (see §3 of cause~3 below). Source: per-checkpoint
 \texttt{outlier\_concentration\_*.json}.}
 \label{tab:outlier-concentration-by-site}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{l rrr rrr}
 \toprule
                   & \multicolumn{3}{c}{Mean ratio (per-role)} & \multicolumn{3}{c}{Max ratio (per-role)} \\
@@ -1554,7 +1554,7 @@ identifies the same fundamental mismatch: literature precedents are
 post-hoc, our setting is training-from-scratch. Causes~2~and~3 are
 feature-specific.}
 \label{tab:negatives-causes}
-\resizebox{\textwidth}{!}{%
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lll}
 \toprule
 \# & balanced\_calib (E2.4)             & Hadamard (E2.1) \\
