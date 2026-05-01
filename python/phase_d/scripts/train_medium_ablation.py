@@ -292,6 +292,14 @@ def main() -> int:
         help="CLAUDE.md §6.11 R3 — SIGTERM if step counter idle > N seconds. 0=disabled.",
     )
     p.add_argument(
+        "--ckpt-every",
+        type=int,
+        default=None,
+        help="Override MediumTrainConfig.ckpt_every (default 20000). Useful for "
+        "ablation runs (24K steps) where the Phase-D-tuned 20K cadence yields "
+        "only 1 mid-ckpt; pass e.g. 4000 for 6 mid-ckpts (~24min loss-cap).",
+    )
+    p.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -647,7 +655,12 @@ def main() -> int:
         warmup, total = 0, 0
     else:
         warmup, total = train_hp.warmup_steps, train_hp.n_steps
-    ckpt_every = 0 if args.proof_of_life else train_hp.ckpt_every
+    if args.proof_of_life:
+        ckpt_every = 0
+    elif args.ckpt_every is not None:
+        ckpt_every = args.ckpt_every
+    else:
+        ckpt_every = train_hp.ckpt_every
     ablation_ckpt_dir = args.ckpt_dir / args.tag
 
     # CLAUDE.md §6.11 R2 — resume resolution. Per-tag ckpt subtree.
