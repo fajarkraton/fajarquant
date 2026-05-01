@@ -384,10 +384,12 @@ Step 3 — arxiv.org account
   Date completed: 2026-05-01
 
 Step 4 — Editorial review
-  [ ] All sections reviewed (10-item checklist below)
-  [ ] Acknowledgements added (or confirmed empty OK)
-  [ ] git tag intllm-arxiv-v1.0 pushed
-  Date completed: __________
+  [x] All sections reviewed (10-item checklist completed Outcome 1
+      "Review approved as-is")
+  [x] Acknowledgements: confirmed empty section OK (founder choice; can
+      add in arxiv v2 revision if desired later)
+  [x] git tag intllm-arxiv-v1.0 pushed (commit hash at tag: 130465d)
+  Date completed: 2026-05-01
 
 Step 5 — arXiv upload
   [ ] Submission form filled with metadata
