@@ -39,6 +39,7 @@ help:
 	@echo ""
 	@echo "FajarQuant Phase F Make targets:"
 	@echo "  verify-f13-decision        Phase F.13.5 — dispatch decision-doc anchors + invariants gate (~<1s)"
+	@echo "  verify-f10-sparsity        Phase F.10.5 — Mini sparse-2-4 invariant gate (~3s, RTX 4090)"
 
 PYTHON := .venv/bin/python
 PHASE_D := python/phase_d
@@ -452,3 +453,13 @@ verify-bilingual-corpus:
 .PHONY: verify-f13-decision
 verify-f13-decision:
 	@$(PYTHON) scripts/verify_f13_dispatch.py --strict
+
+# ─── Phase F.10.5 ─── Sparse-BitNet 2:4 invariant verification ────────
+#
+# Reconstructs Mini model + sparse_2_4 replacement + 1 forward + inspects
+# every SparseFusedBitLinear's _cached_mask buffer for exact 50% sparsity.
+# Fast (~3s on RTX 4090; first triton kernel JIT compile dominates).
+# Provides mechanical gate per CLAUDE.md §6.8 R3 prevention layer.
+.PHONY: verify-f10-sparsity
+verify-f10-sparsity:
+	@cd $(PHASE_D) && PYTHONPATH=. ../../$(PYTHON) scripts/verify_f10_5_sparsity.py
