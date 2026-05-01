@@ -263,6 +263,27 @@ def main() -> int:
     )
     p.add_argument("--ckpt-dir", type=Path, default=HERE.parent / "checkpoints" / "mini_ablations")
     p.add_argument("--device", default=None)
+
+    # CLAUDE.md §6.11 R2 — resume flags. ckpt_dir for ablation runs is
+    # rooted at <ckpt-dir>/<tag>; --resume-auto looks under that subtree.
+    resume_grp = p.add_mutually_exclusive_group()
+    resume_grp.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Resume from a specific ckpt_step_*.pt file (bit-exact state restore).",
+    )
+    resume_grp.add_argument(
+        "--resume-auto",
+        action="store_true",
+        help="Resume from the highest-step checkpoint under <ckpt-dir>/<tag>.",
+    )
+    p.add_argument(
+        "--watchdog-idle-seconds",
+        type=int,
+        default=1800,
+        help="CLAUDE.md §6.11 R3 — SIGTERM if step counter idle > N seconds. 0=disabled.",
+    )
     p.add_argument(
         "--out",
         type=Path,
@@ -433,7 +454,7 @@ def main() -> int:
     )
     from intllm.quant import HadamardRotation  # noqa: E402
     from intllm.tokenizer import get_tokenizer  # noqa: E402
-    from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402  # noqa: F401
+    from intllm.train import TrainConfig, find_latest_checkpoint, train_loop  # noqa: E402
     sys.path.insert(0, str(REPO_ROOT / "python" / "phase_e"))
     from intllm_en import BILINGUAL_RATIO_DEFAULT  # noqa: E402
 
@@ -623,6 +644,18 @@ def main() -> int:
     else:
         warmup, total = train_hp.warmup_steps, train_hp.n_steps
     ckpt_every = 0 if args.proof_of_life else train_hp.ckpt_every
+    ablation_ckpt_dir = args.ckpt_dir / args.tag
+
+    # CLAUDE.md §6.11 R2 — resume resolution. Per-tag ckpt subtree.
+    resume_path: Path | None = None
+    if args.resume is not None:
+        resume_path = args.resume
+    elif args.resume_auto:
+        resume_path = find_latest_checkpoint(ablation_ckpt_dir)
+        if resume_path is None:
+            print(f"  --resume-auto: no ckpt_step_*.pt in {ablation_ckpt_dir}; starting fresh")
+    if resume_path is not None:
+        print(f"  resume requested: {resume_path}")
 
     result = train_loop(
         model,
@@ -636,9 +669,10 @@ def main() -> int:
             total_steps=total,
             min_lr_ratio=0.1,
             ckpt_every=ckpt_every,
-            ckpt_dir=str(args.ckpt_dir / args.tag) if ckpt_every > 0 else None,
+            ckpt_dir=str(ablation_ckpt_dir) if ckpt_every > 0 else None,
             keep_last_n_ckpts=3,
-            watchdog_idle_seconds=0 if args.proof_of_life else 1800,
+            resume_from=str(resume_path) if resume_path else None,
+            watchdog_idle_seconds=0 if args.proof_of_life else args.watchdog_idle_seconds,
         ),
     )
     elapsed = time.time() - t0
