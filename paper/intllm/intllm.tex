@@ -590,6 +590,7 @@ deployment. ``$\checkmark$'' = present, ``$\circ$'' = partial,
 ``$-$'' = absent. The integer-native column requires
 zero floating-point matmuls in the forward path.}
 \label{tab:arch-comparison}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{l c c c c c}
 \toprule
                   & Tern.\ wts & Int.\ acts & No softmax & No FP $\sigma$ & Kernel \\
@@ -599,7 +600,7 @@ MatMul-Free 2.7B  &$\checkmark$&     $-$    & $\checkmark$&      $-$      &  $-$
 TerEffic FPGA     &$\checkmark$&  $\circ$   &     $-$    &       $-$      &  $-$  \\
 \textbf{IntLLM}   &$\checkmark$&$\checkmark$&$\checkmark$ &$\checkmark$ &$\checkmark$\\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 The composition of the five $\checkmark$'s in IntLLM's row, rather than
@@ -849,6 +850,7 @@ the per-scale decision documents
 verdict mechanically. \emph{Margin} is gate~$-$~val\_loss; positive
 margin~=~PASS.}
 \label{tab:scaling-gates}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrr}
 \toprule
 Config & Params & Tokens & val\_loss & Gate & Margin \\
@@ -857,7 +859,7 @@ Mini   &  21.5\,M &  491.5\,M & 4.382 & 4.5 & \textbf{0.118} \\
 Base   &  46.5\,M &  983.0\,M & 3.990 & 4.2 & \textbf{0.210} \\
 Medium &  74.5\,M & 1{,}818.6\,M & 3.721 & 4.0 & \textbf{0.279} \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 The margins widen $0.118 \to 0.210 \to 0.279$ nat across the chain.
@@ -872,7 +874,7 @@ axis.
 \includegraphics[width=\linewidth]{figures/scaling_curve.pdf}
 \caption{IntLLM scaling-law curve (Mini/Base/Medium val\_loss vs
 parameter count, with calibrated gate threshold overlay). Source:
-\texttt{paper/intllm/results/training\_intllm-\{mini,base,medium\}.json}.}
+\texttt{paper/intllm/results/} \texttt{training\_intllm-\{mini,base,medium\}.json}.}
 \label{fig:scaling-curve}
 \end{figure}
 
@@ -1052,6 +1054,7 @@ pre-stage). Numbers reproducible via the manifest files committed
 alongside each ID-side parquet shard. Deduplication uses exact SHA-256
 hashing on NFKC-lowercase-whitespace-normalized text.}
 \label{tab:corpus-comp}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrr}
 \toprule
 Source & Docs kept & Size & Tokens \\
@@ -1063,14 +1066,14 @@ EN SlimPajama-627B  &  (streamed) & (streamed) &  $\sim$10.27\,B \\
 \midrule
 \textbf{Combined}   & \textbf{$\sim$10.66\,M+EN} & \textbf{38.92\,GB} & \textbf{$\sim$25.67\,B} \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.92\linewidth]{figures/corpus_pie.pdf}
 \caption{Phase~E1 corpus v1.0 composition by tokens. Source:
-\texttt{data/phase\_e/corpus\_id\_dedup\_exact/*/\_manifest.json}.}
+\texttt{data/phase\_e/corpus\_id\_dedup\_exact/} \texttt{*/\_manifest.json}.}
 \label{fig:corpus-pie}
 \end{figure}
 
@@ -1115,7 +1118,7 @@ Table~\ref{tab:q5-baseline} reports the result.
 \caption{Q5 bilingual baseline at Mini scale (21.9~M~params, 24{,}000
 steps on Phase~E1 corpus v1.0 at 60:40 ID:EN). val\_loss measured on
 50-batch held-out streams: \texttt{seed=999} for ID,
-\texttt{seed=998} for EN. Source: \texttt{paper/intllm/ablations/q5\_bilingual\_baseline.json}.}
+\texttt{seed=998} for EN. Source: \texttt{paper/intllm/ablations/} \texttt{q5\_bilingual\_baseline.json}.}
 \label{tab:q5-baseline}
 \begin{tabular}{lr}
 \toprule
@@ -1290,6 +1293,7 @@ training runs use identical step budget and bilingual stream;
 training trajectories agree with Q5 to within seed-variance, so the
 val\_loss differences are attributable to the feature itself.}
 \label{tab:negatives-summary}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrr}
 \toprule
                          & val\_loss(EN) & $\Delta$ vs Q5 & outlier\_red. & gate \\
@@ -1298,7 +1302,7 @@ val\_loss differences are attributable to the feature itself.}
 balanced\_calib (E2.4)   & 4.834 & $-0.10$ & \textbf{$-82.13$} & \textbf{FAIL} \\
 Hadamard (E2.1)          & 4.852 & $-0.12$ & --- & \textbf{FAIL} \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \subsection{E2.4 balanced\_calib: 83$\times$ worse than baseline on outlier channels}
@@ -1343,8 +1347,8 @@ $\mathbf{64\times}$ on the median-to-median comparison. The
 calibrated scale $=127/\text{running\_max}\approx 6$-$12$ is locked
 to the training-time peaks; the baseline per-token scale at typical
 steady-state $|x|\sim 0.5$ produces $\sim$$254$, far finer.
-Reproducible via
-\texttt{python/phase\_d/scripts/compare\_running\_max\_train\_vs\_steady.py}
+Reproducible via \texttt{python/phase\_d/scripts/}
+\texttt{compare\_running\_max\_train\_vs\_steady.py}
 \texttt{--label~within-model}; cross-model variant against the
 EN-only Phase~D Mini c.1 final checkpoint produces consistent but
 larger ratios (67$\times$ / 210$\times$), supporting the within-model
@@ -1422,6 +1426,7 @@ because the Hadamard rotation pre-hook actually does spread the
 energy in eval (see §3 of cause~3 below). Source: per-checkpoint
 \texttt{outlier\_concentration\_*.json}.}
 \label{tab:outlier-concentration-by-site}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{l rrr rrr}
 \toprule
                   & \multicolumn{3}{c}{Mean ratio (per-role)} & \multicolumn{3}{c}{Max ratio (per-role)} \\
@@ -1440,7 +1445,7 @@ Site              & Phase D & balanced\_calib & hadamard
 \texttt{lm\_head}       & 5.98  & 5.67  & 5.34
                        & 8.43  & 7.09  & 7.55 \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 Three observations from the table:
@@ -1549,6 +1554,7 @@ identifies the same fundamental mismatch: literature precedents are
 post-hoc, our setting is training-from-scratch. Causes~2~and~3 are
 feature-specific.}
 \label{tab:negatives-causes}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lll}
 \toprule
 \# & balanced\_calib (E2.4)             & Hadamard (E2.1) \\
@@ -1557,7 +1563,7 @@ feature-specific.}
 2 & RMSNorm reward per-token adapt.\ scale & HGRN may lack QKV-style outliers \\
 3 & outlier-bit lever needs correct scale  & rotate-\texttt{o\_proj}-only may be conservative \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \subsection{Phase~F future-work pointers}
