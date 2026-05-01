@@ -78,8 +78,11 @@ forking upstream if Phase D HGRN-Bit shape requirements diverge.
 
 **Phase F context:** Used by F.10 chain (GPU 2:4 structured sparsity
 via Sparse-BitNet recipe). Per `docs/FJQ_PHASE_F_F10_PRODUCTION_PLAN_V0.md`
-sub-task F.10.1: vendor + Apex install + 2:4 invariant unit test.
-Apex install deferred to F.10.5 PoL smoke time.
+sub-task F.10.1: vendor + 2:4 invariant unit test. (Apex install
+prerequisite from upstream README REMOVED 2026-05-01 — Phase D uses
+pure FP32 training, no Apex needed; verified by `grep -rn "apex\|amp\|
+GradScaler" python/phase_d/` returning zero hits + Mini PoL smoke
+running clean without Apex.)
 
 **Attribution requirement:** Per MIT, redistribution preserves the
 copyright notice. Both this entry and the LICENSE archive satisfy that.

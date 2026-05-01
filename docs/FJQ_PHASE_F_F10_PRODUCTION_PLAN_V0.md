@@ -31,7 +31,10 @@ Per github.com/AAzdi/Sparse-BitNet README:
   trained jointly (sparse-from-scratch QAT)
 - Triton kernel for mask creation; Dual-STE for gradient flow through both
   quantization and sparsity
-- Hardware: requires CUDA 12+, PyTorch 2.1+, Triton, NVIDIA Apex
+- Hardware: requires CUDA 12+, PyTorch 2.1+, Triton (NVIDIA Apex listed in
+  upstream README but **NOT actually needed for our integration** — see §2
+  for verification: Phase D uses pure PyTorch FP32, no `apex.amp` /
+  `torch.cuda.amp` / `GradScaler` anywhere)
 
 ## 2. Hardware compatibility check
 
@@ -41,11 +44,13 @@ Per github.com/AAzdi/Sparse-BitNet README:
 | CUDA | ≥12.0 | 12.4 (per F.13.1 v2 calibration JSON) | ✓ |
 | PyTorch | ≥2.1 | 2.6.0+cu124 | ✓ |
 | Triton | (any recent) | already used by HGRN-Bit upstream | ✓ |
-| NVIDIA Apex | mixed-precision training | NOT INSTALLED | ⚠ — install in F.10.1 |
+| NVIDIA Apex | listed in upstream README | NOT INSTALLED | **NOT NEEDED** — Phase D doesn't use mixed-precision (pure FP32 training). Verified 2026-05-01 via `grep -rn "apex\|amp\|GradScaler\|autocast" python/phase_d/` returning zero hits + Mini PoL smoke green without Apex (F.10.4 commit `5d942b7`). Sparse-BitNet upstream listed Apex as their hardware requirement; ours doesn't inherit that. |
 | cuSPARSElt | for runtime 2:4 GEMM | shipped with CUDA 12+ | ✓ |
 | RAM | depends on Mini scale | 31 GB system + 16 GB VRAM | ✓ for Mini |
 
-Net: **all critical compatibility ✓** modulo Apex install.
+Net: **all critical compatibility ✓** with no install needed (Apex
+prerequisite from upstream README is non-applicable to our pure-FP32
+training stack).
 
 ## 3. Repo scope assessment (vendor what, write what)
 
@@ -73,7 +78,7 @@ Total: ~3 days human + ~15h GPU. 9 sub-tasks F.10.0 - F.10.8.
 | # | Task | Effort | GPU time | Verification |
 |---|---|---|---|---|
 | F.10.0 | Pre-flight (this doc) | ~1h human | 0 | this file + verify-f10-decision (future gate) |
-| F.10.1 | Install NVIDIA Apex; vendor `mask_creator_kernel.py` into `python/phase_d/intllm/sparse_kernel.py` (verbatim, +license attribution); add unit test that mask is structurally 2:4 on synthetic input | ~3h human | <1 min | `pytest python/phase_d/tests/test_sparse_kernel.py` 2:4 invariant verified |
+| F.10.1 | Vendor `mask_creator_kernel.py` into `python/phase_d/intllm/sparse_kernel.py` (verbatim, +license attribution); add unit test that mask is structurally 2:4 on synthetic input. (Apex install from earlier draft REMOVED — Phase D uses pure FP32, no Apex needed.) | ~1h human | <1 min | `pytest python/phase_d/tests/test_sparse_kernel.py` 2:4 invariant verified |
 | F.10.2 | Extend `intllm/quant.py:FusedBitLinear` with optional `sparse_mask: torch.Tensor \| None` parameter; wire into forward pass with `weight * mask` after ternary quantization | ~4h human | 0 | unit test: dense path (mask=None) produces same output as today; sparse path (mask=2:4) zeros out 50% of weights |
 | F.10.3 | Extend `intllm/train.py` with sparse-from-scratch loop: Dual-STE for both ternary quant + sparsity gradients; mask refresh every N steps via mask_creator_kernel | ~6h human | 0 | unit test: 100-step toy training with sparse mask; verify mask updates between steps |
 | F.10.4 | Add `--sparse-2-4` flag to `train_mini_ablation.py`; wire feature into E2_REAL_FEATURES set | ~2h human | 0 | dry-run: `--tag sparse_2_4 --sparse-2-4 --dry-run` exits 0 with feature flag confirmed in JSON |
@@ -147,7 +152,7 @@ for paper acceptance.
 
 ## 9. What this pre-flight delivers
 
-- ✓ Hardware compatibility verified (RTX 4090 Laptop + CUDA 12.4 + PyTorch 2.6 OK; only Apex needs install)
+- ✓ Hardware compatibility verified (RTX 4090 Laptop + CUDA 12.4 + PyTorch 2.6 OK; **Apex prerequisite from upstream README is non-applicable** — Phase D uses pure FP32 training, no `apex.amp` / `torch.cuda.amp` anywhere)
 - ✓ Vendoring scope identified (1 file verbatim + 2 study-and-adapt vs F.11's 75 KB)
 - ✓ 9 sub-tasks F.10.0-F.10.8 with effort + GPU time + verification per task
 - ✓ "DO NOT pursue post-hoc prune" warning preserved per V31.E2 lesson
@@ -166,7 +171,7 @@ for paper acceptance.
 
 When paper goes live AND there's bandwidth for F.10 chain (~3 days human):
 
-1. F.10.1 vendor + Apex install (~3h)
+1. F.10.1 vendor only (~1h — Apex install removed per docs correction 2026-05-01)
 2. F.10.2 BitLinear sparse extension (~4h)
 3. F.10.3 train loop Dual-STE (~6h)
 4. F.10.4 ablation flag (~2h)

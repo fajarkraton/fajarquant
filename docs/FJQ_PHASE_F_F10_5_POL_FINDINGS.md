@@ -131,7 +131,12 @@ F.10.5 production plan deliverable **CLOSED** per all 3 sub-checks.
 - F.10.6 full Mini sparse run (~4h, paper-submission-gated)
 - F.10.7 wall-clock prefill+decode speedup measurement
 - F.10.8 decision-doc per gates G1+G2
-- Apex install (deferred to F.10.6 if mixed-precision training is needed)
+- ~~Apex install (deferred to F.10.6 if mixed-precision training is needed)~~
+  **CORRECTED 2026-05-01:** Apex is NOT needed for our integration. Phase D
+  uses pure FP32 training (verified by `grep -rn "apex\|amp\|GradScaler"
+  python/phase_d/` returning zero hits + Mini PoL ran without Apex).
+  Sparse-BitNet upstream listed Apex as their hardware requirement;
+  ours doesn't inherit it.
 - Medium / Base sparse PoL on this hardware (Medium OOMs on 16 GB; Base
   not yet tested but likely OK between Mini and Medium)
 
