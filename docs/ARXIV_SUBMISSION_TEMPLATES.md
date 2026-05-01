@@ -341,30 +341,46 @@ git push origin intllm-arxiv-published-v1.0
 
 ```
 Step 1 — ORCID activation
-  [ ] Account created at orcid.org
-  [ ] ORCID iD: __________________________
-  [ ] paper/intllm/intllm.tex line 55 updated
-  [ ] make arxiv-tarball re-run (verifies PDF builds with real iD)
-  Date completed: __________
+  [x] Account created at orcid.org (direct email path; SSO not used —
+      TaxPrime / PrimeCore.id are not federated identity providers)
+  [x] ORCID iD: 0009-0005-0118-2269
+  [x] paper/intllm/intllm.tex line 55 updated
+  [x] make arxiv-tarball re-run (verifies PDF builds with real iD)
+  Date completed: 2026-05-01 (commit c4f0c2a)
 
 Step 2 — Zenodo DOI
-  [ ] Account linked with ORCID
-  [ ] 3 tarballs prepared (source / corpus / checkpoints)
-  [ ] DOI reserved: 10.5281/zenodo._______
-  [ ] paper/intllm/intllm.tex line 55 updated
-  [ ] make arxiv-tarball re-run
-  [ ] Files uploaded + Published
-  Date completed: __________
+  [x] Account linked with ORCID
+  [x] 3 tarballs prepared at ~/Documents/fajarquant_zenodo_v1.0/:
+        - fajarquant-v0.4.0-intllm.tar.gz (86 MB, source archive)
+        - phase-e1-bilingual-corpus-v1.0.tar.gz (5.4 KB, manifests +
+          NOTICE + reproduction recipe; token data NOT redistributed
+          per CC BY-SA 4.0 + ODC-By 1.0 attribution-required licenses)
+        - intllm-checkpoints-mini-base-medium.tar.gz (506 MB, 3 final
+          checkpoints; intermediate medium 60K/80K/100K excluded)
+        - SHA256SUMS at same dir for integrity check
+  [x] DOI reserved: 10.5281/zenodo.19938436
+  [x] paper/intllm/intllm.tex line 55 updated
+  [x] make arxiv-tarball re-run
+  [ ] Files uploaded to Zenodo deposit form
+  [ ] Save as Draft OR Publish (user decided on Publish-now path)
+  Date completed: 2026-05-01 DOI reservation (commit 3c8e7a6); Publish
+                  pending after files fully uploaded
 
 Step 3 — arxiv.org account
-  [ ] Account created at arxiv.org
-  [ ] Endorsement requested
-  [ ] Endorser identified: ______________
-  [ ] Endorsement received
-  Date completed: __________
+  [x] Account created at arxiv.org (username: fajarputranto)
+      Email: fajar@pajak.com
+      Affiliation: TaxPrime, Prime core, Jakarta, Indonesia
+      Default Category: cs.AI (per-submission overridden to cs.LG at
+                                Step 5 metadata)
+      Career Status: Grad Student
+      URL: https://github.com/fajarkraton
+  [x] Endorsement: NOT NEEDED (auto-endorsed via Grad Student status +
+      profile pattern — Indonesian academic pipeline recognized by arxiv
+      classifier; saved 1-3 day waiting period)
+  Date completed: 2026-05-01
 
 Step 4 — Editorial review
-  [ ] All sections reviewed
+  [ ] All sections reviewed (10-item checklist below)
   [ ] Acknowledgements added (or confirmed empty OK)
   [ ] git tag intllm-arxiv-v1.0 pushed
   Date completed: __________
@@ -379,6 +395,7 @@ Step 5 — arXiv upload
   Date completed: __________
 
 Step 6 — Post-announcement
+  [ ] Zenodo metadata edit: add arxiv ID under Related identifiers
   [ ] paper/intllm/README.md updated with arXiv ID
   [ ] GitHub repo description updated
   [ ] git tag intllm-arxiv-published-v1.0 pushed
