@@ -137,6 +137,115 @@ def test_sparse_path_forward_backward_cuda():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not HAS_CUDA, reason="F.10.3 mask refresh test requires CUDA")
+def test_mask_refresh_interval_default_recomputes_every_forward():
+    """interval=0 (default) → mask recomputed every forward.
+
+    Verify by counting how many times the cached mask differs across
+    consecutive forwards on a layer whose weight gets perturbed between
+    forwards. With every-forward refresh, every perturbation should be
+    reflected in the cached mask immediately.
+    """
+    from intllm.quant import SparseFusedBitLinear
+
+    torch.manual_seed(0xF103_0001)
+    layer = SparseFusedBitLinear(
+        64, 128, sparse_n=2, sparse_m=4, mask_refresh_interval=0
+    ).cuda()
+    x = torch.randn(2, 8, 64, device="cuda")
+
+    # First forward — establishes initial mask
+    _ = layer(x)
+    mask_a = layer._cached_mask.clone()
+
+    # Perturb weight, expect mask to change on next forward
+    with torch.no_grad():
+        layer._inner.weight.data += 0.5 * torch.randn_like(layer._inner.weight)
+    _ = layer(x)
+    mask_b = layer._cached_mask.clone()
+
+    # Different mask expected — perturbation should change mask under
+    # every-forward refresh policy.
+    assert not torch.equal(mask_a, mask_b), (
+        "interval=0 failed to refresh mask after weight perturbation"
+    )
+
+
+@pytest.mark.skipif(not HAS_CUDA, reason="F.10.3 mask refresh test requires CUDA")
+def test_mask_refresh_interval_caches_for_n_steps():
+    """interval=10 → first forward refreshes; next 9 reuse cache; 11th
+    refreshes again.
+
+    Verify by perturbing weight between forwards but keeping interval=10:
+    the cached mask should NOT change for the first 9 perturbed forwards
+    (cache is reused), then update on the 10th.
+    """
+    from intllm.quant import SparseFusedBitLinear
+
+    torch.manual_seed(0xF103_0002)
+    layer = SparseFusedBitLinear(
+        64, 128, sparse_n=2, sparse_m=4, mask_refresh_interval=10
+    ).cuda()
+    x = torch.randn(2, 8, 64, device="cuda")
+
+    # Step 0 (counter=0): recomputes mask (always refreshes at counter=0)
+    _ = layer(x)
+    mask_0 = layer._cached_mask.clone()
+
+    # Steps 1-9: perturb weight + forward; expect cached mask UNCHANGED
+    for step in range(1, 10):
+        with torch.no_grad():
+            layer._inner.weight.data += 0.5 * torch.randn_like(layer._inner.weight)
+        _ = layer(x)
+        assert torch.equal(layer._cached_mask, mask_0), (
+            f"step {step}: expected cached mask unchanged for interval=10, "
+            f"but mask diverged (this means refresh fired prematurely)"
+        )
+
+    # Step 10 (counter==10, 10 % 10 == 0): refresh expected
+    with torch.no_grad():
+        layer._inner.weight.data += 0.5 * torch.randn_like(layer._inner.weight)
+    _ = layer(x)
+    mask_10 = layer._cached_mask.clone()
+    assert not torch.equal(mask_0, mask_10), (
+        "step 10: expected mask refresh, but cache unchanged"
+    )
+
+
+@pytest.mark.skipif(not HAS_CUDA, reason="F.10.3 manual refresh test requires CUDA")
+def test_explicit_refresh_mask_method():
+    """layer.refresh_mask() recomputes + returns mask without running forward.
+
+    Useful for training-loop callbacks that want to refresh between epochs
+    or at custom intervals (e.g. cosine-decay refresh frequency).
+    """
+    from intllm.quant import SparseFusedBitLinear
+
+    torch.manual_seed(0xF103_0003)
+    layer = SparseFusedBitLinear(
+        64, 128, sparse_n=2, sparse_m=4, mask_refresh_interval=1000
+    ).cuda()
+    x = torch.randn(2, 8, 64, device="cuda")
+
+    # Trigger first forward → cache established at step 0
+    _ = layer(x)
+    mask_initial = layer._cached_mask.clone()
+
+    # Perturb weight + call refresh_mask explicitly
+    with torch.no_grad():
+        layer._inner.weight.data += 0.5 * torch.randn_like(layer._inner.weight)
+    new_mask = layer.refresh_mask()
+
+    # refresh_mask should return a NEW mask (different from initial)
+    assert not torch.equal(mask_initial, new_mask), (
+        "refresh_mask() did not produce a new mask after weight perturbation"
+    )
+    # And cache should now hold the new mask
+    assert torch.equal(layer._cached_mask, new_mask), (
+        "refresh_mask() returned a mask different from the cached one"
+    )
+
+
 @pytest.mark.skipif(not HAS_CUDA, reason="sparse path requires CUDA")
 def test_sparse_grad_flows_only_to_unmasked_positions():
     """For positions where mask==0, gradient on `weight` should be 0.

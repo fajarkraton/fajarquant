@@ -893,6 +893,7 @@ class SparseFusedBitLinear(nn.Module):
         bias: bool = False,
         sparse_n: int = 0,
         sparse_m: int = 4,
+        mask_refresh_interval: int = 0,
     ) -> None:
         super().__init__()
         # Lazy import to avoid circular import + to defer triton dependency
@@ -915,8 +916,30 @@ class SparseFusedBitLinear(nn.Module):
             )
         if sparse_m <= 0:
             raise ValueError(f"sparse_m must be positive; got {sparse_m}")
+        if mask_refresh_interval < 0:
+            raise ValueError(
+                f"mask_refresh_interval must be ≥0; got {mask_refresh_interval}"
+            )
         self.sparse_n = sparse_n
         self.sparse_m = sparse_m
+        # F.10.3 — refresh schedule.
+        # 0 = recompute every forward (matches F.10.2 baseline; correct but
+        #     pays Triton kernel launch per forward per layer).
+        # N>0 = recompute every N forwards; reuse cached mask for the other
+        #       N-1 forwards. Trades Triton launch cost for slightly stale
+        #       mask between refreshes; Sparse-BitNet recipe says masks
+        #       should evolve "dynamically" but doesn't quote a frequency.
+        #       Empirically (F.10.5 PoL) we expect 100-1000 to be safe.
+        self.mask_refresh_interval = mask_refresh_interval
+        # Step counter as buffer (saved with state_dict, but not learnable).
+        self.register_buffer(
+            "_mask_step_counter",
+            torch.zeros(1, dtype=torch.long),
+            persistent=False,
+        )
+        # Cached mask buffer; lazy-allocated on first sparse forward to avoid
+        # holding GPU memory before sparse_n>0 is exercised.
+        self._cached_mask: torch.Tensor | None = None
 
     @property
     def weight(self) -> torch.Tensor:
@@ -944,6 +967,28 @@ class SparseFusedBitLinear(nn.Module):
     def out_features(self) -> int:
         return self._inner.out_features
 
+    def refresh_mask(self) -> torch.Tensor:
+        """Compute + cache mask from current quantized weight. Returns the
+        new mask. F.10.3: explicit method allows external schedulers
+        (e.g. training loop callback) to control refresh timing.
+
+        Caller must hold the relevant context (no_grad if not training, etc.).
+        Method itself is idempotent + side-effect-only-on-cache.
+        """
+        from mmfreelm.ops.fusedbitnet import weight_quant
+        from intllm.sparse_kernel import mask_creator_triton_optimized
+
+        if self.sparse_n == 0:
+            return torch.ones_like(self._inner.weight)
+
+        with torch.no_grad():
+            w_q = weight_quant(self._inner.weight)
+            mask = mask_creator_triton_optimized(
+                w_q.detach(), N=self.sparse_n, M=self.sparse_m
+            )
+        self._cached_mask = mask
+        return mask
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.sparse_n == 0:
             # Dense path — UNCHANGED, bit-exact to upstream FusedBitLinear.
@@ -961,15 +1006,30 @@ class SparseFusedBitLinear(nn.Module):
         w = self._inner.weight
         w_quant = w + (weight_quant(w) - w).detach()
 
-        # Mask is a function of CURRENT quantized weight; recomputed every
-        # forward (Sparse-BitNet "dynamic mask" recipe). Treated as constant
-        # w.r.t. autograd so gradient flows only to unmasked positions.
-        with torch.no_grad():
-            mask = mask_creator_triton_optimized(
-                w_quant.detach(),
-                N=self.sparse_n,
-                M=self.sparse_m,
-            )
+        # F.10.3 mask refresh schedule:
+        #   interval=0 → recompute every forward (F.10.2 baseline behavior)
+        #   interval>0 → recompute every Nth forward; cache reused otherwise
+        # Cached mask is stale-by-design between refreshes; Sparse-BitNet
+        # recipe says masks should evolve "dynamically" but tolerates
+        # short-window staleness empirically.
+        step = int(self._mask_step_counter.item())
+        if (
+            self.mask_refresh_interval == 0
+            or self._cached_mask is None
+            or step % self.mask_refresh_interval == 0
+        ):
+            with torch.no_grad():
+                mask = mask_creator_triton_optimized(
+                    w_quant.detach(),
+                    N=self.sparse_n,
+                    M=self.sparse_m,
+                )
+            self._cached_mask = mask
+        else:
+            mask = self._cached_mask
+        # Increment counter AFTER mask decision so step=0 always refreshes.
+        self._mask_step_counter += 1
+
         w_quant_sparse = w_quant * mask
 
         return torch.nn.functional.linear(x_quant, w_quant_sparse, self._inner.bias)
