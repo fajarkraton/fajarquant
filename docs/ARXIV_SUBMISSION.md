@@ -1,10 +1,14 @@
-# IntLLM Paper — arXiv Submission Checklist (v1.1)
+# IntLLM Paper — arXiv Submission Checklist (v1.2)
 
-> **Status:** Path A Week 4 polish complete; submission tarball
-> built and verified. Post-Week-4 findings (V31 bonus +
-> F.5.1/F.6.2/F.13 chains) refine §7.4 future-work pointers but do
-> not contradict v1 paper text — see §0.1 below for trajectory.
-> Founder actions remain before public arXiv upload.
+> **Status:** v1 PATH LOCKED 2026-05-01 (founder explicit decision per
+> trade-off analysis: ship v1 timestamp now, revise as v2/v3 over
+> following months). Path A Week 4 polish complete; submission tarball
+> built and verified. Post-Week-4 findings (V31 bonus + F.5.1 / F.6.2 /
+> F.13 / F.10 chains) refine §7.4 future-work pointers but do not
+> contradict v1 paper text — they will land as arXiv v2 revision after
+> initial v1 publication. Founder actions remain before public arXiv
+> upload (see also `docs/ARXIV_SUBMISSION_TEMPLATES.md` v1.0 for
+> copy-pasteable form content).
 >
 > **Companion docs:**
 > - `docs/FJQ_PHASE_E_PATH_A_PAPER_OUTLINE.md` v1.0 (paper structure)
@@ -14,6 +18,27 @@
 > - `paper/intllm/intllm-arxiv.tar.gz` (the submission tarball, 78 KB)
 
 ---
+
+## 0.0. v1 PATH LOCKED — 2026-05-01
+
+Founder decision after honest trade-off analysis (priority claim vs
+3-month-defer-for-polish):
+
+  → SHIP v1 NOW. arXiv timestamp locks at submission.
+  → Revisions ship as arXiv v2 / v3 as F.10.6 / F.6.4 / F.11 results land.
+  → MLSys 2027 CFP (Aug-Oct 2026) targets a future arXiv revision.
+
+This is the academic-publishing default-correct choice for negative-
+results-heavy work like ours: timestamping prevents priority loss to
+similar-direction research while costing nothing (arXiv revisions
+are free + visible-historied).
+
+Companion: `docs/ARXIV_SUBMISSION_TEMPLATES.md` v1.0 — copy-pasteable
+content for ORCID account form, Zenodo upload metadata, arxiv.org
+submission form, endorsement request email.
+
+Tracking sheet at end of templates doc helps founder execute the
+multi-day flow without losing state.
 
 ## 0.1. Trajectory since Path A Week 4 (v1.0 → v1.1 of this checklist)
 
@@ -245,5 +270,6 @@ warnings on the final pass.
 
 ---
 
-*Document version: 1.1 (2026-04-30 update). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*Document version: 1.2 (2026-05-01 update). Author: Claude Opus 4.7 + Fajar (PrimeCore.id).*
+*v1.2 changes: v1 PATH LOCKED per founder decision 2026-05-01. v2 paper edits doc (`INTLLM_PAPER_V2_DRAFT_EDITS.md`) deferred to arXiv v2 revision after v1 timestamp lands. Post-Week-4 trajectory (V31 bonus, F.5.1 PARTIAL, F.6.2 honest correction, F.13 dispatch verdict, F.10 sparse-2-4 infrastructure) all preserved as future-revision content. Founder action items §1-§5 unchanged from v1.1; companion `ARXIV_SUBMISSION_TEMPLATES.md` v1.0 added with copy-pasteable form content for ORCID/Zenodo/arxiv.org steps.*
 *v1.1 changes: claim count 32 → 40 (V31 bonus measurements), PDF stats refreshed, §0.1 trajectory addendum noting post-Week-4 findings (F.5.1, F.6.2, F.13). v1 paper text unchanged; founder action items remain before public arXiv upload.*
