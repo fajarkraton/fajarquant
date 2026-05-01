@@ -441,6 +441,7 @@ __all__ = [
     "SIGMOID_LUT_STEP",
     "SILU_LUT_MAX_ABS_ERROR",
     "SmoothQuantCalibrator",
+    "SparseFusedBitLinear",
     "activation_quant_per_channel",
     "fake_quantize_absmax_ste",
     "load_smoothquant_maps",
@@ -502,7 +503,12 @@ def _is_bitlinear(module: nn.Module) -> bool:
     check is a defensive sanity guard for future variants.
     """
     return (
-        module.__class__.__name__ in {"BitLinear", "FusedBitLinear", "BitLinear_wonorm_bmm"}
+        module.__class__.__name__ in {
+            "BitLinear",
+            "FusedBitLinear",
+            "BitLinear_wonorm_bmm",
+            "SparseFusedBitLinear",  # F.10.2 — sparse extension
+        }
         and hasattr(module, "norm")
     )
 
@@ -826,3 +832,144 @@ def load_smoothquant_maps(path) -> dict:
             f"expected {_F51_SCHEMA_VERSION!r}",
         )
     return payload
+
+
+# ---------------------------------------------------------------------------
+# §6. Sparse extension of FusedBitLinear (V32-prep F.10.2)
+#
+# Per docs/FJQ_PHASE_F_F10_2_BITLINEAR_DESIGN.md "Approach D" — subclass
+# FusedBitLinear with a forward override that replicates the parent's
+# RMSNorm + activation_quant + weight_quant + linear path, with an
+# optional N:M sparse mask multiplied onto the quantized weight.
+#
+# Default `sparse_n=0` disables sparsity → forward() defers to parent's
+# (fused, optimized) FusedBitLinear.forward → bit-exact dense path.
+# `sparse_n=2, sparse_m=4` enables 2:4 structured sparsity for Sparse-BitNet
+# recipe; trades the fused autograd kernel optimization for explicit STE
+# clarity (5-15% slower training on sparse runs only; dense unaffected).
+#
+# Mask is computed FRESH PER FORWARD from the current ternary-quantized
+# weight via the vendored Sparse-BitNet Triton kernel (see
+# python/phase_d/intllm/sparse_kernel.py for upstream attribution).
+# Mask is treated as a constant w.r.t. autograd: gradients flow to `w`
+# only on positions where mask==1, exactly Sparse-BitNet recipe.
+# ---------------------------------------------------------------------------
+
+
+class SparseFusedBitLinear(nn.Module):
+    """FusedBitLinear with optional N:M structured sparsity mask.
+
+    Subclass-by-composition of upstream `FusedBitLinear` (we do NOT
+    inherit because upstream's `__init__` signature locks in fused-
+    autograd-Function as the forward kernel; we want the option to
+    bypass it on the sparse path). This class wraps an inner
+    FusedBitLinear and adds an optional sparse-mask multiplication
+    after weight quantization.
+
+    Args:
+        in_features: input feature dim (passed to inner FusedBitLinear).
+        out_features: output feature dim.
+        bias: include bias term (default False, matches upstream).
+        sparse_n: number of nonzeros per group of `sparse_m`. Default
+            0 = disabled (dense path = bit-exact upstream behavior).
+        sparse_m: group size for N:M sparsity (default 4 → with N=2
+            this is the canonical 2:4 pattern accelerated by Ada
+            Lovelace 4th-gen Tensor Cores).
+
+    Example:
+        >>> dense = SparseFusedBitLinear(256, 512)  # default → dense
+        >>> sparse = SparseFusedBitLinear(256, 512, sparse_n=2, sparse_m=4)
+
+    F.10 chain context: F.10.5 PoL smoke uses this class via the
+    `--sparse-2-4` flag in `train_mini_ablation.py` (F.10.4 wiring).
+    F.10.6 full Mini run produces the val_loss number that F.10.6 G1
+    gate evaluates against Q5 baseline.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = False,
+        sparse_n: int = 0,
+        sparse_m: int = 4,
+    ) -> None:
+        super().__init__()
+        # Lazy import to avoid circular import + to defer triton dependency
+        # to first instantiation. mmfreelm.ops.fusedbitnet imports triton
+        # at module-load time, which is fine for training but problematic
+        # for stat-tracker test fixtures that don't need it.
+        # Match the sys.path injection pattern from intllm/model.py so this
+        # class works without requiring intllm.model to be imported first.
+        import sys
+        from pathlib import Path
+        _upstream = Path(__file__).resolve().parent.parent / "_upstream"
+        if str(_upstream) not in sys.path:
+            sys.path.insert(0, str(_upstream))
+        from mmfreelm.ops.fusedbitnet import FusedBitLinear
+
+        self._inner = FusedBitLinear(in_features, out_features, bias=bias)
+        if sparse_n < 0 or sparse_n > sparse_m:
+            raise ValueError(
+                f"sparse_n must be in [0, sparse_m={sparse_m}]; got {sparse_n}"
+            )
+        if sparse_m <= 0:
+            raise ValueError(f"sparse_m must be positive; got {sparse_m}")
+        self.sparse_n = sparse_n
+        self.sparse_m = sparse_m
+
+    @property
+    def weight(self) -> torch.Tensor:
+        """Pass-through to inner FusedBitLinear's weight parameter.
+
+        Required for `_is_bitlinear` matching + stat-tracker hooks +
+        optimizer state (which sees `self.named_parameters()`).
+        """
+        return self._inner.weight
+
+    @property
+    def bias(self) -> torch.Tensor | None:
+        return self._inner.bias
+
+    @property
+    def norm(self) -> nn.Module:
+        """Pass-through to inner FusedBitLinear's RMSNorm."""
+        return self._inner.norm
+
+    @property
+    def in_features(self) -> int:
+        return self._inner.in_features
+
+    @property
+    def out_features(self) -> int:
+        return self._inner.out_features
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.sparse_n == 0:
+            # Dense path — UNCHANGED, bit-exact to upstream FusedBitLinear.
+            return self._inner(x)
+
+        # Sparse path: replicate base BitLinear.forward semantics + mask.
+        # Reference: mmfreelm/ops/fusedbitnet.py:560-585 (BitLinear.forward).
+        # Imports here (not at module top) keep the dense path lighter
+        # for users who never enable sparsity.
+        from mmfreelm.ops.fusedbitnet import activation_quant, weight_quant
+        from intllm.sparse_kernel import mask_creator_triton_optimized
+
+        x_norm = self._inner.norm(x)
+        x_quant = x_norm + (activation_quant(x_norm) - x_norm).detach()
+        w = self._inner.weight
+        w_quant = w + (weight_quant(w) - w).detach()
+
+        # Mask is a function of CURRENT quantized weight; recomputed every
+        # forward (Sparse-BitNet "dynamic mask" recipe). Treated as constant
+        # w.r.t. autograd so gradient flows only to unmasked positions.
+        with torch.no_grad():
+            mask = mask_creator_triton_optimized(
+                w_quant.detach(),
+                N=self.sparse_n,
+                M=self.sparse_m,
+            )
+        w_quant_sparse = w_quant * mask
+
+        return torch.nn.functional.linear(x_quant, w_quant_sparse, self._inner.bias)
