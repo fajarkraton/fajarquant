@@ -106,7 +106,7 @@ E2_4_DEFAULT_HIGH_BITS = 10
 # Set of feature flags that DO have a real implementation in this driver.
 # Stub-warning loop skips entries here; the corresponding feature_active
 # entry is set when real wire-up runs.
-E2_REAL_FEATURES = {"balanced_calib", "hadamard"}
+E2_REAL_FEATURES = {"balanced_calib", "hadamard", "sparse_2_4"}
 
 # E2 ablation runs match Q5 baseline (24K steps × 8K tok/step ≈ 196M
 # tokens at 60:40 bilingual mix); see `q5_bilingual_baseline.py:DEFAULT_N_STEPS_FOR_200M_TOK`
@@ -131,6 +131,7 @@ E2_FEATURE_FLAGS = {
     "lang_cond_a": "E2.5 (a) Per-language RMSNorm γ params",
     "lang_cond_b": "E2.5 (b) Per-language LoRA adapter",
     "lang_cond_c": "E2.5 (c) Language-aware routing (MoE-light)",
+    "sparse_2_4": "F.10 Sparse-BitNet 2:4 structured sparsity (sparse-from-scratch QAT via vendored Triton mask kernel)",
 }
 
 
@@ -298,6 +299,18 @@ def main() -> int:
     p.add_argument("--fp8-lmhead", action="store_true", help=E2_FEATURE_FLAGS["fp8_lmhead"])
     p.add_argument("--distill", action="store_true", help=E2_FEATURE_FLAGS["distill"])
     p.add_argument("--balanced-calib", action="store_true", help=E2_FEATURE_FLAGS["balanced_calib"])
+    # F.10.4 — Sparse-BitNet 2:4 structured sparsity flag (Medium scale)
+    p.add_argument("--sparse-2-4", action="store_true", help=E2_FEATURE_FLAGS["sparse_2_4"])
+    p.add_argument(
+        "--sparse-mask-refresh",
+        type=int,
+        default=100,
+        help=(
+            "F.10 sparse mask refresh interval (steps between mask recomputations). "
+            "0 = recompute every forward; 100 (default) = balanced. "
+            "Only meaningful with --sparse-2-4."
+        ),
+    )
     p.add_argument(
         "--bilingual-data",
         action="store_true",
@@ -354,6 +367,8 @@ def main() -> int:
         features_requested.append("distill")
     if args.balanced_calib:
         features_requested.append("balanced_calib")
+    if args.sparse_2_4:
+        features_requested.append("sparse_2_4")
     if args.lang_cond is not None:
         features_requested.append(f"lang_cond_{args.lang_cond}")
 
@@ -576,6 +591,26 @@ def main() -> int:
                 f"args.hadamard set but no BitLinear modules matched "
                 f"hadamard_sites={args.hadamard_sites!r} (suffixes={site_suffixes}) — "
                 f"model layout may not match expected HGRNBit topology",
+            )
+
+    # F.10.4: replace FusedBitLinear with SparseFusedBitLinear if --sparse-2-4
+    # is set. See train_mini_ablation.py for the canonical wiring block.
+    if args.sparse_2_4:
+        from intllm.quant import replace_bitlinear_with_sparse  # noqa: E402
+        n_replaced = replace_bitlinear_with_sparse(
+            model,
+            sparse_n=2,
+            sparse_m=4,
+            mask_refresh_interval=args.sparse_mask_refresh,
+        )
+        print(
+            f"      Sparse-BitNet 2:4 mask attached to {n_replaced} BitLinear "
+            f"sites (refresh interval={args.sparse_mask_refresh} steps)",
+        )
+        if n_replaced == 0:
+            raise RuntimeError(
+                "args.sparse_2_4 set but NO FusedBitLinear modules found in model — "
+                "model layout may not match expected HGRNBit topology",
             )
 
     print(f"[4/4] training {train_hp.n_steps} steps (tag={args.tag})")

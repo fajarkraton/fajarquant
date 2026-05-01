@@ -445,6 +445,7 @@ __all__ = [
     "activation_quant_per_channel",
     "fake_quantize_absmax_ste",
     "load_smoothquant_maps",
+    "replace_bitlinear_with_sparse",
     "save_smoothquant_maps",
 ]
 
@@ -1033,3 +1034,97 @@ class SparseFusedBitLinear(nn.Module):
         w_quant_sparse = w_quant * mask
 
         return torch.nn.functional.linear(x_quant, w_quant_sparse, self._inner.bias)
+
+
+def replace_bitlinear_with_sparse(
+    model: nn.Module,
+    sparse_n: int = 2,
+    sparse_m: int = 4,
+    mask_refresh_interval: int = 100,
+    skip_lm_head: bool = True,
+) -> int:
+    """Walk model, replace every FusedBitLinear with SparseFusedBitLinear.
+
+    F.10.4 helper for `train_*_ablation.py --sparse-2-4` flag. Must be
+    called BEFORE optimizer construction (parameters change identity
+    after replacement).
+
+    Sparse path uses unfused PyTorch ops (no fused autograd Function from
+    upstream's `layer_norm_linear_quant_fn`), creating an intermediate
+    `w_quant * mask` tensor. For lm_head at Medium scale (vocab=32768,
+    hidden=512), this intermediate is ~64 MiB; with autograd tape it
+    OOMs RTX 4090 Laptop's 16 GB. Default skip_lm_head=True excludes
+    lm_head from sparse replacement (Sparse-BitNet recipe normally
+    keeps lm_head at higher precision anyway, per F.7 FP8 plan).
+
+    Replacement copies weight + norm.weight + bias (if present) from the
+    original module into the new SparseFusedBitLinear's inner FusedBitLinear,
+    preserving learned values. Device placement matches the original module.
+
+    Args:
+        model: HGRN-Bit model with FusedBitLinear sites
+        sparse_n, sparse_m: N:M structured sparsity (default 2:4 for Ada
+            Lovelace 4th-gen Tensor Core acceleration)
+        mask_refresh_interval: how often to recompute the sparse mask in
+            forward (0 = every forward; default 100 balances mask freshness
+            vs Triton kernel launch overhead)
+
+    Returns:
+        Number of modules replaced (0 if model has no FusedBitLinear).
+
+    Limitation: state_dict keys change because SparseFusedBitLinear stores
+    its inner FusedBitLinear at `._inner.*`. Sites that were
+    `block.0.attn.o_proj.weight` become `block.0.attn.o_proj._inner.weight`.
+    Acceptable for F.10.5 PoL train-from-scratch; checkpoint compat with
+    pre-replacement state_dicts is future work (use plain dense BitLinear
+    for resume scenarios). Documented in
+    docs/FJQ_PHASE_F_F10_2_BITLINEAR_DESIGN.md §2 trade-off.
+    """
+    # Lazy import: SparseFusedBitLinear lives in this same module so import
+    # is direct, but FusedBitLinear from upstream needs the path setup.
+    import sys
+    from pathlib import Path
+    _upstream = Path(__file__).resolve().parent.parent / "_upstream"
+    if str(_upstream) not in sys.path:
+        sys.path.insert(0, str(_upstream))
+    from mmfreelm.ops.fusedbitnet import FusedBitLinear
+
+    # Collect (parent_module, attribute_name, child_module) tuples FIRST
+    # then replace, so iteration over named_modules() doesn't see the
+    # mutated tree. PyTorch's named_modules() walks via dict ordering
+    # which is stable, but mutation-during-iteration is fragile.
+    replacements: list[tuple[nn.Module, str, FusedBitLinear]] = []
+    for name, module in model.named_modules():
+        if isinstance(module, FusedBitLinear):
+            # Skip lm_head if requested — its activation tensor at large
+            # vocab + medium-large hidden_size + autograd tape OOMs RTX
+            # 4090 Laptop on the unfused sparse path.
+            if skip_lm_head and (name.endswith("lm_head") or name == "lm_head"):
+                continue
+            *parent_path, child_name = name.split(".")
+            parent = model
+            for p in parent_path:
+                parent = getattr(parent, p)
+            replacements.append((parent, child_name, module))
+
+    for parent, child_name, old in replacements:
+        device = old.weight.device
+        dtype = old.weight.dtype
+        new_module = SparseFusedBitLinear(
+            in_features=old.in_features,
+            out_features=old.out_features,
+            bias=(old.bias is not None),
+            sparse_n=sparse_n,
+            sparse_m=sparse_m,
+            mask_refresh_interval=mask_refresh_interval,
+        )
+        # Move to same device + dtype, then copy weights
+        new_module = new_module.to(device=device, dtype=dtype)
+        with torch.no_grad():
+            new_module._inner.weight.data.copy_(old.weight.data)
+            new_module._inner.norm.weight.data.copy_(old.norm.weight.data)
+            if old.bias is not None:
+                new_module._inner.bias.data.copy_(old.bias.data)
+        setattr(parent, child_name, new_module)
+
+    return len(replacements)
