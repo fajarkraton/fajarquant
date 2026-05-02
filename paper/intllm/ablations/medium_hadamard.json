@@ -8,18 +8,18 @@
   "features_requested": [
     "hadamard"
   ],
-  "n_steps": 200,
-  "val_loss": NaN,
-  "ppl": NaN,
-  "gate_pass": null,
+  "n_steps": 24000,
+  "val_loss": 4.030672745704651,
+  "ppl": 56.29877326783701,
+  "gate_pass": false,
   "gate_threshold": 4.0,
-  "training_seconds": 194.22213101387024,
-  "initial_loss": 10.447551727294922,
-  "final_loss": 7.168970584869385,
+  "training_seconds": 19172.44558620453,
+  "initial_loss": 10.443757057189941,
+  "final_loss": 3.835770606994629,
   "model_params": 74523648,
-  "proof_of_life": true,
+  "proof_of_life": false,
   "dry_run": false,
   "tracker_maps_path": null,
   "quant_error_path": null,
-  "timestamp": "2026-05-01T01:37:21+00:00"
+  "timestamp": "2026-05-02T06:11:01+00:00"
 }
