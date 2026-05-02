@@ -7,7 +7,72 @@ and expanded with the Phase D IntLLM training-quantization research line
 in v0.4.0. Going forward, both arms coexist; Phase D is the primary
 research direction, KV quant is a mature paper artifact.
 
-## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 + F.13.1-v2 chains + F.11 demotion
+## [Unreleased] — V32-prep F.11 + F.5.1.6/7 + F.13 + F.13.1 + F.13.1-v2 chains + F.11 demotion + F.6.4 Hadamard scale extension
+
+**F.6.4 Hadamard scale extension CLOSED with NULL-at-Medium verdict (2026-05-02).**
+Three-cell ablation chain (Base baseline, Medium baseline, Medium hadamard)
+ran cleanly across 13.8h GPU on RTX 4090 Laptop, well under the 21.7h
+plan §7 surprise-budget cap (-37%).
+
+**Decision-gate metric:** Δ_medium = val_loss(hadamard) − val_loss(baseline)
+= 4.030672745704651 − 4.005183477401733 = **+0.025489 nat**, falling in
+the (−0.05, +0.05) NULL band of the plan §4 verdict matrix. Verdict:
+**NULL @ Medium** — Hadamard at d=512 is within the noise floor of pure-EN
+training comparison.
+
+**Cross-scale narrowing trend (Mini d=256 → Medium d=512):**
+- Mini E2.1: Δ_mini = +0.120 nat (regression, gate FAIL by 0.12)
+- Medium F.6.4: Δ_medium = +0.025 nat (within noise, NULL)
+- Narrowing factor: **4.7×**
+
+Two competing hypotheses preserved without commitment:
+1. SpinQuant-aligned scale-dependent benefit (predicts Δ < 0 at d ≥ 768)
+2. Convergence-noise dominates (predicts Δ stays in noise at all scales)
+
+F.6.4 cannot distinguish; resolution requires either Stretch-scale
+ablation (~10h GPU at d≥768) or multi-seed Mini ablations (~10h GPU for
+5 seeds). Both deferred. Δ_base is unmeasurable (d=384 = 3×128 ≠ 2^k
+structurally; Walsh-Hadamard requires power-of-2).
+
+**Caveats documented in decision doc §4:**
+- Cross-scale Δ comparison has training-distribution mismatch (Mini was
+  bilingual-trained, Medium was EN-only-trained); within-scale Δ is clean
+- 24K-step ablation budget vs 91K-step Phase D Medium-gate budget — both
+  Cell 2 + Cell 3 fall just below 4.0 gate but that's expected (gate
+  calibrated for FULL run, not 24K)
+- Single-seed measurement; NULL band is conservative-not-measured
+
+**Paper v2 §7.5 narrative impact (gated on founder Edit A/B/C):**
+demote E2.1's flat "Hadamard hostile to ternary" claim to "scale-dependent
+narrowing, unresolved at Medium." LaTeX-ready paragraph in decision doc §5.
+verify-intllm-tables: 40/40 PASS unchanged (no claim depends on F.6.4 yet).
+
+**§6.11 R2 prevention layer landed in P0 + P0.1 patches:** ablation
+drivers (`train_{mini,base,medium}_ablation.py`) now expose
+`--resume / --resume-auto / --watchdog-idle-seconds / --ckpt-every`,
+mirroring Phase D parent drivers. Closed an §6.11 R2 compliance gap that
+silently consumed Cell 2's first launch attempt (laptop suspend killed
+the original 17:48 WIB Cell-2 process; no ckpts written before suspend
+because `--ckpt-every 4000` would have first checkpoint at step 4000 ≈
+30 min in; suspend happened earlier). Re-launch at 22:17 WIB ran cleanly
+to completion. The §6.11 R3 watchdog limitation (whole-OS suspend pauses
+the watchdog thread too) is now documented in Cell 2 commit message
+(`c6b0c2c`).
+
+Cumulative GPU: Cell 1 3.4h + Cell 2 5.1h + Cell 3 5.3h = 13.8h vs plan
+§2 estimate 17.4h (-21%); within +25% surprise cap.
+
+Documents added: `docs/FJQ_PHASE_F_F6_4_FULL_EXECUTION_PLAN.md` (plan v1.0,
+3-cell matrix + decision matrix + risk register), `docs/FJQ_PHASE_F_F6_4_DECISION.md`
+(closeout v1.0, NULL verdict + cross-scale trend + paper v2 §7.5 LaTeX
+snippet). Roadmap §F.6.4 row updated from open-task to CLOSED with
+verdict pointer.
+
+Commits: c537d4d (P0 --resume), e99d51f (P0.1 --ckpt-every), 802f21a +
+4046000 (plan v1.0), 10017ae (cell 1), c6b0c2c (cell 2), 487b1d1 (cell 3),
+this commit (decision + closeout).
+
+---
 
 **F.11 chain DEMOTED to PERMANENT-DEFERRED (2026-05-01).** Per F.13.3
 dispatch verdict (decision-doc §11), FajarOS Nova's deployment workload
